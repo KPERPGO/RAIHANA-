@@ -45,6 +45,7 @@ const res = []; const ok = (n, c, i) => res.push([c ? 'PASS' : 'FAIL', n, i === 
   ok('Cost of sale = 55 × 25 = 1,375', Math.abs(s1.cost - 1375) < 1e-6, s1);
   ok('Stock now 305 tablets', await ev(id => stockOf(catalog().find(x => x.id === id), usedMap()).good, P.pa) === 305);
   // ---- debt sale to a new customer, then partial payment, then cancel the sale
+  await ev(async () => { await write('meta/erp', {...E.cfg, debtOn:true}); }); await W(); // debt selling is off unless switched on
   await ev(id => { S.cart = [{pid:id, mode:'box', qty:2, price:1000}]; S.cartMeta = {method:'debt', customerId:'__new', newName:'Abu Ali'}; saveCart(); render(); }, P.pa); await W();
   await setv('#xCName', 'Abu Ali'); await submit('#sellForm'); await click('#sheetClose');
   let cu = await ev(() => { const c = E.customers.find(x => x.name === 'Abu Ali'); return c && {id:c.id, ...custBalance(c.id)}; });

@@ -71,10 +71,13 @@ NAV_OLD = re.search(r'<nav class="tabs".*?</nav>', base, re.S).group(0)
 TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("money","Money"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
 MENU_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 # The screen bar sits right under the top bar: Menu first, then one small button per screen
-nav = ('<nav class="tabs" aria-label="Sections"><div class="in">\n'
-       f'  <button type="button" class="navmenu" data-xmenu="1" aria-label="All screens">{MENU_SVG}<span>Menu</span></button>\n'
+# .shell holds the screen bar and the page; on wide screens it turns into a side list (see CSS)
+nav = ('<div class="shell"><nav class="tabs" aria-label="Sections"><div class="in">\n'
+       f'  <button type="button" class="navmenu" data-xmenu="1" aria-label="Show or hide screens" aria-expanded="true">{MENU_SVG}<span>Menu</span></button>\n'
        '  <div class="tl">\n' + "\n".join(f'  <button type="button" data-tab="{k}"{" aria-current=\"page\"" if k=="home" else ""}>{v}</button>' for k,v in TABS) + '\n  </div>\n</div></nav>')
 rep(NAV_OLD, "")
+rep('<div id="banner" class="wrap" hidden style="padding-block:8px 0"><div class="banner" id="bannerText"></div></div>\n<main class="wrap" id="view"></main>',
+    '<div class="mcol"><div id="banner" class="wrap" hidden style="padding-block:8px 0"><div class="banner" id="bannerText"></div></div>\n<main class="wrap" id="view"></main></div></div>')
 rep("nav.tabs .in{max-width:760px;margin:0 auto;display:grid;grid-template-columns:repeat(6,minmax(0,1fr))}",
     "nav.tabs .in{max-width:1000px;margin:0 auto;display:flex;align-items:center;gap:6px;padding:6px max(12px,env(safe-area-inset-left,0px))}")
 rep("payments:paymentsView, suppliers:suppliersView, reports:window.reportsView || (() => \"\")})[S.tab]()",
@@ -101,6 +104,17 @@ nav.tabs .tl button[aria-current="page"]{background:color-mix(in srgb,var(--acce
 nav.tabs .navmenu{flex:none;min-width:0;min-height:34px!important;height:34px;padding:0 12px;border-radius:999px;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--accent-ink)!important;background:var(--accent)!important;box-shadow:none!important}
 @media (min-width:1000px){nav.tabs .in{max-width:1160px}nav.tabs .tl{gap:2px}nav.tabs .tl button{padding:0 10px}}
 /* phone: Menu and all screens in one even grid of 5 columns (3 short rows), so no screen is ever hidden off the edge */
+/* Menu hides or shows the screen list. Tablet and wider (iPad both ways): the list stands on the left, one screen per line */
+.shell,.mcol{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column}
+body.navshut nav.tabs .tl{display:none}
+body.navshut nav.tabs .in{display:flex}
+@media (min-width:761px){.shell{flex-direction:row}
+nav.tabs{width:200px;flex:none;border-bottom:0!important;border-inline-end:1px solid var(--line);overflow-y:auto}
+nav.tabs .in{max-width:none;margin:0;flex-direction:column;align-items:stretch;gap:6px;padding:8px}
+nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:1px}
+nav.tabs .tl button{width:100%;height:32px;min-height:32px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
+nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
+body.navshut nav.tabs{width:auto}}
 @media (max-width:760px){nav.tabs .in{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:5px 8px}nav.tabs .tl{display:contents}
 nav.tabs .tl button,nav.tabs .navmenu{width:100%;height:30px;min-height:30px!important;padding:0 2px;font-size:12px;justify-content:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}nav.tabs .navmenu{gap:3px}nav.tabs .navmenu svg{width:14px;height:14px;flex:none}}
 button,.btn{min-height:44px}
@@ -144,7 +158,7 @@ table.prt tr.chg td{background:color-mix(in srgb,var(--accent2) 10%,transparent)
 .sheet .panel{animation:popin .2s cubic-bezier(.2,.8,.2,1)!important}@keyframes popin{from{transform:scale(.97);opacity:0}to{transform:none;opacity:1}}
 .sheet.stay,.sheet.stay .panel,.sheet.stay .pb > *{animation:none!important}
 .permgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 12px}body.no-newinv #addBtn,body.no-newinv #scanBtn{display:none!important}
-.menugrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.menugrid button{min-height:72px;font-size:15px;border-radius:14px}
+
 /* top bar */
 header.top{background:var(--surface);box-shadow:0 1px 0 var(--line),0 4px 14px rgba(16,36,61,.06)}
 header.top .in{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:10px}
@@ -157,6 +171,7 @@ header.top .in{display:flex;align-items:center;justify-content:space-between;gap
 header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 .hbtn{min-height:40px!important;height:40px;padding:0 12px;border-radius:10px;font-size:14px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line)}
 .hbtn.primary{background:var(--accent2);border-color:var(--accent2);color:#fff}
+.row .s.bad{color:var(--bad)}
 #staffBar:empty{display:none}
 #staffBar{background:var(--sunk);border-top:1px solid var(--line)}
 #staffBar .in2{max-width:1000px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:6px max(16px,env(safe-area-inset-left,0px));font-size:13px}

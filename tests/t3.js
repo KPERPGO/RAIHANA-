@@ -18,12 +18,14 @@ const fs = require('fs'), path = require('path'); const D = require('path').join
   await page.click('[data-xstaff="__new"]'); await page.fill('#fName', 'Owner'); await page.fill('#fPin', '1234'); await page.selectOption('#fPay', 'monthly'); await page.fill('#fRate', '1000000'); await page.click('#staffForm button[type=submit]'); await page.waitForTimeout(800); await page.screenshot({path:'s0b.png'}); console.log('after owner', await page.evaluate(() => [S.staff?.name, E.staff.length, E.shifts.length, !!document.getElementById('lockScreen'), document.querySelector('#fErr')?.textContent]));
   await page.click('[data-xstaff="__new"]'); await page.fill('#fName', 'Ahmed'); await page.fill('#fPin', '5555'); await page.fill('#fRate', '5000'); await page.click('#staffForm button[type=submit]'); await page.waitForTimeout(800);
   await page.screenshot({ path: 's1-staff.png' });
-  await page.click('[data-xendshift="1"]'); await page.click('[data-xendshift="1"]'); await page.waitForTimeout(600);
+  await page.click('[data-xendshift="1"]'); await page.click('[data-xendshift="1"]'); await page.waitForTimeout(300);
+  await page.fill('#ccAmt', '0'); await page.click('[data-xcashcount="end"]'); await page.waitForTimeout(600);
   await page.screenshot({ path: 's2-lock.png' });
   await page.locator('[data-xlocksel]').filter({hasText:'Ahmed'}).click(); await page.waitForTimeout(200);
   for (const k of '5554') await page.click(`[data-xpin="${k}"]`); await page.click('[data-xpinok="1"]'); await page.waitForTimeout(500);
   console.log('wrong pin err', await page.evaluate(() => document.querySelector('#lockErr')?.textContent));
   for (const k of '5555') await page.click(`[data-xpin="${k}"]`); await page.click('[data-xpinok="1"]'); await page.waitForTimeout(800);
+  await page.fill('#ccAmt', '0'); await page.click('[data-xcashcount="open"]'); await page.waitForTimeout(300); // start-of-shift cash count
   await page.screenshot({ path: 's3-pharm.png' });
   console.log('visible tabs', await page.evaluate(() => [...document.querySelectorAll('nav.tabs [data-tab]')].filter(b => !b.hidden).map(b => b.dataset.tab).join(',')));
   // sell as Ahmed
@@ -37,6 +39,7 @@ const fs = require('fs'), path = require('path'); const D = require('path').join
   console.log('sale staff', await page.evaluate(() => E.sales.map(s => s.staffName + ' ' + hm(s.at))));
   await page.click('[data-xlock="1"]'); await page.waitForTimeout(300);
   await page.locator('[data-xlocksel]').filter({hasText:'Owner'}).click(); for (const k of '1234') await page.click(`[data-xpin="${k}"]`); await page.click('[data-xpinok="1"]'); await page.waitForTimeout(700);
+  await page.fill('#ccAmt', '0'); await page.click('[data-xcashcount="open"]'); await page.waitForTimeout(300); // owner's new shift: start count
   await page.click('nav.tabs [data-tab="staff"]'); await page.waitForTimeout(300); await page.screenshot({ path: 's6-staff.png' });
   await page.locator('[data-xstaff]').filter({hasText:'Ahmed'}).click(); await page.waitForTimeout(300); await page.screenshot({ path: 's7-ahmed.png', fullPage: true });
   const vis = () => page.evaluate(() => [...document.querySelectorAll('nav.tabs [data-tab]')].filter(b => !b.hidden).map(b => b.dataset.tab).join(',') + ' addBtn:' + (getComputedStyle(document.getElementById('addBtn')).display !== 'none') + ' tab:' + S.tab);
@@ -47,7 +50,7 @@ const fs = require('fs'), path = require('path'); const D = require('path').join
   await page.locator('[data-xlocksel]').filter({hasText:'Ahmed'}).click(); for (const k of '5555') await page.click(`[data-xpin="${k}"]`); await page.click('[data-xpinok="1"]'); await page.waitForTimeout(800);
   console.log('ahmed now', await vis());
   await page.evaluate(() => { S.tab = 'money'; render(); }); await page.waitForTimeout(200); console.log('forced money ->', await page.evaluate(() => S.tab));
-  await page.click('.navmenu'); await page.waitForTimeout(300); console.log('menu', await page.$$eval('.menugrid button', x => x.map(b => b.dataset.xgo).join(','))); await page.screenshot({path:'s8-ahmed-menu.png'});
+  await page.click('.navmenu'); await page.waitForTimeout(300); console.log('menu hides list', await page.evaluate(() => document.body.classList.contains('navshut'))); await page.click('.navmenu'); await page.screenshot({path:'s8-ahmed-menu.png'});
 
   console.log(errs.join('\n') || 'no errors'); await b.close();
 })();

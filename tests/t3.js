@@ -29,6 +29,8 @@ const fs = require('fs'), path = require('path'); const D = require('path').join
   // sell as Ahmed
   await page.click('nav.tabs [data-tab="sell"]'); await page.waitForTimeout(300);
   const st = await page.evaluate(() => catalog().find(p => /Sterogyl/.test(p.name)).id);
+  // the item needs a set price: staff selling an item with no price need the owner's PIN (audit P-01)
+  await page.evaluate(async id => { await write('products/' + id, {...(E.prods.find(m => m.id === id) || {}), id, sellBox:7500}); }, st); await page.waitForTimeout(200);
   await page.fill('#sellQ', 'stero'); await page.waitForTimeout(200); await page.click(`[data-xadd="${st}"]`); await page.fill('[data-xp="0"]', '7500'); await page.dispatchEvent('[data-xp="0"]', 'change'); await page.waitForTimeout(200);
   await page.click('#sellForm button[type=submit]'); await page.waitForTimeout(700); await page.screenshot({ path: 's4-receipt.png' }); await page.click('#sheetClose');
   await page.mouse.wheel(0, 3000); await page.waitForTimeout(300); console.log('nav sell scrolled', await navBox()); await page.screenshot({ path: 's5-sell.png' });

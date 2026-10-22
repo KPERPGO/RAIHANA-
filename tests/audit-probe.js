@@ -123,7 +123,7 @@ const out = []; const rep = (id, defect, what, data) => out.push({id, result: de
 
   // P12: customer payment larger than the debt
   { const p = await fresh();
-    const r = await p.evaluate(async () => { await write('customers/CU-T', {id:'CU-T', name:'Test customer'}); await new Promise(r => setTimeout(r, 100)); custSheet('CU-T'); document.getElementById('cpAmt').value = '50000'; document.getElementById('cpForm').requestSubmit(); await new Promise(r => setTimeout(r, 250)); const first = custBalance('CU-T').bal, warn = document.getElementById('cpErr')?.textContent || document.querySelector('#cpForm .err')?.textContent || ''; document.getElementById('cpForm').requestSubmit(); await new Promise(r => setTimeout(r, 250)); return {afterFirstSave:first, warning:warn, afterSecondSave:custBalance('CU-T').bal}; });
+    const r = await p.evaluate(async () => { await write('meta/erp', {...E.cfg, debtOn:true}); /* customer debt is hidden unless switched on */ await write('customers/CU-T', {id:'CU-T', name:'Test customer'}); await new Promise(r => setTimeout(r, 100)); custSheet('CU-T'); document.getElementById('cpAmt').value = '50000'; document.getElementById('cpForm').requestSubmit(); await new Promise(r => setTimeout(r, 250)); const first = custBalance('CU-T').bal, warn = document.getElementById('cpErr')?.textContent || document.querySelector('#cpForm .err')?.textContent || ''; document.getElementById('cpForm').requestSubmit(); await new Promise(r => setTimeout(r, 250)); return {afterFirstSave:first, warning:warn, afterSecondSave:custBalance('CU-T').bal}; });
     rep('P12', r.afterFirstSave < 0 || !r.warning, 'Customer with no debt "pays" 50,000: first Save must warn, second Save records credit', r);
     await p.close(); }
 

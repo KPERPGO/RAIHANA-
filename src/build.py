@@ -116,6 +116,7 @@ input,select{min-height:44px}
 .tabsale button[aria-selected="true"]{background:linear-gradient(120deg,var(--accent),var(--accent2));border-color:var(--accent);color:var(--accent-ink)}
 .tabsale button[aria-selected="true"] span:last-child{color:inherit;opacity:.85}
 .tabsale button.add{min-width:auto;align-content:center;border-style:dashed;color:var(--accent)}
+.kbdhint{margin:0;font-size:12px}@media (hover:none),(max-width:700px){.kbdhint{display:none}}
 .quick{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
 .quick button{display:grid;gap:3px;align-content:start;text-align:start;min-height:88px;padding:10px 12px;border-radius:12px;font-weight:500;background:var(--surface);border:1px solid var(--line);box-shadow:inset 0 -3px 0 var(--accent2)}
 .quick button b{font-size:15px;overflow-wrap:anywhere}.quick button span{font-size:12px;color:var(--muted)}.quick button .num{font-size:14px;color:var(--fg);font-weight:600}

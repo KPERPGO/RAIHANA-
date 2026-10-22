@@ -194,6 +194,7 @@ input,select{min-height:44px}
 .tabsale button[aria-selected="true"]{background:linear-gradient(120deg,var(--accent),var(--accent2));border-color:var(--accent);color:var(--accent-ink)}
 .tabsale button[aria-selected="true"] span:last-child{color:inherit;opacity:.85}
 .tabsale button.add{min-width:auto;align-content:center;border-style:dashed;color:var(--accent)}
+.kbdhint{margin:0;font-size:12px}@media (hover:none),(max-width:700px){.kbdhint{display:none}}
 .quick{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
 .quick button{display:grid;gap:3px;align-content:start;text-align:start;min-height:88px;padding:10px 12px;border-radius:12px;font-weight:500;background:var(--surface);border:1px solid var(--line);box-shadow:inset 0 -3px 0 var(--accent2)}
 .quick button b{font-size:15px;overflow-wrap:anywhere}.quick button span{font-size:12px;color:var(--muted)}.quick button .num{font-size:14px;color:var(--fg);font-weight:600}
@@ -1942,7 +1943,7 @@ function buildCatalog(){
     p.legacyPer = isNum(m.sub) && m.sub > 0 ? m.sub : 1;
     p.barcode = m.barcode || ""; p.sellBox = isNum(m.sellBox) ? m.sellBox : null;
     p.sellMid = isNum(m.sellMid) ? m.sellMid : (p.sellBox && p.midName ? Math.ceil(p.sellBox / (p.sub / p.midN) / 250) * 250 : null);
-    p.sellSub = isNum(m.sellSub) ? m.sellSub : (p.sellBox && p.sub > 1 && !p.midName ? Math.ceil(p.sellBox / p.sub / 250) * 250 : null);
+    p.sellSub = isNum(m.sellSub) ? m.sellSub : (p.sellBox && p.sub > 1 ? Math.ceil(p.sellBox / p.sub / 250) * 250 : null);
     p.min = isNum(m.min) ? m.min : null; p.sci = m.sci || ""; p.shelf = m.shelf || ""; }
   return [...map.values()].sort((a,b) => String(a.name).localeCompare(String(b.name)));
 }
@@ -1962,6 +1963,8 @@ function levelDefaults(p){
 const unitPer = (p, mode) => mode === "mid" ? n0(p.midN) || 1 : mode === "sub" ? 1 : p.sub;
 const unitName = (p, mode) => mode === "mid" ? p.midName : mode === "sub" ? p.subName : "box";
 const lvlPrice = (p, mode) => mode === "mid" ? p.sellMid : mode === "sub" ? p.sellSub : p.sellBox;
+// lowest price staff may charge without the owner (audit P-01): the unit's set price, else the box price shared out; null: no price set at all
+const floorPrice = (p, mode) => { const own = lvlPrice(p, mode); return isNum(own) ? own : isNum(p.sellBox) ? Math.floor(p.sellBox / p.sub * unitPer(p, mode)) : null; };
 const unitModes = p => ["box", ...(p.midName ? ["mid"] : []), ...(p.sub > 1 ? ["sub"] : [])];
 const unitOpts = (p, sel) => unitModes(p).map(k => `<option value="${k}" ${sel === k ? "selected" : ""}>${esc(k === "box" ? "Box" : unitName(p, k))}</option>`).join("");
 const levelText = p => p.sub <= 1 ? "Box only" : p.midName ? `1 box = ${p.sub / p.midN} ${p.midName}s × ${p.midN} ${p.subName}s` : `1 box = ${p.sub} ${p.subName}s`;
@@ -2158,8 +2161,16 @@ function chrStatus(c, needsSoon){
 
 /* ---- money ---- */
 function saleCost(s){ return (s.lines || []).reduce((a,ln) => a + (ln.alloc || []).reduce((b,x) => b + n0(x.q) * n0(x.cost), 0), 0); }
+/* customer returns (audit P-03): part of a receipt comes back. Each return is stock-change records (moves) that carry
+   saleId: back on the shelf puts the units back on the same batch (q below 0); damaged keeps them out (q 0). The refund
+   sits on the same records, so the cash box, the customer's debt, the dashboard and monthly money all read it from there */
+const saleReturns = sid => E.moves.filter(m => !m.voided && m.saleId === sid);
+const returnedOf = (sid, li) => saleReturns(sid).filter(m => m.saleLine === li).reduce((a, m) => a + n0(m.rq), 0);
+const refundsWhere = f => E.moves.filter(m => !m.voided && m.saleId && f(m));
+const debtOn = () => E.cfg.debtOn === true; // owner's rule (22 Oct 2026): no selling on debt unless switched on in Settings
 function custBalance(cid){
-  const debt = E.sales.filter(s => !s.voided && s.method === "debt" && s.customerId === cid).reduce((a,s) => a + n0(s.total), 0);
+  const debt = E.sales.filter(s => !s.voided && s.method === "debt" && s.customerId === cid).reduce((a,s) => a + n0(s.total), 0)
+    - refundsWhere(m => m.refundBy === "debt" && m.customerId === cid).reduce((a, m) => a + n0(m.refund), 0);
   const paid = E.custpays.filter(x => !x.voided && x.customerId === cid).reduce((a,x) => a + n0(x.amount), 0);
   return {debt, paid, bal: debt - paid};
 }
@@ -2170,7 +2181,8 @@ function cashParts(d, keep){
   const sup = sum(S.payments.filter(p => p.verified && p.date === d && /cash/i.test(p.method || "")), p => p.amount);
   const exp = sum(E.expenses.filter(x => keep(x) && x.date === d && x.fromCash !== false), x => x.amount);
   const debtSales = sum(E.sales.filter(s => keep(s) && s.date === d && s.method === "debt"), s => s.total);
-  return {sales, cin, sup, exp, debtSales, expected: sales + cin - sup - exp};
+  const ref = sum(E.moves.filter(m => keep(m) && m.saleId && m.date === d && m.refundBy === "cash"), m => m.refund); // cash given back for returns
+  return {sales, cin, sup, exp, ref, debtSales, expected: sales + cin - sup - exp - ref};
 }
 const closeOf = d => E.closes.find(x => x.id === d) || null;
 // a closed day shows what it was closed with; sales, payments and cancels made after closing are shown apart ("after")
@@ -2181,12 +2193,13 @@ function dayCash(d){
 }
 function monthMoney(m){
   const ss = E.sales.filter(s => !s.voided && ym(s.date) === m);
-  const sales = ss.reduce((a,s) => a + n0(s.total), 0), cost = ss.reduce((a,s) => a + saleCost(s), 0);
+  const rets = refundsWhere(x => ym(x.date) === m), refunds = rets.reduce((a, x) => a + n0(x.refund), 0), retCost = rets.reduce((a, x) => a + n0(x.q) * n0(x.cost), 0);
+  const sales = ss.reduce((a,s) => a + n0(s.total), 0) - refunds, cost = ss.reduce((a,s) => a + saleCost(s), 0) + retCost; // returned stock (q below 0) lowers the cost
   const exps = E.expenses.filter(x => !x.voided && ym(x.date) === m), expenses = exps.reduce((a,x) => a + n0(x.amount), 0);
   const byCat = {}; exps.forEach(x => byCat[x.category] = (byCat[x.category] || 0) + n0(x.amount));
-  const mv = E.moves.filter(x => !x.voided && ym(x.date) === m), writeoff = mv.reduce((a,x) => a + n0(x.q) * n0(x.cost), 0); // found stock has q below 0, so it lowers the loss
+  const mv = E.moves.filter(x => !x.voided && !x.saleId && ym(x.date) === m), writeoff = mv.reduce((a,x) => a + n0(x.q) * n0(x.cost), 0); // found stock has q below 0, so it lowers the loss
   const noCost = ss.some(s => (s.lines || []).some(ln => (ln.alloc || []).some(a => !isNum(a.cost)))) || mv.some(x => !isNum(x.cost));
-  return {count: ss.length, sales, cost, gross: sales - cost, expenses, byCat, writeoff, net: sales - cost - expenses - writeoff, noCost, purchases: monthStats(m).purchases};
+  return {count: ss.length, sales, refunds, cost, gross: sales - cost, expenses, byCat, writeoff, net: sales - cost - expenses - writeoff, noCost, purchases: monthStats(m).purchases};
 }
 
 /* ---------- views ---------- */
@@ -2202,11 +2215,12 @@ function inPeriod(s, k){
 }
 function salesStats(k){
   const [from, to] = k === "custom" ? [S.sellFrom || "", S.sellTo || ""] : periodRange(k), ss = E.sales.filter(s => !s.voided && inPeriod(s, k));
-  const total = ss.reduce((a,s) => a + n0(s.total), 0), cost = ss.reduce((a,s) => a + saleCost(s), 0);
+  const rets = refundsWhere(m => inPeriod(m, k)), refunds = rets.reduce((a, m) => a + n0(m.refund), 0), cashRef = rets.filter(m => m.refundBy === "cash").reduce((a, m) => a + n0(m.refund), 0);
+  const total = ss.reduce((a,s) => a + n0(s.total), 0) - refunds, cost = ss.reduce((a,s) => a + saleCost(s), 0) + rets.reduce((a, m) => a + n0(m.q) * n0(m.cost), 0);
   const items = {}; ss.forEach(s => (s.lines || []).forEach(l => { const x = items[l.pid] || (items[l.pid] = {pid:l.pid, name:l.name, qty:0, total:0, unit:l.unit}); x.total += n0(l.total); x.qty += n0(l.qty); }));
   const hours = Array(24).fill(0); ss.forEach(s => { const h = new Date(s.at || s.date).getHours(); if (isFinite(h)) hours[h] += n0(s.total); });
   const days = {}; ss.forEach(s => days[s.date] = (days[s.date] || 0) + n0(s.total));
-  return {from, to, count:ss.length, total, cash:ss.filter(s => s.method !== "debt").reduce((a,s) => a + n0(s.total), 0), debt:ss.filter(s => s.method === "debt").reduce((a,s) => a + n0(s.total), 0), disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
+  return {from, to, count:ss.length, total, cash:ss.filter(s => s.method !== "debt").reduce((a,s) => a + n0(s.total), 0) - cashRef, debt:ss.filter(s => s.method === "debt").reduce((a,s) => a + n0(s.total), 0) - (refunds - cashRef), refunds, disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
     byStaff:Object.values(ss.reduce((m, s) => { const id = s.staffId || "-", x = m[id] || (m[id] = {id, name:s.staffName || "No login", count:0, total:0}); x.count++; x.total += n0(s.total); return m; }, {})).sort((a,b) => b.total - a.total)};
 }
 function quickItems(cat, used){
@@ -2227,9 +2241,9 @@ function sellDash(){
     <div class="kpis">
       <div class="kpi lead"><span class="l">${k === "today" ? "Sold today" : k === "week" ? "Sold this week" : k === "month" ? "Sold this month" : "Sold in this time"}</span><span class="v num">${iqd(st.total)}</span><span class="l">${st.count} receipts · average ${iqd(st.avg)}</span></div>
       <div class="kpi"><span class="l">Cash</span><span class="v num">${iqd(st.cash)}</span></div>
-      <div class="kpi"><span class="l">On debt</span><span class="v num" style="color:var(--${st.debt ? "warn" : "fg"})">${iqd(st.debt)}</span></div>
+      ${!debtOn() && !st.debt ? "" : `<div class="kpi"><span class="l">On debt</span><span class="v num" style="color:var(--${st.debt ? "warn" : "fg"})">${iqd(st.debt)}</span></div>`}
       <div class="kpi"><span class="l">Profit (after cost)</span><span class="v num" style="color:var(--good)">${iqd(st.profit)}</span><span class="l">${st.total ? "Margin " + PRICING.pctTxt(PRICING.marginPct(st.total, st.total - st.profit)) : "—"}</span></div>
-      <div class="kpi"><span class="l">Discounts given</span><span class="v num">${iqd(st.disc)}</span>${st.voided ? `<span class="l">${st.voided} cancelled</span>` : ""}</div>
+      <div class="kpi"><span class="l">Discounts given</span><span class="v num">${iqd(st.disc)}</span>${st.voided ? `<span class="l">${st.voided} cancelled</span>` : ""}${st.refunds ? `<span class="l">Returns −${iqd(st.refunds)}</span>` : ""}</div>
     </div>
     ${st.count ? `<div class="grid2 stack" style="align-items:start">
       <div class="list"><div class="row" style="cursor:default"><span class="main"><span class="t">Top items</span></span></div>${st.top.map(x => `<button type="button" class="row" data-xprod="${esc(x.pid)}"><span class="main"><span class="t">${esc(x.name)}</span><span class="s"><span class="num">${x.qty}</span> sold</span></span><span class="end num">${iqd(x.total)}</span></button>`).join("")}</div>
@@ -2251,11 +2265,13 @@ function sellView(){
   return `<section class="sec">
     <div class="tabsale" role="tablist" aria-label="Open sales">${S.tabs.map((t, i) => `<button type="button" role="tab" aria-selected="${i === S.tabAt}" data-xtab="${i}"><span>${esc(tabName(t))}</span><span class="num">${(t.lines || []).length ? iqd(Math.max(0, tabSum(t))) : "empty"}</span></button>`).join("")}<button type="button" class="add" data-xnewtab="1" aria-label="New customer">+ Customer</button></div>
     <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}</div>
+    <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print</p>
     ${q ? `<div class="list">${hits.length ? hits.map(p => { const s = stockOf(p, used); return `<button type="button" class="row" data-xadd="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""} · ${esc(qtyText(p, s.good))} in stock${s.next ? ` · exp ${esc(s.next.expiry)}` : ""}</span></span><span class="end num">${p.sellBox ? iqd(p.sellBox) : `<span class="pill warn">No price</span>`}</span></button>`; }).join("") : `<div class="empty">No item matches. Items appear here once they are on a purchase invoice, or add one under Stock.</div>`}</div>` : ""}
     ${!q && quick.length ? `<div class="quick">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" ${s.good <= 0 ? 'class="out"' : ""}><b>${esc(p.name)}</b><span>${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span><span class="num">${p.sellBox ? f0(p.sellBox) : "No price"}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : ""}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
   </section>
   <section class="sec"><div class="sechead"><h2>${esc(tabName(actTab()))}</h2><div class="actions">${lines.length ? `<button type="button" data-xclear="1">Clear</button>` : ""}${S.tabs.length > 1 ? `<button type="button" class="danger" data-xclosetab="1">Close</button>` : ""}</div></div>
     ${chr ? `<div class="banner">Chronic card: <b>${esc(chr.name)}</b>. Saving this sale marks this month as given.</div>` : ""}
+    ${closeOf(today()) ? `<div class="banner">Today's cash box is already closed. Sales saved now show under "Changes after closing" in Money.</div>` : ""}
     <div class="list">${lines.length ? lines.map(({c, i, p}) => { const s = stockOf(p, used), needQ = n0(c.qty) * unitPer(p, c.mode);
       return `<div class="lineedit" style="border:0;border-top:1px solid var(--line);border-radius:0">
         <div class="lh"><b style="color:var(--fg)">${esc(pname(p))}</b><button type="button" class="danger" data-xrm="${i}" style="padding:4px 10px">Remove</button></div>
@@ -2268,9 +2284,9 @@ function sellView(){
     ${lines.length ? `<form id="sellForm" class="sum" style="gap:10px">
       <div class="r"><span>Subtotal</span><span class="num">${iqd(sub)}</span></div>
       <div class="grid2"><label>Discount (IQD)<input id="xDisc" class="num" inputmode="numeric" value="${esc(S.cartMeta.disc ?? "")}"></label>
-      <label>Payment<select id="xMethod"><option value="cash" ${S.cartMeta.method !== "debt" ? "selected" : ""}>Cash</option><option value="debt" ${S.cartMeta.method === "debt" ? "selected" : ""}>On debt (دين)</option></select></label></div>
-      ${S.cartMeta.method === "debt" ? `<label>Customer<select id="xCust"><option value="">Choose customer</option>${E.customers.filter(c => !c.deleted).map(c => `<option value="${esc(c.id)}" ${S.cartMeta.customerId === c.id ? "selected" : ""}>${esc(c.name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("")}<option value="__new" ${S.cartMeta.customerId === "__new" ? "selected" : ""}>+ New customer</option></select></label>
-      ${S.cartMeta.customerId === "__new" ? `<div class="grid2"><label>Customer name<input id="xCName" value="${esc(S.cartMeta.newName || "")}"></label><label>Phone<input id="xCPhone" inputmode="tel" value="${esc(S.cartMeta.newPhone || "")}"></label></div>` : ""}` : ""}
+      ${debtOn() ? "" : `<input type="hidden" id="xMethod" value="cash">`}${!debtOn() ? "" : `<label>Payment<select id="xMethod"><option value="cash" ${S.cartMeta.method !== "debt" ? "selected" : ""}>Cash</option><option value="debt" ${S.cartMeta.method === "debt" ? "selected" : ""}>On debt (دين)</option></select></label>`}</div>
+      ${`<label>${S.cartMeta.method === "debt" ? "Customer" : "Customer (optional)"}<select id="xCust"><option value="">${S.cartMeta.method === "debt" ? "Choose customer" : "No customer"}</option>${E.customers.filter(c => !c.deleted).map(c => `<option value="${esc(c.id)}" ${S.cartMeta.customerId === c.id ? "selected" : ""}>${esc(c.name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("")}<option value="__new" ${S.cartMeta.customerId === "__new" ? "selected" : ""}>+ New customer</option></select></label>
+      ${S.cartMeta.customerId === "__new" ? `<div class="grid2"><label>Customer name<input id="xCName" value="${esc(S.cartMeta.newName || "")}"></label><label>Phone<input id="xCPhone" inputmode="tel" value="${esc(S.cartMeta.newPhone || "")}"></label></div>` : ""}`}
       ${S.cartMeta.method !== "debt" ? `<div class="grid2"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(S.cartMeta.given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(S.cartMeta.given) && S.cartMeta.given >= total ? (S.cartMeta.given - total).toLocaleString("en-US") : ""}" disabled></label></div>` : ""}
       <div class="r big"><span>Total</span><span class="num">${iqd(total)}</span></div>
       <p class="err" id="xErr">${S.sellErr && S.sellErr.cart === JSON.stringify(S.cart) ? S.sellErr.html : ""}</p>
@@ -2289,7 +2305,7 @@ function stockView(){
   const cat = catalog(), used = usedMap(), q = S.stockQ.trim().toLowerCase();
   const rows = cat.map(p => ({p, s: stockOf(p, used)}));
   const f = S.stockF;
-  const passK = (f, {p, s}) => f === "out" ? s.good <= 0 : f === "low" ? (p.min !== null ? s.good < p.min * p.sub : s.good <= 0) : f === "exp" ? s.bs.some(b => b.left > 0 && b.ml !== null && b.ml >= 0 && b.ml <= 3) : f === "expired" ? s.exp > 0 : f === "fridge" ? p.fridge : f === "noprice" ? !p.sellBox : true;
+  const passK = (f, {p, s}) => f === "out" ? s.good <= 0 : f === "low" ? (p.min !== null ? s.good < p.min * p.sub : s.good <= 0) : f === "noexp" ? s.bs.some(b => b.left > 1e-6 && !b.expiry) : f === "exp" ? s.bs.some(b => b.left > 0 && b.ml !== null && b.ml >= 0 && b.ml <= 3) : f === "expired" ? s.exp > 0 : f === "fridge" ? p.fridge : f === "noprice" ? !p.sellBox : true;
   const pass = r => passK(f, r);
   const list = rows.filter(pass).filter(({p}) => !q || [p.name, p.strength, p.form, p.sci, p.barcode, p.desc].join(" ").toLowerCase().includes(q));
   const cnt = k => rows.filter(r => passK(k, r)).length;
@@ -2298,7 +2314,7 @@ function stockView(){
     <div class="kpi"><span class="l">Items</span><span class="v num">${cat.length}</span></div><div class="kpi"><span class="l">Low or out of stock</span><span class="v num" style="color:var(--bad)">${cnt("low")}</span></div></section>
   <section class="sec"><div class="sechead"><h2>Stock</h2><div class="actions"><button type="button" class="primary" data-xcount="1">Stocktaking</button><button type="button" data-xprod="__new">+ Item</button></div></div>
     <input id="stockQ" type="search" placeholder="Name, dose, barcode" value="${esc(S.stockQ)}">
-    <div class="chips">${[["all","All"],["out","Out of stock"],["low","Low"],["exp","Expiring 3 months"],["expired","Expired"],["fridge","Refrigerated"],["noprice","No sell price"]].map(([k,l]) => `<button type="button" data-xsf="${k}" aria-pressed="${f === k}">${l} · ${cnt(k)}</button>`).join("")}</div>
+    <div class="chips">${[["all","All"],["out","Out of stock"],["low","Low"],["exp","Expiring 3 months"],["expired","Expired"],["noexp","No expiry date"],["fridge","Refrigerated"],["noprice","No sell price"]].map(([k,l]) => `<button type="button" data-xsf="${k}" aria-pressed="${f === k}">${l} · ${cnt(k)}</button>`).join("")}</div>
     <div class="list">${list.length ? list.map(({p, s}) => `<button type="button" class="row" data-xprod="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""}${s.next ? ` · next expiry ${esc(s.next.expiry)}` : ""}${s.exp ? ` · ${esc(qtyText(p, s.exp))} expired` : ""}${p.shelf ? ` · shelf ${esc(p.shelf)}` : ""}</span></span><span class="end"><span class="num">${esc(qtyText(p, s.good))}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : p.min !== null && s.good < p.min * p.sub ? `<span class="pill warn">Low</span>` : ""}${p.sellBox ? `<span class="s num">${iqd(p.sellBox)}</span>` : `<span class="pill">No price</span>`}</span></button>`).join("") : `<div class="empty">No items here.</div>`}</div>
     <p class="note">Stock comes from your purchase invoices (paid + bonus, or what you counted in Receiving), minus returns to suppliers, sales and write-offs. Expired batches are not sold.</p></section>`;
 }
@@ -2379,7 +2395,7 @@ function drawChrMeds(){
 function customersView(){
   const rows = E.customers.filter(c => !c.deleted).map(c => ({c, b: custBalance(c.id)})).sort((a,b) => b.b.bal - a.b.bal);
   const tot = rows.reduce((a,r) => a + Math.max(0, r.b.bal), 0);
-  return `<section class="kpis"><div class="kpi lead"><span class="l">Customers owe you (دين)</span><span class="v num">${iqd(tot)}</span></div></section>
+  return `${debtOn() || tot ? `<section class="kpis"><div class="kpi lead"><span class="l">Customers owe you (دين)</span><span class="v num">${iqd(tot)}</span></div></section>` : ""}
   <section class="sec"><div class="sechead"><h2>Customers</h2><button type="button" class="primary" data-xcust="__new">+ Customer</button></div>
     <div class="list">${rows.length ? rows.map(({c, b}) => `<button type="button" class="row" data-xcust="${esc(c.id)}"><span class="main"><span class="t">${esc(c.name)}</span><span class="s">${esc(c.phone || "")}${E.chronic.some(x => x.customerId === c.id || x.name === c.name) ? " · chronic card" : ""}</span></span><span class="end num" style="color:var(--${b.bal > 0 ? "bad" : "good"})">${iqd(b.bal)}</span></button>`).join("") : `<div class="empty">No customers yet. They are added when you sell on debt, or here.</div>`}</div></section>`;
 }
@@ -2389,7 +2405,7 @@ function custSheet(id){
   const ss = E.sales.filter(s => s.customerId === c.id && !s.voided).sort((a,b) => (b.at || "").localeCompare(a.at || ""));
   const ps = E.custpays.filter(x => x.customerId === c.id && !x.voided).sort((a,b) => (b.date || "").localeCompare(a.date || ""));
   openSheet(id === "__new" ? "Add customer" : c.name, `
-    ${b ? `<div class="sum"><div class="r"><span>Bought on debt</span><span class="num">${iqd(b.debt)}</span></div><div class="r"><span>Paid</span><span class="num">−${iqd(b.paid)}</span></div><div class="r big"><span>Still owes</span><span class="num" style="color:var(--${b.bal > 0 ? "bad" : "good"})">${iqd(b.bal)}</span></div></div>
+    ${b && (debtOn() || b.debt || b.paid) ? `<div class="sum"><div class="r"><span>Bought on debt</span><span class="num">${iqd(b.debt)}</span></div><div class="r"><span>Paid</span><span class="num">−${iqd(b.paid)}</span></div><div class="r big"><span>Still owes</span><span class="num" style="color:var(--${b.bal > 0 ? "bad" : "good"})">${iqd(b.bal)}</span></div></div>
     <form id="cpForm" data-id="${esc(c.id)}" class="sum" style="gap:10px"><b>Customer paid</b><div class="grid2"><label>Amount (IQD)<input id="cpAmt" class="num" inputmode="numeric" value="${b.bal > 0 ? b.bal : ""}" required></label><label>Date<input id="cpDate" type="date" value="${today()}"></label></div><label>Note<input id="cpNote"></label><p class="err" id="cpErr"></p><button type="submit" class="primary">Save payment</button></form>` : ""}
     <form id="custForm" data-id="${esc(c.id)}" style="display:grid;gap:12px"><div class="grid2 stack"><label>Name<input id="kName" value="${esc(c.name)}" required></label><label>Phone<input id="kPhone" inputmode="tel" value="${esc(c.phone || "")}"></label></div><label>Notes<textarea id="kNotes">${esc(c.notes || "")}</textarea></label><button type="submit">Save customer</button></form>
     ${ss.length ? `<div class="sec"><h2>Purchases</h2><div class="list">${ss.map(saleRow).join("")}</div></div>` : ""}
@@ -2414,6 +2430,7 @@ function settingsView(){
   return `<section class="sec"><h2>Settings</h2>
     <form id="cfgForm" class="sum" style="gap:10px"><div class="grid2 stack"><label>Pharmacy name on receipts<input id="cfgName" value="${esc(E.cfg.name || "صيدلية ريحانة · Raihana Pharmacy")}"></label><label>Phone on receipts<input id="cfgPhone" value="${esc(E.cfg.phone || "")}"></label></div>
       <label>Warn about chronic pickups this many days ahead<input id="sDays" class="num" inputmode="numeric" value="${ALERT_DAYS()}"></label>
+      <label class="check"><input type="checkbox" id="sDebt" ${debtOn() ? "checked" : ""}> Allow selling on debt (دين)</label>
       <label>Discount staff may give without your PIN (% of the receipt)<input id="sDisc" class="num" inputmode="decimal" value="${esc(n0(E.cfg.staffDiscPct))}"></label>
       <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}<button type="submit">Save settings</button></form></section>
   <section class="sec"><h2>Where your data is</h2><div class="sum">
@@ -2952,8 +2969,10 @@ async function saveSaleNow(){
   const lines = S.cart.map(c => ({c, p: byId[c.pid]})).filter(x => x.p && n0(x.c.qty) > 0);
   if (!lines.length){ err.textContent = "Add at least one item."; return; }
   if (lines.some(x => !isNum(x.c.price))){ err.textContent = "Every item needs a price."; return; }
-  const method = $("#xMethod").value;
-  let customerId = method === "debt" ? S.cartMeta.customerId : null;
+  const frac = lines.find(x => !Number.isInteger(n0(x.c.qty))); // audit P-06: no half bottles; a part of a box is sold as strips or tablets
+  if (frac){ err.textContent = `${pname(frac.p)}: the quantity must be a whole number. To sell part of a box, choose the strip or tablet unit.`; return; }
+  const method = debtOn() ? $("#xMethod").value : "cash";
+  let customerId = S.cartMeta.customerId || null;
   if (method === "debt" && !customerId){ err.textContent = "Choose the customer for a debt sale."; return; }
   const newName = customerId === "__new" ? ($("#xCName")?.value || "").trim() : ""; if (customerId === "__new" && !newName){ err.textContent = "Enter the customer's name."; return; }
   const out = [], why = [], short = []; let overs = false;
@@ -2965,7 +2984,7 @@ async function saveSaleNow(){
       if (free > 0){ const q = r6(Math.min(free, need)), ak = "adj:" + p.id; alloc.push({key:ak, batch:"", expiry:"", q, per:p.sub, cost:subCostNow(p)}); const ux = used[ak] || (used[ak] = {b:0, raw:0, c:0}); ux.b += q / p.sub; need = r6(need - q); } }
     if (need > 0){ if (!force){ short.push({p, want:r6(n0(c.qty) * unitPer(p, c.mode)), avail:r6(n0(c.qty) * unitPer(p, c.mode) - need)}); continue; }
       alloc.push({key:"adj:" + p.id, batch:"", expiry:"", q:need, per:p.sub, cost:subCostNow(p)}); why.push(`Sell ${pname(p)} past the stock (${qtyText(p, need)} more than shown)`); overs = true; }
-    const list = lvlPrice(p, c.mode); if (isNum(list) && wIQD(c.price) < list) why.push(`${pname(p)} at ${f0(c.price)} instead of ${f0(list)} IQD`);
+    const list = floorPrice(p, c.mode); if (!isNum(list)) why.push(`${pname(p)} has no set price (sold at ${f0(c.price)} IQD)`); else if (wIQD(c.price) < list) why.push(`${pname(p)} at ${f0(c.price)} instead of ${f0(list)} IQD`);
     out.push({pid:p.id, name:pname(p), mode:c.mode, unit: unitName(p, c.mode), per:unitPer(p, c.mode), qty:n0(c.qty), price:wIQD(c.price), total:lineTot(c), alloc});
   }
   if (short.length){ // checked again here, at the moment of saving: never sold past zero without the owner
@@ -2975,11 +2994,13 @@ async function saveSaleNow(){
     err.innerHTML = S.sellErr.html; return; }
   S.sellErr = null;
   const {sub, disc} = cartTotals(lines.map(x => x.c), {disc:parseNum($("#xDisc").value)});
+  const given = method === "cash" ? parseNum($("#xGiven")?.value) : null; // audit P-07
+  if (isNum(given) && wIQD(given) < sub - disc){ err.textContent = `Cash received (${f0(given)} IQD) is less than the total (${f0(sub - disc)} IQD). Take the rest, or choose "On debt".`; return; }
   const discMax = Math.floor(sub * n0(E.cfg.staffDiscPct) / 100); if (disc > discMax) why.push(`Discount ${f0(disc)} IQD (staff may give up to ${f0(discMax)})`);
   let approvedBy = null; if (why.length && (!isOwner() || overs)){ approvedBy = await ownerOK(why, {always:overs}); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
   if (customerId === "__new"){ customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
   const id = newId("SL"), d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
-  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
+  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - (sub - disc)} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
   try {
     await write("sales/" + id, sale);
     if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) await write("chronic/" + ch.id, {given:{...(ch.given || {}), [ym(d)]:id}}, true); }
@@ -2994,12 +3015,14 @@ function receiptHtml(s){
     ${(s.lines || []).map(l => `<div>${esc(l.name)}</div><div style="display:flex;justify-content:space-between"><span>${l.qty} ${esc(l.unit)} × ${Math.round(l.price).toLocaleString("en-US")}</span><span>${Math.round(l.total).toLocaleString("en-US")}</span></div>`).join("")}<hr>
     ${s.discount ? `<div style="display:flex;justify-content:space-between"><span>Discount</span><span>−${Math.round(s.discount).toLocaleString("en-US")}</span></div>` : ""}
     <div style="display:flex;justify-content:space-between;font-weight:600"><span>Total IQD</span><span>${Math.round(s.total).toLocaleString("en-US")}</span></div>
-    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : "Paid cash"}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
+    ${isNum(s.given) ? `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(s.given).toLocaleString("en-US")}</span></div><div style="display:flex;justify-content:space-between"><span>Change</span><span>${Math.round(s.change).toLocaleString("en-US")}</span></div>` : ""}
+    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : `Paid cash${cu ? " · " + esc(cu.name) : ""}`}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
 }
 function receiptSheet(id, fresh){
   const s = fresh || E.sales.find(x => x.id === id); if (!s) return;
   openSheet("Receipt " + (s.no || ""), `${receiptHtml(s)}
-    <div class="actions"><button type="button" class="primary" data-xprint="${esc(s.id)}">Print receipt</button>${s.voided ? `<span class="pill bad">Cancelled</span>` : S.readOnly ? "" : `<button type="button" class="danger" data-xsalevoid="${esc(s.id)}">Cancel sale (stock goes back)</button>`}</div>
+    <div class="actions"><button type="button" class="primary" data-xprint="${esc(s.id)}">Print receipt</button>${s.voided ? `<span class="pill bad">Cancelled</span>` : S.readOnly ? "" : `${(s.lines || []).some((l, i) => returnedOf(s.id, i) < n0(l.qty)) ? `<button type="button" data-xsaleret="${esc(s.id)}">Return items</button>` : ""}<button type="button" class="danger" data-xsalevoid="${esc(s.id)}">Cancel sale (stock goes back)</button>`}</div>
+    ${saleReturns(s.id).filter(m => m.rq).length ? `<div class="sec"><h2>Returns</h2><div class="list">${saleReturns(s.id).filter(m => m.rq).map(m => { const l = s.lines?.[m.saleLine] || {}; return `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(l.name || "")} · <span class="num">${m.rq}</span> ${esc(l.unit || "")}</span><span class="s">${esc(m.date)} · ${esc(m.reason)}${m.note ? " · " + esc(m.note) : ""}</span></span><span class="end num">−${iqd(m.refund)}</span></div>`; }).join("")}</div></div>` : ""}
     ${s.voided && s.voidReason ? `<p class="note">Cancelled: ${esc(s.voidReason)}</p>` : ""}
     ${window.ERP_MODE === "claude" ? `<p class="note">Printing works in the installed app. On claude.ai you can show this screen to the customer.</p>` : ""}
     <div class="sec"><h2>Batches used</h2><div class="list">${(s.lines || []).map(l => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(l.name)}</span><span class="s">${(l.alloc || []).map(a => `${a.batch ? "batch " + esc(a.batch) : "no batch"}${a.expiry ? " exp " + esc(a.expiry) : ""} × ${a.q}`).join(", ")}</span></span></div>`).join("")}</div></div>`);
@@ -3011,8 +3034,43 @@ function giveChronic(id){
   const cu = E.customers.find(x => x.id === c.customerId);
   S.cartMeta = {chronicId:c.id, customerId: cu ? cu.id : null}; saveCart(); closeSheet(); S.tab = "sell"; render(); window.scrollTo(0,0);
 }
+function returnSheet(id){
+  const s = E.sales.find(x => x.id === id); if (!s || s.voided) return;
+  openSheet("Return items", `<form id="retForm" data-id="${esc(s.id)}" style="display:grid;gap:12px"><p class="note">Receipt <span class="num">${esc(s.no)}</span> · ${esc(s.date)}</p>
+    ${(s.lines || []).map((l, i) => { const left = r6(n0(l.qty) - returnedOf(s.id, i)); return `<label><span>${esc(l.name)}</span> <span class="note">sold <span class="num">${l.qty}</span> ${esc(l.unit)}${left < n0(l.qty) ? ` · <span class="num">${left}</span> can still come back` : ""}</span><input class="num" inputmode="numeric" data-xrq="${i}" placeholder="0" ${left <= 0 ? "disabled" : ""}></label>`; }).join("")}
+    <label>What happens to the items<select id="rWhere"><option value="shelf">Back on the shelf (stock goes back)</option><option value="damaged">Damaged or opened (stock stays out)</option></select></label>
+    <label>Reason<input id="rReason"></label>
+    <p class="note"><span>${s.method === "debt" ? "The refund comes off the customer's debt." : "The refund is paid from the cash box."}</span> <span>Needs the owner's PIN.</span></p>
+    <p class="err" id="rErr"></p><button type="submit" class="primary">Save return</button></form>`);
+}
+async function saveReturn(f){
+  const s = E.sales.find(x => x.id === f.dataset.id), err = $("#rErr"); if (!s || s.voided) return;
+  const picks = [...f.querySelectorAll("[data-xrq]")].map(el => ({i:+el.dataset.xrq, q:parseNum(el.value)})).filter(x => isNum(x.q) && x.q !== 0);
+  if (!picks.length){ err.textContent = "Enter how many come back."; return; }
+  for (const x of picks){ const l = s.lines[x.i], left = r6(n0(l.qty) - returnedOf(s.id, x.i));
+    if (!(x.q > 0) || !Number.isInteger(x.q)){ err.textContent = `${l.name}: enter a whole number.`; return; }
+    if (x.q > left + 1e-9){ err.textContent = `${l.name}: only ${left} ${l.unit} can come back from this receipt.`; return; } }
+  const reason = $("#rReason").value.trim(), shelf = $("#rWhere").value === "shelf"; if (!reason){ err.textContent = "Write the reason for the return."; return; }
+  const share = n0(s.subtotal) > 0 ? 1 - n0(s.discount) / n0(s.subtotal) : 1; // the receipt discount is shared out over the lines
+  const parts = picks.map(x => { const l = s.lines[x.i]; return {x, l, refund: wIQD(x.q * n0(l.total) / n0(l.qty) * share)}; }), total = parts.reduce((a, y) => a + y.refund, 0);
+  const by = await ownerOK([`Return ${parts.map(y => `${y.x.q} ${y.l.unit} ${y.l.name}`).join(", ")} from receipt ${s.no} (refund ${iqd(total)})`]); if (!by){ err.textContent = NEED_OWNER; return; }
+  const rid = newId("RT"), at = nowIso(), recs = [];
+  for (const {x, l, refund} of parts){
+    const base = {pid:l.pid, saleId:s.id, saleNo:s.no, saleLine:x.i, returnId:rid, customerId:s.customerId || null, refundBy: s.method === "debt" ? "debt" : "cash", note:reason, date:today(), at, staffId:S.staff?.id || null, approvedBy:by};
+    const alloc = l.alloc || [];
+    if (!shelf){ recs.push({...base, key:alloc[0]?.key || "adj:" + l.pid, q:0, per:alloc[0]?.per ?? null, cost:0, reason:"Customer return (damaged)", rq:x.q, refund}); continue; }
+    let units = r6(x.q * n0(l.per)), first = true;
+    for (const a of [...alloc].reverse()){ if (units <= 1e-9) break; // newest batch taken goes back first, never more than this receipt took from it
+      const back = [...saleReturns(s.id), ...recs].filter(m => m.key === a.key && m.saleLine === x.i).reduce((t, m) => t - n0(m.q), 0), q = r6(Math.min(units, n0(a.q) - back)); if (q <= 0) continue;
+      recs.push({...base, key:a.key, q:-q, per:a.per, cost:a.cost, reason:"Customer return", rq: first ? x.q : 0, refund: first ? refund : 0}); first = false; units = r6(units - q); }
+  }
+  try { for (const r of recs){ const mid = newId("MV"); await write("moves/" + mid, {id:mid, ...r}); } }
+  catch(e){ err.textContent = e.message; return; }
+  closeSheet(); toast(`Return saved. Refund ${iqd(total)}.`); receiptSheet(s.id);
+}
 async function cancelSale(id){
   const s = E.sales.find(x => x.id === id), reason = ($("#voidReason")?.value || "").trim(); if (!s) return;
+  if (saleReturns(id).length){ toast("Items from this receipt were already returned. Return the rest instead of cancelling."); return; }
   if (!reason){ toast("Write the reason for cancelling."); $("#voidReason")?.focus(); return; }
   const by = await ownerOK([`Cancel receipt ${s.no} (${iqd(s.total)})`]); if (!by){ toast(NEED_OWNER); return; }
   try {
@@ -3115,6 +3173,7 @@ document.addEventListener("click", ev => {
   if (d.xrm !== undefined){ S.cart.splice(+d.xrm, 1); if (!S.cart.length) S.cartMeta = {}; saveCart(); render(); return; }
   if (d.xclear){ S.cart = []; S.cartMeta = {}; saveCart(); render(); return; }
   if (d.xsale){ receiptSheet(d.xsale); return; }
+  if (d.xsaleret){ returnSheet(d.xsaleret); return; }
   if (d.xprint){ const s = E.sales.find(x => x.id === d.xprint); if (!s) return; const pa = $("#printArea"); pa.innerHTML = receiptHtml(s); try { window.print(); } catch {} return; }
   if (d.xsalevoid){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Confirm cancel"; t.insertAdjacentHTML("beforebegin", `<label style="flex-basis:100%">Reason for cancelling<input id="voidReason"></label>`); if (S.lang === "ar") translate(t.parentElement); $("#voidReason").focus(); return; }
     cancelSale(d.xsalevoid); return; }
@@ -3179,20 +3238,48 @@ document.addEventListener("change", ev => {
   if (t.id === "moneyM" && t.value){ S.moneyM = t.value; render(); return; }
   if (t.id === "restoreIn" && t.files?.[0]){ if (!isOwner()){ toast("Only the owner can do this."); t.value = ""; return; } restoreFile(t.files[0]); t.value = ""; return; }
 });
+/* keys on Sell (audit P-08, P-09). Only keys the browser leaves free: F1, F3, F5, F6, F7 and F11 stay with the browser.
+   A scanner types like a keyboard, so a code typed while nothing is focused, or while the last receipt is still open, goes
+   into the search box and starts the next sale. */
+const typing = el => !!el && (el.matches?.("input,select,textarea") || el.isContentEditable);
+function sellKeys(ev){
+  if (S.tab !== "sell" || $("#lockScreen") || $("#ownerPin") || ev.ctrlKey || ev.metaKey || ev.altKey) return false;
+  const open = !$("#sheet").hidden, rcpt = open && $("#sheet #receipt");
+  if (ev.key === "F10"){ $("#sheet [data-xprint]")?.click(); return !!rcpt; }
+  if (open && !rcpt) return false;
+  if (ev.key.length === 1 && ev.key !== " " && !"+-".includes(ev.key) && !typing(ev.target)){
+    if (open) closeSheet(); const q = $("#sellQ"); if (!q) return false;
+    q.focus(); q.value += ev.key; q.dispatchEvent(new Event("input", {bubbles:true})); return true; }
+  if (open) return false;
+  const c = S.cart[S.cart.length - 1];
+  switch (ev.key){
+    case "F2": { const q = $("#sellQ"); q?.focus(); q?.select(); return true; }
+    case "F4": { if (!c) return true; const p = catalog().find(x => x.id === c.pid), ms = p ? unitModes(p) : ["box"]; c.mode = ms[(ms.indexOf(c.mode) + 1) % ms.length]; c.price = p ? lvlPrice(p, c.mode) ?? null : null; saveCart(); render(); return true; }
+    case "F8": if (!debtOn()) return true; S.cartMeta.method = S.cartMeta.method === "debt" ? "cash" : "debt"; saveCart(); render(); return true;
+    case "F9": $("#sellForm")?.requestSubmit(); return true;
+    case "+": case "-": if (!c || typing(ev.target)) return false; c.qty = Math.max(1, n0(c.qty) + (ev.key === "+" ? 1 : -1)); saveCart(); render(); return true;
+    case "ArrowDown": case "ArrowUp": { const rows = [...document.querySelectorAll(".list [data-xadd]")], i = rows.indexOf(ev.target); if (!rows.length) return false;
+      if (ev.target.id === "sellQ"){ if (ev.key !== "ArrowDown") return false; rows[0].focus(); return true; }
+      if (i < 0) return false; (ev.key === "ArrowDown" ? rows[Math.min(i + 1, rows.length - 1)] : i ? rows[i - 1] : $("#sellQ")).focus(); return true; }
+  }
+  return false;
+}
 document.addEventListener("keydown", ev => {
+  if (sellKeys(ev)){ ev.preventDefault(); return; }
   if (ev.target.id === "sellQ" && ev.key === "Enter"){ ev.preventDefault(); const v = ev.target.value.trim(); if (!v) return;
     const cat = catalog(), p = cat.find(x => x.barcode && x.barcode === v); if (p){ addToCart(p.id); return; }
-    const hits = cat.filter(x => [x.name, x.strength, x.form, x.sci, x.desc].join(" ").toLowerCase().includes(v.toLowerCase())); if (hits.length === 1) addToCart(hits[0].id); }
+    const hits = cat.filter(x => [x.name, x.strength, x.form, x.sci, x.desc].join(" ").toLowerCase().includes(v.toLowerCase())); if (hits.length === 1) addToCart(hits[0].id); else if (hits.length > 1) document.querySelector(".list [data-xadd]")?.focus(); }
   if (ev.target.id === "pBar" && ev.key === "Enter") ev.preventDefault();
 });
 document.addEventListener("submit", async ev => {
   const f = ev.target, id = f.id;
-  if (!["sellForm","prodForm","adjForm","chrForm","custForm","cpForm","expForm","closeForm","cfgForm","syncForm"].includes(id)) return;
+  if (!["sellForm","prodForm","adjForm","chrForm","custForm","cpForm","expForm","closeForm","cfgForm","syncForm","retForm"].includes(id)) return;
   ev.preventDefault();
   const num = sel => { const v = parseNum($(sel)?.value); return isNum(v) ? v : null; };
   const fail = (sel, x) => { const e = $(sel); if (e) e.textContent = x.message || x; };
   try {
     if (id === "sellForm") return saveSale(ev);
+    if (id === "retForm") return saveReturn(f);
     if (id === "prodForm"){
       if (!canUse("stock")) return fail("#pErr", "The owner has not given you this screen.");
       const pid = f.dataset.id === "__new" ? newId("PX") : f.dataset.id, name = $("#pName").value.trim(); if (!name) return fail("#pErr", "Enter the name.");
@@ -3255,7 +3342,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0))}); toast("Settings saved."); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked}); toast("Settings saved."); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -3367,6 +3454,8 @@ AR_RX.unshift([/^• (.+)$/, (m, t) => { const x = trOne(t); return x === null ?
   [/^Filled from the file (.*)\. Check every line against the paper invoice before saving\. Blank prices, batches and expiry dates stay blank until you type them\. Nothing is saved until you tap Save\.$/, "عُبئت من الملف $1. راجع كل سطر مع الفاتورة الورقية قبل الحفظ. الأسعار والوجبات وتواريخ الانتهاء الفارغة تبقى فارغة حتى تكتبها. لا يُحفظ شيء حتى تضغط حفظ."],
   [/^Put (\d+) lines into the invoice$/, "إدخال $1 سطر في الفاتورة"], [/^Put (\d+) items into the count$/, "إدخال $1 مادة في الجرد"],
   [/^(\d+) lines filled in from the file\. Check them, then tap Save invoice\.$/, "عُبئ $1 سطر من الملف. راجعها ثم اضغط حفظ الفاتورة."], [/^(\d+) items filled in from the file\. Check them, then save the count\.$/, "عُبئت $1 مادة من الملف. راجعها ثم احفظ الجرد."]);
+Object.assign(AR, {"Allow selling on debt (دين)":"السماح بالبيع بالدين","Return items":"إرجاع مواد","Returns":"المرتجعات","Save return":"حفظ الإرجاع","What happens to the items":"ماذا يحصل للمواد","Back on the shelf (stock goes back)":"تعود للرف (يرجع المخزون)","Damaged or opened (stock stays out)":"تالفة أو مفتوحة (لا يرجع المخزون)","Reason":"السبب","Customer return":"إرجاع من زبون","Customer return (damaged)":"إرجاع من زبون (تالف)","The refund comes off the customer's debt.":"المبلغ المرجع يُخصم من دين الزبون.","The refund is paid from the cash box.":"المبلغ المرجع يُدفع من الصندوق.","Needs the owner's PIN.":"يحتاج رمز المالك.","Enter how many come back.":"أدخل الكمية المرجعة.","Write the reason for the return.":"اكتب سبب الإرجاع.","Items from this receipt were already returned. Return the rest instead of cancelling.":"أُرجعت مواد من هذا الوصل. أرجع الباقي بدلاً من الإلغاء.","Customer (optional)":"الزبون (اختياري)","No customer":"بدون زبون","Cash":"نقد","Change":"الباقي","No expiry date":"بدون تاريخ انتهاء","Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print":"المفاتيح: F2 بحث · ↑ ↓ النتائج · F4 الوحدة · + − الكمية · F9 حفظ · F10 طباعة","Today's cash box is already closed. Sales saved now show under \"Changes after closing\" in Money.":"صندوق اليوم مغلق. المبيعات التي تُحفظ الآن تظهر تحت \"تغييرات بعد الإغلاق\" في الحسابات."});
+AR_RX.push([/^(.+): the quantity must be a whole number\. To sell part of a box, choose the strip or tablet unit\.$/, "$1: الكمية يجب أن تكون عدداً صحيحاً. لبيع جزء من العلبة اختر الشريط أو الحبة."], [/^Cash received \(([\d,]+) IQD\) is less than the total \(([\d,]+) IQD\)\. Take the rest, or choose "On debt"\.$/, "النقد المستلم ($1 دينار) أقل من المجموع ($2 دينار). استلم الباقي أو اختر \"دين\"."], [/^Return saved\. Refund (.+)\.$/, "حُفظ الإرجاع. المبلغ المرجع $1."], [/^Returns −(.+)$/, "مرتجعات −$1"], [/^(.+) has no set price \(sold at ([\d,]+) IQD\)$/, "$1 بدون سعر محدد (بيع بـ $2 دينار)"], [/^sold$/, "مباع"], [/^can still come back$/, "يمكن إرجاعها"]);
 Object.assign(AR, {"Owner: sell anyway (owner PIN)":"المالك: بِع على أي حال (رمز المالك)","Out of stock":"نافد","Stock history":"حركة المخزون","Came in":"وارد","Sold":"مباع","Sold, then cancelled":"مباع ثم أُلغي","Returned to supplier":"مرتجع للمورد","Stocktake":"جرد",
   "Stock alerts":"تنبيهات المخزون","Stock below zero":"مخزون تحت الصفر","Low stock":"مخزون قليل","Expired stock":"مخزون منتهي","Expiring in 3 months":"ينتهي خلال 3 أشهر","Sales blocked":"مبيعات مُنعت","Sold past the stock":"بيع أكثر من المخزون","Stocktake differences":"فروقات الجرد",
   "Possible duplicate items":"مواد قد تكون مكررة","Stock changes without approval":"تغييرات مخزون بدون موافقة","Cloud sync failed":"فشلت المزامنة السحابية","Sale blocked":"بيع مُنع","Stocktake difference":"فرق جرد","Stock change without approval":"تغيير مخزون بدون موافقة",

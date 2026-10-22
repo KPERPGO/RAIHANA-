@@ -5,7 +5,7 @@ let pw; try { pw = require('playwright'); } catch { pw = require('./pw'); }
 const exe = process.env.CHROMIUM || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined);
 const xlsxFile = [path.join(__dirname, '..', 'node_modules', 'xlsx', 'dist', 'xlsx.full.min.js'), path.join(__dirname, 'node_modules', 'xlsx', 'dist', 'xlsx.full.min.js')].find(f => fs.existsSync(f));
 // the app starts in Arabic on a new device; the tests were written in English, so every page starts with English chosen (tests click the language button to check Arabic)
-const english = `try { if (!localStorage.getItem('rp.lang')) localStorage.setItem('rp.lang', '"en"'); } catch (e) {}`;
+const english = `try { if (!localStorage.getItem('rp.lang')) localStorage.setItem('rp.lang', '"en"'); if (!localStorage.getItem('erp.tourDone')) localStorage.setItem('erp.tourDone', 'true'); } catch (e) {}`;
 async function launch(o = {}){
   const b = await pw.chromium.launch({ executablePath: exe, ...o });
   const newContext = b.newContext.bind(b), newPage = b.newPage.bind(b);

@@ -548,6 +548,7 @@ function settingsView(){
      ${c ? `<p class="note">Signed in as ${esc(c.email)}.</p><div class="actions"><button type="button" data-xsync="1">Sync now</button><button type="button" class="danger" data-xlogout="1">Sign out of sync</button></div>` :
      `<form id="syncForm" style="display:grid;gap:10px"><p class="note">Connect your pharmacy's cloud so every device shows the same data. You need the four things from Supabase. Type the password yourself; it is never saved in a file.</p><label>Project URL<input id="yUrl" placeholder="https://xxxx.supabase.co" autocapitalize="none" autocorrect="off" spellcheck="false"></label><label>Public key (Publishable key)<input id="yKey" autocapitalize="none" autocorrect="off" spellcheck="false"></label><div class="grid2 stack"><label>Email<input id="yEmail" type="email" autocapitalize="none" autocorrect="off"></label><label>Password<input id="yPass" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off"></label></div><label class="check"><input type="checkbox" id="yShow"> Show the password</label><p class="err" id="yErr"></p><button type="submit" class="primary">Connect</button></form>`}`}
   </div></section>
+  <section class="sec"><h2>Help</h2><div class="sum"><button type="button" data-xguide="1">Show the tour and tips again</button></div></section>
   <section class="sec"><h2>Backup</h2><div class="sum"><p>Full backup of everything (invoices, payments, stock changes, sales, customers, chronic cards, expenses) as one file. Keep it on another device or in Google Drive.</p>
     <div class="actions"><button type="button" class="primary" data-xbackup="1" ${S.dl ? "" : "disabled"}>Download full backup</button><button type="button" data-act="export" ${S.dl ? "" : "disabled"}>Download Excel</button></div>
     ${S.readOnly ? "" : `<label>Restore from a backup file<input type="file" id="restoreIn" accept="application/json,.json"></label><p class="note">You see what will change before anything is saved. Nothing is deleted, and nothing you changed or cancelled after the backup is undone.</p>`}</div></section>
@@ -1694,3 +1695,57 @@ AR_RX.push([/^Sale saved\. Give back ([\d,]+) IQD\.$/, "تم حفظ البيع. 
 // on a computer with a keyboard, closing the receipt puts the cursor back in the search box, ready for the next scan
 const closeSheetBase = closeSheet;
 closeSheet = window.closeSheet = function(){ closeSheetBase(); if (S.tab === "sell" && window.matchMedia("(min-width:761px) and (pointer:fine)").matches) setTimeout(() => { const q = $("#sellQ"); if (q && $("#sheet").hidden) q.focus(); }, 60); };
+
+/* ---- guided start: a short first-use tour, one small tip per screen, and the day's steps for the person on shift ---- */
+const TIPS = {
+  sell: "Tap a medicine to add it, check the quantity, then tap Pay. Made a mistake? Remove the line before you pay.",
+  stock: "This is what is on the shelf now. Use Stocktaking to count a shelf and fix any difference.",
+  pricing: "Set the selling price from the cost. The app shows the exact formula it used.",
+  customers: "Keep your regular customers here. Open a name to see what they bought.",
+  money: "Today's cash in and out. Check it at the end of the day.",
+  staff: "Add each person with their own PIN, and choose which screens they can use.",
+  settings: "Language, backup and cloud sync are here. Take a backup now and then."
+};
+const TOUR = [
+  ["Welcome to Raihana", "A quick look in four steps. You can skip it any time."],
+  ["Sell is your main screen", "Tap a medicine to add it. Check the quantity, then tap Pay. The app tells you how much change to give back."],
+  ["Your day", "At the start, count the cash in the drawer. At the end, count it again and tap End shift. The owner sees any difference."],
+  ["Help is always near", "Every screen has a small tip at the top. You can show the tour and the tips again from Settings."]
+];
+function dayCard(){
+  const sh = S.staff && curShift(); if (!sh || (S.tab !== "sell" && S.tab !== "home")) return "";
+  const counted = isNum(sh.openCount);
+  const started = `<span>✓ Shift started</span> <span class="num">${esc(hm(sh.start))}</span>`, endBtn = `<button type="button" data-xgd="end">Count cash and end shift</button>`;
+  return counted ? `<section class="sum" id="dayCard"><div class="r" style="flex-wrap:wrap;align-items:center">${started}<span>✓ Cash counted at the start</span>${endBtn}</div></section>`
+    : `<section class="sum" id="dayCard"><div class="r">${started}</div>
+    <div class="r" style="align-items:center"><span>○ Count the cash before you sell</span><button type="button" class="primary" data-xgd="open">Count the cash</button></div>
+    <div class="r" style="align-items:center"><span>○ End of the day</span>${endBtn}</div></section>`;
+}
+function tipCard(){
+  const k = S.tab, seen = lsGet("erp.hints", {}); if (!TIPS[k] || seen[k]) return "";
+  return `<div class="banner" id="tipCard" style="display:flex;gap:10px;align-items:center;justify-content:space-between"><span><span aria-hidden="true">💡 </span>${esc(TIPS[k])}</span><button type="button" data-xhint="${k}">Got it</button></div>`;
+}
+function tourSheet(i){
+  const [h, p] = TOUR[i], last = i === TOUR.length - 1;
+  openSheet(h, `<p>${esc(p)}</p><p class="note num" style="text-align:center">${i + 1} / ${TOUR.length}</p>
+    <div class="actions">${i ? `<button type="button" data-xtour="${i - 1}">Back</button>` : `<button type="button" data-xtour="done">Skip</button>`}
+    <button type="button" class="primary" data-xtour="${last ? "done" : i + 1}">${last ? "Start working" : "Next"}</button></div>`);
+  if (S.lang === "ar") translate($("#sheet"));
+}
+const baseRenderGuide = render;
+render = window.render = function(){
+  const r = baseRenderGuide.apply(this, arguments), v = $("#view");
+  if (v && !$("#lockScreen:not([hidden])") && S.ready){
+    const html = dayCard() + tipCard();
+    if (html){ v.insertAdjacentHTML("afterbegin", html); if (S.lang === "ar") [$("#dayCard"), $("#tipCard")].forEach(e => e && translate(e)); }
+    if (!lsGet("erp.tourDone", false) && (S.staff || !E.staff.length) && $("#sheet").hidden){ lsSet("erp.tourDone", true); setTimeout(() => { if ($("#sheet").hidden) tourSheet(0); }, 400); }
+  }
+  return r;
+};
+document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
+  if (d.xgd){ cashSheet(d.xgd); return; }
+  if (d.xhint){ const s = lsGet("erp.hints", {}); s[d.xhint] = true; lsSet("erp.hints", s); $("#tipCard")?.remove(); return; }
+  if (d.xtour){ if (d.xtour === "done") closeSheet(); else tourSheet(+d.xtour); return; }
+  if (d.xguide){ lsSet("erp.hints", {}); lsSet("erp.tourDone", false); closeSheet(); render(); return; }
+});
+Object.assign(AR, {"Tap a medicine to add it, check the quantity, then tap Pay. Made a mistake? Remove the line before you pay.":"اضغط على الدواء لإضافته، راجع الكمية، ثم اضغط دفع. أخطأت؟ احذف السطر قبل الدفع.","This is what is on the shelf now. Use Stocktaking to count a shelf and fix any difference.":"هذا ما هو موجود على الرف الآن. استعمل الجرد لعد رف وتصحيح أي فرق.","Set the selling price from the cost. The app shows the exact formula it used.":"حدد سعر البيع من الكلفة. التطبيق يعرض المعادلة التي استعملها.","Keep your regular customers here. Open a name to see what they bought.":"احفظ زبائنك الدائمين هنا. افتح الاسم لترى ما اشتراه.","Today's cash in and out. Check it at the end of the day.":"النقد الداخل والخارج اليوم. راجعه في نهاية اليوم.","Add each person with their own PIN, and choose which screens they can use.":"أضف كل شخص برقمه السري، واختر الشاشات التي يستطيع استعمالها.","Language, backup and cloud sync are here. Take a backup now and then.":"اللغة والنسخ الاحتياطي ومزامنة السحابة هنا. خذ نسخة احتياطية من حين لآخر.","Got it":"فهمت","Skip":"تخطي","Next":"التالي","Back":"رجوع","Start working":"ابدأ العمل","Welcome to Raihana":"أهلاً بك في ريحانة","A quick look in four steps. You can skip it any time.":"نظرة سريعة في أربع خطوات. يمكنك تخطيها في أي وقت.","Sell is your main screen":"البيع هو شاشتك الرئيسية","Tap a medicine to add it. Check the quantity, then tap Pay. The app tells you how much change to give back.":"اضغط على الدواء لإضافته. راجع الكمية ثم اضغط دفع. التطبيق يخبرك كم ترجع للزبون.","Your day":"يومك","At the start, count the cash in the drawer. At the end, count it again and tap End shift. The owner sees any difference.":"في البداية عدّ النقد في الصندوق. في النهاية عدّه مرة أخرى واضغط إنهاء الدوام. المالك يرى أي فرق.","Help is always near":"المساعدة دائماً قريبة","Every screen has a small tip at the top. You can show the tour and the tips again from Settings.":"في أعلى كل شاشة نصيحة صغيرة. يمكنك إظهار الجولة والنصائح مرة أخرى من الإعدادات.","✓ Shift started":"✓ بدأ الدوام","✓ Cash counted at the start":"✓ تم عدّ النقد في البداية","○ Count the cash before you sell":"○ عدّ النقد قبل البيع","Count the cash":"عدّ النقد","○ End of the day":"○ نهاية اليوم","Count cash and end shift":"عدّ النقد وإنهاء الدوام","Show the tour and tips again":"إظهار الجولة والنصائح مرة أخرى","Help":"مساعدة"});

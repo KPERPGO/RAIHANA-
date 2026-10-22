@@ -28,6 +28,15 @@ rep("""  if (!i.lines || !i.lines.length) i.lines = [{}];
   S.draft = i;""")
 rep("""  return `<div class="lineedit" data-line="${k}" data-no="${esc(l.no||"")}">""", """  return `<div class="lineedit" data-line="${k}" data-lid="${esc(l.lid ?? "")}" data-pid="${esc(l.pid ?? "")}" data-no="${esc(l.no||"")}">""")
 rep("""    return {no: el.dataset.no || undefined, note:""", """    return {lid: el.dataset.lid || undefined, pid: el.dataset.pid || undefined, no: el.dataset.no || undefined, note:""")
+# Excel/CSV upload: a new invoice can be filled from a file; the form then says the lines came from the file, not a photo
+rep("""  openSheet(id ? "Edit invoice" : pre ? "Check scanned invoice" : "Add invoice", `
+    ${pre ? `<div class="banner">Read from the photo. Check every line against the paper before saving. Nothing is saved until you tap Save.</div>` : ""}
+    ${ex && ex.uncertain && ex.uncertain.length ? `<div class="sum"><b>Couldn't read clearly</b>""", """  const fromFile = ex?.source === "file";
+  openSheet(id ? "Edit invoice" : pre ? (fromFile ? "Check invoice from file" : "Check scanned invoice") : "Add invoice", `
+    ${pre ? `<div class="banner">${fromFile ? `Filled from the file ${esc(ex.file || "")}. Check every line against the paper invoice before saving. Blank prices, batches and expiry dates stay blank until you type them.` : "Read from the photo. Check every line against the paper before saving."} Nothing is saved until you tap Save.</div>` : ""}
+    ${id ? "" : `<div class="actions"><button type="button" data-xinvfile="1">Fill lines from Excel or CSV</button></div>`}
+    ${ex && ex.uncertain && ex.uncertain.length ? `<div class="sum"><b>${fromFile ? "Please check" : "Couldn't read clearly"}</b>""")
+rep("""<b>Flagged when read from the photo</b>""", """<b>${i.extraction.source === "file" ? "Flagged when filled from the file" : "Flagged when read from the photo"}</b>""")
 rep("""  if (!inv.id){ inv.pid = nextPid(); inv.id = inv.pid; inv.createdAt = new Date().toISOString(); inv.createdBy = S.meId; inv.receiving = "pending"; }
 """, """  if (!inv.id){ inv.pid = nextPid(); inv.id = inv.pid; inv.createdAt = new Date().toISOString(); inv.createdBy = S.meId; inv.receiving = "pending"; }
   { // new lines get the next id, never one used before on this invoice; receiving checks follow their line

@@ -5,3 +5,4 @@ tests/erp-artifact-test.html
 # real pharmacy data never goes in this public repository
 olddata/
 *.backup.json
+tests/tmp-upload/

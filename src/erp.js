@@ -449,6 +449,7 @@ function countSheet(){
   const list = cat.filter(p => !q || [p.name, p.strength, p.form, p.barcode, p.shelf].join(" ").toLowerCase().includes(q) || p.barcode === q);
   const done = Object.keys(S.count.counts).length;
   openSheet("Stocktaking", `<p class="note">Count what is on the shelf and in the fridge, not expired stock. Type boxes and loose small units. You can stop and come back; the count is kept on this device until you save it.</p>
+    <div class="actions"><button type="button" data-xctfile="1">Fill from Excel or CSV</button></div>
     <input id="ctQ" type="search" placeholder="Scan barcode or type a name" value="${esc(S.count.q || "")}">
     <div class="list" id="ctList">${list.map(p => { const sys = stockOf(p, used).good, c = S.count.counts[p.id], b = c !== undefined ? Math.floor(c / p.sub) : "", r = c !== undefined && p.sub > 1 ? c - Math.floor(c / p.sub) * p.sub : "";
       const mm = c !== undefined && p.midName ? Math.floor((c - Math.floor(c / p.sub) * p.sub) / p.midN) : "", rr = c !== undefined && p.sub > 1 ? c - Math.floor(c / p.sub) * p.sub - (p.midName ? n0(mm) * p.midN : 0) : "";
@@ -557,38 +558,56 @@ async function prSaveAll(btn, edits, source){
   } finally { btn && (btn.disabled = false); }
   return n;
 }
-/* import a price list: Excel or CSV from MyPharma or any old system */
+/* reading Excel or CSV files: shared by the price import, the invoice upload and the stocktaking upload */
 const normName = v => String(v ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-function guessCol(headers, words){ return headers.findIndex(h => words.some(w => normName(h).includes(w))); }
-async function readPriceFile(file){
-  if (!window.XLSX){ toast("The Excel reader didn't load. Check the internet connection and try again."); return; }
+function guessCol(headers, words, taken = []){ return headers.findIndex((h, i) => !taken.includes(i) && words.some(w => normName(h).includes(normName(w)))); }
+// guess each column in turn, so one column is never picked twice
+function guessCols(headers, spec){ const map = {}, taken = []; for (const [k, words] of spec){ map[k] = guessCol(headers, words, taken); if (map[k] >= 0) taken.push(map[k]); } return map; }
+const cellNum = v => { const x = typeof v === "number" ? v : parseNum(v); return isNum(x) ? x : null; };
+const numColOf = (rows, i) => rows.slice(0, 20).filter(r => isNum(cellNum(r[i]))).length >= Math.min(3, rows.length);
+const pickSheet = fn => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".xlsx,.xls,.csv,text/csv"; inp.onchange = () => inp.files[0] && fn(inp.files[0]); inp.click(); };
+async function readSheetFile(file){
+  if (!window.XLSX){ toast("The Excel reader didn't load. Check the internet connection and try again."); return null; }
   try {
     const wb = /\.(csv|txt)$/i.test(file.name) ? XLSX.read((await file.text()).replace(/^\uFEFF/, ""), {type:"string"}) : XLSX.read(await file.arrayBuffer(), {type:"array"}), ws = wb.Sheets[wb.SheetNames[0]];
     const grid = XLSX.utils.sheet_to_json(ws, {header:1, defval:"", raw:true}).filter(r => r.some(c => String(c).trim() !== ""));
-    if (grid.length < 2){ toast("That file has no rows."); return; }
+    if (grid.length < 2){ toast("That file has no rows."); return null; }
     let hi = grid.slice(0, 10).findIndex(r => r.filter(c => typeof c === "string" && c.trim()).length >= 2); if (hi < 0) hi = 0;
-    const headers = grid[hi].map((h, i) => String(h).trim() || `Column ${i + 1}`), rows = grid.slice(hi + 1);
-    const map = {name: guessCol(headers, ["name","item","product","drug","اسم","المادة","الصنف","المنتج"]), barcode: guessCol(headers, ["barcode","bar code","code","ean","باركود","الباركود"]),
-      price: guessCol(headers, ["sell","retail","price","بيع","سعر"]), mid: guessCol(headers, ["strip","blister","شريط"]), sub: guessCol(headers, ["piece","tablet","unit price","حبة","مفرد"])};
-    if (map.sub === map.price) map.sub = -1; if (map.mid === map.price) map.mid = -1; if (map.mid === map.sub) map.sub = -1;
-    const numCol = i => rows.slice(0, 20).filter(r => isNum(typeof r[i] === "number" ? r[i] : parseNum(r[i]))).length >= Math.min(3, rows.length);
-    if (map.name < 0) map.name = headers.findIndex((h, i) => !numCol(i));
-    if (map.price < 0){ for (let i = headers.length - 1; i >= 0; i--) if (i !== map.barcode && numCol(i)){ map.price = i; break; } }
-    S.imp = {file:file.name, headers, rows, map}; impMatch(); impSheet();
-  } catch(e){ toast("That file couldn't be read. Use .xlsx, .xls or .csv."); }
+    return {file:file.name, headers:grid[hi].map((h, i) => String(h).trim() || `Column ${i + 1}`), rows:grid.slice(hi + 1)};
+  } catch(e){ toast("That file couldn't be read. Use .xlsx, .xls or .csv."); return null; }
 }
-function impMatch(){
-  const cat = catalog(), I = S.imp, by = {}; cat.forEach(p => { by[normName(pname(p))] = p; by[normName(p.name)] = by[normName(p.name)] || p; });
-  const cell = (r, k) => I.map[k] >= 0 ? r[I.map[k]] : "";
-  const num = v => { const x = typeof v === "number" ? v : parseNum(v); return isNum(x) && x > 0 ? x : null; };
-  I.out = I.rows.map((r, i) => {
-    const name = String(cell(r, "name") ?? "").trim(), bc = String(cell(r, "barcode") ?? "").trim(), price = num(cell(r, "price")), sub = num(cell(r, "sub")), mid = num(cell(r, "mid"));
+// find a stock item for a row of a file: barcode first, then exact name, then a close name that the user must check
+function itemMatcher(){
+  const cat = catalog(), by = {}; cat.forEach(p => { by[normName(pname(p))] = p; by[normName(p.name)] = by[normName(p.name)] || p; });
+  return (name, bc) => {
     let p = bc && cat.find(x => x.barcode && x.barcode === bc), how = p ? "barcode" : "";
     if (!p && name){ p = by[normName(name)]; if (p) how = "name"; }
     if (!p && name){ const t = new Set(normName(name).split(" ").filter(w => w.length > 1)); let best = null, sc = 0;
       for (const x of cat){ const u = normName(pname(x)).split(" ").filter(w => w.length > 1); if (!u.length || !t.size) continue; const hit = u.filter(w => t.has(w)).length; const s2 = hit / Math.max(t.size, Math.min(u.length, 4)); if (s2 > sc){ sc = s2; best = x; } }
       if (best && sc >= 0.5){ p = best; how = "check"; } }
-    return {i, name, bc, price, sub, mid, pid: p ? p.id : "", how, use: !!p && how !== "check" && !!price};
+    return {pid: p ? p.id : "", how};
+  };
+}
+const NAME_WORDS = ["name","item","product","drug","description","اسم","المادة","الصنف","المنتج","البيان"], BARCODE_WORDS = ["barcode","bar code","code","ean","باركود","الباركود"];
+
+/* import a price list: Excel or CSV from MyPharma or any old system */
+async function readPriceFile(file){
+  const F = await readSheetFile(file); if (!F) return;
+  const {headers, rows} = F;
+  const map = {name: guessCol(headers, NAME_WORDS), barcode: guessCol(headers, BARCODE_WORDS),
+    price: guessCol(headers, ["sell","retail","price","بيع","سعر"]), mid: guessCol(headers, ["strip","blister","شريط"]), sub: guessCol(headers, ["piece","tablet","unit price","حبة","مفرد"])};
+  if (map.sub === map.price) map.sub = -1; if (map.mid === map.price) map.mid = -1; if (map.mid === map.sub) map.sub = -1;
+  if (map.name < 0) map.name = headers.findIndex((h, i) => !numColOf(rows, i));
+  if (map.price < 0){ for (let i = headers.length - 1; i >= 0; i--) if (i !== map.barcode && numColOf(rows, i)){ map.price = i; break; } }
+  S.imp = {...F, map}; impMatch(); impSheet();
+}
+function impMatch(){
+  const I = S.imp, match = itemMatcher(), cell = (r, k) => I.map[k] >= 0 ? r[I.map[k]] : "";
+  const num = v => { const x = cellNum(v); return x > 0 ? x : null; };
+  I.out = I.rows.map((r, i) => {
+    const name = String(cell(r, "name") ?? "").trim(), bc = String(cell(r, "barcode") ?? "").trim(), price = num(cell(r, "price")), sub = num(cell(r, "sub")), mid = num(cell(r, "mid"));
+    const {pid, how} = match(name, bc);
+    return {i, name, bc, price, sub, mid, pid, how, use: !!pid && how !== "check" && !!price};
   });
 }
 function impSheet(){
@@ -606,6 +625,130 @@ function impSheet(){
     <label class="check"><input type="checkbox" id="imBar" checked> Also save the barcode from the file when the item has none</label>
     <p class="err" id="imErr"></p><button type="button" class="primary" data-ximsave="1">Save ${ok} prices from the file</button>`);
 }
+
+// a pop-up that changes to a different page starts at its top, so the "check these" note is the first thing seen
+const sheetTop = () => document.querySelectorAll("#sheet, #sheet *").forEach(el => { if (el.scrollTop) el.scrollTop = 0; });
+/* ---- fill a new purchase invoice from an Excel or CSV file. Only what is in the file is filled in:
+   a blank price, batch or expiry stays blank, and nothing is saved until the invoice form's Save ---- */
+const INV_COLS = [["bonus","Bonus qty",["bonus","free","بونص","مجاني","هدية"]],["discPct","Discount %",["discount %","disc %","نسبة الخصم","خصم %"]],["discAmt","Discount (IQD)",["discount","disc","خصم"]],
+  ["expiry","Expiry",["expiry","exp","expire","الصلاحية","انتهاء"]],["batch","Batch",["batch","lot","باج","الوجبة","وجبة"]],["cold","Refrigerated",["fridge","cold","refrigerat","براد","تبريد"]],
+  ["value","Line value",["value","amount","total","line total","القيمة","المبلغ","الاجمالي","الإجمالي"]],["price","Unit price",["unit price","price","cost","السعر","سعر"]],["qty","Paid qty",["qty","quantity","الكمية","العدد"]],["desc","Product",NAME_WORDS]];
+const TOTAL_ROW = /^(total|sub ?total|grand total|net|المجموع|الاجمالي|الإجمالي|المجموع الصافي|الصافي)(?=[\s:.]|$)/i; // \b does not work after Arabic letters
+const YES = /^(yes|y|true|1|x|✓|✔|نعم|براد)$/i;
+// expiry as YYYY-MM from an Excel date, 2027-05, 05/2027, 5/27 or 15/05/2027 (day first). Anything else stays blank and is flagged.
+function expiryOf(v){
+  if (v === "" || v == null) return {v:""};
+  if (typeof v === "number" && v > 20000 && v < 80000) return {v:new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 7)};
+  const s = String(v).trim().replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)), mm = n => n >= 1 && n <= 12, two = n => String(n).padStart(2, "0");
+  let m = s.match(/^(\d{4})[-\/.](\d{1,2})(?:[-\/.]\d{1,2})?$/); if (m && mm(+m[2])) return {v:`${m[1]}-${two(+m[2])}`};
+  m = s.match(/^(?:\d{1,2}[-\/.])?(\d{1,2})[-\/.](\d{4}|\d{2})$/); if (m && mm(+m[1])) return {v:`${m[2].length === 2 ? 2000 + +m[2] : m[2]}-${two(+m[1])}`};
+  return {v:"", bad:s};
+}
+async function readInvoiceFile(file){
+  const F = await readSheetFile(file); if (!F) return;
+  const map = guessCols(F.headers, INV_COLS.map(([k, , w]) => [k, w]));
+  if (map.desc < 0) map.desc = F.headers.findIndex((h, i) => !Object.values(map).includes(i) && !numColOf(F.rows, i));
+  S.invImp = {...F, map, base:S.invImpBase}; invImpParse(); invImpSheet();
+}
+function invImpParse(){
+  const I = S.invImp, cell = (r, k) => I.map[k] >= 0 ? r[I.map[k]] : "", lines = [], flags = []; let skipped = 0, merged = 0;
+  const plain = d => normName(String(d).replace(/\(?\s*براد\s*\)?/g, ""));
+  I.rows.forEach((r, i) => {
+    const desc = String(cell(r, "desc") ?? "").trim(), qty = cellNum(cell(r, "qty")), price = cellNum(cell(r, "price")), value = cellNum(cell(r, "value")), row = i + 1;
+    if (!desc && !isNum(qty)) { skipped++; return; }
+    if (TOTAL_ROW.test(desc) && !(qty > 0)) { skipped++; return; }
+    const prev = lines[lines.length - 1];
+    // the owner's rule: a quantity with no value is bonus for the priced line of the same product above it
+    if (qty > 0 && !isNum(price) && !isNum(value) && prev && isNum(prev.price) && (!desc || plain(desc) === plain(prev.desc))){
+      prev.bonus = n0(prev.bonus) + qty; prev.note = [prev.note, `Row ${row}: qty ${qty} with no value = bonus`].filter(Boolean).join(" · "); merged++; return; }
+    const ex = expiryOf(cell(r, "expiry")), dp = cellNum(cell(r, "discPct")), da = cellNum(cell(r, "discAmt")), b = cellNum(cell(r, "bonus"));
+    const l = {desc, qty, bonus: b > 0 ? b : null, price, value, discPct: dp > 0 ? dp : null, discAmt: !(dp > 0) && da > 0 ? da : null,
+      batch: String(cell(r, "batch") ?? "").trim(), expiry: ex.v, cold: /براد/.test(desc) || YES.test(String(cell(r, "cold") ?? "").trim())};
+    if (!desc) flags.push(`Row ${row}: no product name.`);
+    if (ex.bad) flags.push(`Row ${row}: expiry "${ex.bad}" not understood, left blank.`);
+    if (qty > 0 && !isNum(price) && !isNum(value)) l.note = "No value in the file; no matching priced line above";
+    lines.push(l);
+  });
+  Object.assign(I, {lines, flags, skipped, merged});
+}
+function invImpSheet(){
+  const I = S.invImp, opts = h => `<option value="-1">Not in file</option>` + I.headers.map((x, i) => `<option value="${i}" ${h === i ? "selected" : ""}>${esc(x)}</option>`).join("");
+  const blank = k => I.lines.filter(l => !isNum(l[k]) && !l[k]).length;
+  openSheet("Fill invoice from a file", `<p class="note">${esc(I.file)} · ${I.rows.length} rows. Check which column is which. Nothing is saved now: the lines go into the invoice form, where you check them against the paper and tap Save.</p>
+    <div class="grid2">${[...INV_COLS].reverse().map(([k, label]) => `<label>${esc(label)} column<select data-xiicol="${k}">${opts(I.map[k])}</select></label>`).join("")}</div>
+    <div class="sum"><div class="r"><span>Invoice lines</span><span class="num">${I.lines.length}</span></div>${I.merged ? `<div class="r"><span>Bonus rows joined to the line above</span><span class="num">${I.merged}</span></div>` : ""}${I.skipped ? `<div class="r"><span>Empty or total rows left out</span><span class="num">${I.skipped}</span></div>` : ""}
+      <div class="r"><span>Lines with no price</span><span class="num">${blank("price")}</span></div><div class="r"><span>Lines with no batch</span><span class="num">${blank("batch")}</span></div><div class="r"><span>Lines with no expiry</span><span class="num">${blank("expiry")}</span></div>
+      ${I.flags.slice(0, 12).map(f => `<div class="note">• ${esc(f)}</div>`).join("")}${I.flags.length > 12 ? `<div class="note">• ${I.flags.length - 12} more</div>` : ""}</div>
+    <div class="tablewrap"><table><thead><tr><th>Product</th><th class="n">Qty</th><th class="n">Bonus</th><th class="n">Price</th><th class="n">Value</th><th>Batch</th><th>Expiry</th></tr></thead><tbody>
+    ${I.lines.slice(0, 60).map(l => `<tr><td>${esc(l.desc || "—")}${l.cold ? ` <span class="pill">براد</span>` : ""}</td><td class="n num">${isNum(l.qty) ? f0(l.qty) : "—"}</td><td class="n num">${l.bonus ? f0(l.bonus) : ""}</td><td class="n num">${isNum(l.price) ? f0(l.price) : "—"}</td><td class="n num">${isNum(l.value) ? f0(l.value) : "—"}</td><td>${esc(l.batch || "—")}</td><td class="num">${esc(l.expiry || "—")}</td></tr>`).join("")}</tbody></table></div>
+    ${I.lines.length > 60 ? `<p class="note">Showing the first 60 lines. All of them go into the invoice.</p>` : ""}
+    <p class="err" id="iiErr"></p><div class="actions"><button type="button" class="primary" data-xiifill="1">Put ${I.lines.length} lines into the invoice</button><button type="button" data-xiiback="1">Back to the invoice</button></div>`);
+}
+function invImpFill(){
+  const I = S.invImp; if (!I.lines.length){ $("#iiErr").textContent = "No lines found. Check the Product and Paid qty columns."; return; }
+  const base = I.base || {supplierId:S.suppliers[0]?.id || "__new", date:today(), type:"credit", lines:[]}, kept = (base.lines || []).filter(l => l.desc || isNum(l.qty));
+  const ex = base.extraction || {}, uncertain = [...(ex.uncertain || []), ...I.flags];
+  const pre = {...base, lines:[...kept, ...I.lines], extraction:{...ex, uncertain:[...new Set(uncertain)], at:nowIso(), source: ex.source === "photo" ? "photo" : "file", file:I.file}};
+  S.invImp = null; S.invImpBase = null; invoiceForm(null, pre); sheetTop();
+  toast(`${I.lines.length} lines filled in from the file. Check them, then tap Save invoice.`);
+}
+
+/* ---- fill the stocktaking count from an Excel or CSV file (for example a count made on paper and typed up).
+   The numbers go into the open count for review; saving still needs the owner, as with a count typed by hand ---- */
+const CT_COLS = [["loose","Loose small units",["loose","pieces","tablets","units","مفرد","حبة","حبات"]],["count","Count",["count","counted","qty","quantity","stock","on hand","balance","boxes","الكمية","العدد","الرصيد","الجرد","المخزون"]],["barcode","Barcode",BARCODE_WORDS],["name","Item name",NAME_WORDS]];
+async function readCountFile(file){
+  const F = await readSheetFile(file); if (!F) return;
+  const map = guessCols(F.headers, CT_COLS.map(([k, , w]) => [k, w]));
+  if (map.name < 0) map.name = F.headers.findIndex((h, i) => !Object.values(map).includes(i) && !numColOf(F.rows, i));
+  if (map.count < 0){ for (let i = F.headers.length - 1; i >= 0; i--) if (!Object.values(map).includes(i) && numColOf(F.rows, i)){ map.count = i; break; } }
+  S.ctImp = {...F, map, unit:"box"}; ctImpMatch(); ctImpSheet();
+}
+function ctImpMatch(){
+  const I = S.ctImp, match = itemMatcher(), cell = (r, k) => I.map[k] >= 0 ? r[I.map[k]] : "";
+  I.out = I.rows.map((r, i) => {
+    const name = String(cell(r, "name") ?? "").trim(), bc = String(cell(r, "barcode") ?? "").trim(), c = cellNum(cell(r, "count")), lo = cellNum(cell(r, "loose"));
+    const ok = (isNum(c) && c >= 0) || (isNum(lo) && lo >= 0), {pid, how} = name || bc ? match(name, bc) : {pid:"", how:""};
+    return {i, name, bc, count: isNum(c) && c >= 0 ? c : null, loose: isNum(lo) && lo >= 0 ? lo : null, ok, pid, how, use: ok && !!pid && how !== "check"};
+  }).filter(o => o.name || o.bc);
+}
+// the count column is boxes or smallest units (owner picks); loose units are always smallest units
+const ctImpUnits = (o, p) => (o.count == null ? 0 : S.ctImp.unit === "box" ? o.count * p.sub : o.count) + n0(o.loose);
+function ctImpSheet(){
+  const I = S.ctImp, cat = catalog(), used = usedMap(), opts = h => `<option value="-1">Not in file</option>` + I.headers.map((x, i) => `<option value="${i}" ${h === i ? "selected" : ""}>${esc(x)}</option>`).join("");
+  const sorted = [...I.out].sort((a,b) => ({check:0, "":1, name:2, barcode:3}[a.how] - ({check:0, "":1, name:2, barcode:3}[b.how]))), ok = I.out.filter(o => o.use).length;
+  openSheet("Fill count from a file", `<p class="note">${esc(I.file)} · ${I.out.length} rows. Check which column is which, then check the matches. Ticked rows go into the count; you still check them and the owner saves the count.</p>
+    <div class="grid2">${[...CT_COLS].reverse().map(([k, label]) => `<label>${esc(label)} column<select data-xcicol="${k}">${opts(I.map[k])}</select></label>`).join("")}
+      <label>The count column is in<select id="ciUnit"><option value="box" ${I.unit === "box" ? "selected" : ""}>Boxes</option><option value="sub" ${I.unit === "sub" ? "selected" : ""}>Smallest units (tablets, pieces)</option></select></label></div>
+    <div class="sum"><div class="r"><span>Matched by barcode</span><span class="num">${I.out.filter(o => o.how === "barcode").length}</span></div><div class="r"><span>Matched by name</span><span class="num">${I.out.filter(o => o.how === "name").length}</span></div><div class="r"><span>Close match, please check</span><span class="num">${I.out.filter(o => o.how === "check").length}</span></div><div class="r"><span>Not in your stock</span><span class="num">${I.out.filter(o => !o.pid).length}</span></div>${I.out.some(o => !o.ok) ? `<div class="r"><span>No count in the row</span><span class="num">${I.out.filter(o => !o.ok).length}</span></div>` : ""}</div>
+    <div class="tablewrap"><table><thead><tr><th>Use</th><th>In the file</th><th>Your item</th><th class="n">System</th><th class="n">Counted</th></tr></thead><tbody>
+    ${sorted.slice(0, 400).map(o => { const p = cat.find(x => x.id === o.pid); return `<tr><td><input type="checkbox" data-xciuse="${o.i}" ${o.use ? "checked" : ""} ${!o.pid || !o.ok ? "disabled" : ""} aria-label="Use this row"></td><td>${esc(o.name || "—")}${o.bc ? `<div class="note num">${esc(o.bc)}</div>` : ""}</td>
+      <td><select data-xcipid="${o.i}" style="min-width:180px"><option value="">Not in stock · skip</option>${cat.map(x => `<option value="${esc(x.id)}" ${x.id === o.pid ? "selected" : ""}>${esc(pname(x))}</option>`).join("")}</select>${o.how === "check" ? `<span class="pill warn">Check</span>` : o.how ? `<span class="pill good">${o.how === "barcode" ? "Barcode" : "Name"}</span>` : ""}</td>
+      <td class="n num">${p ? esc(qtyText(p, stockOf(p, used).good)) : "—"}</td><td class="n num"><b>${p && o.ok ? esc(qtyText(p, ctImpUnits(o, p))) : o.ok ? esc(String(o.count ?? "") + (o.loose ? " + " + o.loose : "")) : "—"}</b></td></tr>`; }).join("")}</tbody></table></div>
+    ${I.out.length > 400 ? `<p class="note">Showing the first 400 rows. All ticked rows are still used.</p>` : ""}
+    <p class="err" id="ciErr"></p><div class="actions"><button type="button" class="primary" data-xcifill="1">Put ${ok} items into the count</button><button type="button" data-xciback="1">Back to the count</button></div>`);
+}
+function ctImpFill(){
+  const I = S.ctImp, cat = catalog(), use = I.out.filter(o => o.use && o.pid && o.ok); if (!use.length){ $("#ciErr").textContent = "Tick at least one row."; return; }
+  if (!S.count) S.count = {started:nowIso(), counts:{}, q:""};
+  const add = {}; for (const o of use){ const p = cat.find(x => x.id === o.pid); if (p) add[o.pid] = n0(add[o.pid]) + ctImpUnits(o, p); } // the same item on two rows (shelf + fridge) is added up
+  Object.assign(S.count.counts, add); lsSet("erp.count", S.count); S.ctImp = null; countSheet(); sheetTop();
+  toast(`${Object.keys(add).length} items filled in from the file. Check them, then save the count.`);
+}
+document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
+  if (d.xinvfile){ S.invImpBase = $("#invForm") ? readInvoice() : null; pickSheet(readInvoiceFile); }
+  if (d.xiifill) invImpFill();
+  if (d.xiiback){ const b = S.invImp?.base; S.invImp = null; S.invImpBase = null; b ? invoiceForm(null, b) : invoiceForm(null); }
+  if (d.xctfile) pickSheet(readCountFile);
+  if (d.xcifill) ctImpFill();
+  if (d.xciback){ S.ctImp = null; countSheet(); }
+});
+document.addEventListener("change", ev => { const t = ev.target, d = t.dataset;
+  if (d.xiicol){ S.invImp.map[d.xiicol] = +t.value; invImpParse(); invImpSheet(); }
+  if (d.xcicol){ S.ctImp.map[d.xcicol] = +t.value; ctImpMatch(); ctImpSheet(); }
+  if (t.id === "ciUnit"){ S.ctImp.unit = t.value; ctImpSheet(); }
+  if (d.xciuse !== undefined){ S.ctImp.out.find(o => o.i === +d.xciuse).use = t.checked; const b = document.querySelector("[data-xcifill]"); if (b) b.textContent = `Put ${S.ctImp.out.filter(o => o.use).length} items into the count`; }
+  if (d.xcipid !== undefined){ const o = S.ctImp.out.find(o => o.i === +d.xcipid); o.pid = t.value; o.how = t.value ? "name" : ""; o.use = !!t.value && o.ok; ctImpSheet(); }
+});
 
 /* ---- staff: PIN login per pharmacist, shifts from login to logout, work hours and salary ---- */
 S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice(0,7);
@@ -959,7 +1102,7 @@ document.addEventListener("click", ev => {
     render(); toast(`${n} prices filled in. Check them, then tap Save.${skip ? ` ${skip} items have no cost.` : ""}`); return; }
   if (d.xprdrop){ S.pr.edits = {}; prSave(); render(); toast("Changes undone."); return; }
   if (d.xprsave){ prSaveAll(t, S.pr.edits, "Pricing").then(n => { S.pr.edits = {}; prSave(); render(); toast(`${n} prices saved.`); }).catch(e => toast(e.message)); return; }
-  if (d.ximp){ const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".xlsx,.xls,.csv,text/csv"; inp.onchange = () => inp.files[0] && readPriceFile(inp.files[0]); inp.click(); return; }
+  if (d.ximp){ pickSheet(readPriceFile); return; }
   if (d.ximsave){ const I = S.imp, use = I.out.filter(o => o.use && o.pid && o.price), bar = $("#imBar").checked, edits = {};
     if (!use.length){ $("#imErr").textContent = "Tick at least one row."; return; }
     for (const o of use){ const p = catalog().find(x => x.id === o.pid); edits[o.pid] = {box:o.price, ...(o.mid && p?.midName ? {mid:o.mid} : {}), ...(o.sub && p?.sub > 1 ? {sub:o.sub} : {}), ...(bar && o.bc ? {barcode:o.bc} : {})}; }
@@ -1196,6 +1339,21 @@ AR_RX.push([/^Restore (\d+) records$/, "استرجاع $1 سجل"], [/^Restored 
 Object.assign(AR, {"Changes after closing (new sales, payments, cancels)":"تغييرات بعد الإغلاق (مبيعات ودفعات وإلغاءات جديدة)","Change today's day close":"تعديل إغلاق اليوم","That day is already closed. Use today's date.":"هذا اليوم مغلق. استخدم تاريخ اليوم.","Only the owner can approve invoices.":"اعتماد الفواتير للمالك فقط."});
 AR_RX.push([/^This is more than the customer owes \((.+)\)\. Tap Save payment again to keep the extra as the customer's credit\.$/, "هذا أكثر مما على الزبون ($1). اضغط حفظ الدفعة مرة أخرى لإبقاء الزيادة رصيداً للزبون."], [/^This invoice can't be put on hold because a line it has (sales|stock changes|a return to the supplier)\.$/, (m, w) => `لا يمكن إيقاف هذه الفاتورة لأن أحد سطورها عليه ${w === "sales" ? "مبيعات" : w === "stock changes" ? "تغييرات مخزون" : "إرجاع للمورد"}.`]);
 Object.assign(AR, {"Name, dose, barcode":"الاسم، الجرعة، الباركود","Scan into this box":"امسح الباركود هنا","Enter price":"أدخل السعر","Customers":"الزبائن","Prefilled syringe":"سرنجة جاهزة","Pen":"قلم","Tablet":"حبوب","Ampoule":"أمبولة","Vial":"فيال","Suppository":"تحاميل","Pessary":"تحاميل مهبلية","Eye drops":"قطرة عين","Eye gel":"جل عين","Needle":"إبر","Vaginal capsule":"كبسول مهبلي"});
+Object.assign(AR, {"Fill lines from Excel or CSV":"تعبئة الأسطر من ملف إكسل أو CSV","Fill from Excel or CSV":"تعبئة من ملف إكسل أو CSV","Check invoice from file":"راجع الفاتورة من الملف","Please check":"يرجى المراجعة","Flagged when filled from the file":"ملاحظات عند التعبئة من الملف",
+  "Fill invoice from a file":"تعبئة الفاتورة من ملف","Fill count from a file":"تعبئة الجرد من ملف","Bonus qty column":"عمود كمية البونص","Discount % column":"عمود نسبة الخصم","Discount (IQD) column":"عمود الخصم (دينار)","Expiry column":"عمود الانتهاء","Batch column":"عمود الوجبة","Refrigerated column":"عمود البراد",
+  "Line value column":"عمود قيمة السطر","Unit price column":"عمود سعر الوحدة","Paid qty column":"عمود الكمية المدفوعة","Product column":"عمود المادة","Count column":"عمود العدد","Loose small units column":"عمود الوحدات الصغيرة المفردة","Invoice lines":"أسطر الفاتورة",
+  "Bonus rows joined to the line above":"أسطر بونص أضيفت للسطر الذي فوقها","Empty or total rows left out":"أسطر فارغة أو مجاميع تُركت","Lines with no price":"أسطر بدون سعر","Lines with no batch":"أسطر بدون وجبة","Lines with no expiry":"أسطر بدون تاريخ انتهاء","Qty":"الكمية","Value":"القيمة",
+  "Back to the invoice":"رجوع إلى الفاتورة","Back to the count":"رجوع إلى الجرد","The count column is in":"عمود العدد بوحدة","Boxes":"علب","Smallest units (tablets, pieces)":"أصغر وحدة (حبة، قطعة)","Use":"استخدام","System":"النظام","Counted":"المعدود","No count in the row":"لا يوجد عدد في السطر",
+  "No lines found. Check the Product and Paid qty columns.":"لم توجد أسطر. راجع عمود المادة وعمود الكمية.","Showing the first 60 lines. All of them go into the invoice.":"تظهر أول 60 سطراً. كلها تدخل في الفاتورة.",
+  "Showing the first 400 rows. All ticked rows are still used.":"تظهر أول 400 سطر. كل الأسطر المحددة تُستخدم.","No value in the file; no matching priced line above":"لا قيمة في الملف؛ ولا يوجد سطر مسعّر مطابق فوقه"});
+const arRow = t => t.replace(/^Row (\d+): qty ([\d.]+) with no value = bonus$/, "السطر $1: كمية $2 بدون قيمة = بونص").replace(/^Row (\d+): no product name\.$/, "السطر $1: لا يوجد اسم مادة.").replace(/^Row (\d+): expiry "(.*)" not understood, left blank\.$/, "السطر $1: تاريخ الانتهاء «$2» غير مفهوم، تُرك فارغاً.");
+// a "• " list item is translated like the same text without the dot
+AR_RX.unshift([/^• (.+)$/, (m, t) => { const x = trOne(t); return x === null ? m : "• " + x; }], [/^Row \d+: .+$/, t => { const x = t.split(" · ").map(arRow).join(" · "); return x === t ? t : x; }],
+  [/^(.+) · (\d+) rows\. Check which column is which\. Nothing is saved now: the lines go into the invoice form, where you check them against the paper and tap Save\.$/, "$1 · $2 سطر. تأكد من كل عمود. لا يُحفظ شيء الآن: الأسطر تدخل في نموذج الفاتورة، حيث تراجعها مع الورقة ثم تضغط حفظ."],
+  [/^(.+) · (\d+) rows\. Check which column is which, then check the matches\. Ticked rows go into the count; you still check them and the owner saves the count\.$/, "$1 · $2 سطر. تأكد من كل عمود ثم راجع المطابقات. الأسطر المحددة تدخل في الجرد؛ تراجعها ثم يحفظ المالك الجرد."],
+  [/^Filled from the file (.*)\. Check every line against the paper invoice before saving\. Blank prices, batches and expiry dates stay blank until you type them\. Nothing is saved until you tap Save\.$/, "عُبئت من الملف $1. راجع كل سطر مع الفاتورة الورقية قبل الحفظ. الأسعار والوجبات وتواريخ الانتهاء الفارغة تبقى فارغة حتى تكتبها. لا يُحفظ شيء حتى تضغط حفظ."],
+  [/^Put (\d+) lines into the invoice$/, "إدخال $1 سطر في الفاتورة"], [/^Put (\d+) items into the count$/, "إدخال $1 مادة في الجرد"],
+  [/^(\d+) lines filled in from the file\. Check them, then tap Save invoice\.$/, "عُبئ $1 سطر من الملف. راجعها ثم اضغط حفظ الفاتورة."], [/^(\d+) items filled in from the file\. Check them, then save the count\.$/, "عُبئت $1 مادة من الملف. راجعها ثم احفظ الجرد."]);
 window.addEventListener("online", () => $("#netDot")?.classList.remove("off")); window.addEventListener("offline", () => $("#netDot")?.classList.add("off"));
 // every record written while someone is signed in carries their name and the time
 const baseWrite = write;

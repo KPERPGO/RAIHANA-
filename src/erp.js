@@ -1,7 +1,7 @@
 /* ---------- Raihana ERP modules (2026-10-21): stock by batch, cashier, customers on debt,
    chronic patient cards with shortage alerts, money (cash box, expenses, profit), settings.
    Stock is worked out from the purchase invoices: what came in, minus returns, sales and write-offs. ---------- */
-const E = {staff:[], shifts:[], prods:[], sales:[], moves:[], customers:[], custpays:[], chronic:[], expenses:[], closes:[], counts:[], cfg:{}};
+const E = {staff:[], shifts:[], prods:[], sales:[], moves:[], customers:[], custpays:[], chronic:[], expenses:[], closes:[], counts:[], events:[], cfg:{}};
 /* several sales open at once: one tab per customer at the counter */
 S.tabs = lsGet("erp.tabs", null) || [{n:1, lines:lsGet("erp.cart", []), meta:lsGet("erp.cartMeta", {})}];
 S.tabAt = Math.min(lsGet("erp.tabAt", 0), S.tabs.length - 1); S.sellPeriod = lsGet("erp.sellPeriod", "today");
@@ -145,6 +145,103 @@ function qtyText(p, q){
 const pname = p => `${p.name}${p.strength ? " " + p.strength : ""}`;
 function lowStock(cat, used){ return cat.filter(p => { const s = stockOf(p, used); return p.min !== null ? s.good < p.min * p.sub : s.good <= 0 && p.lines.length; }); }
 
+/* every movement of one item, newest first: what came in, what was sold, written off, returned and counted, by whom */
+function stockHistory(p, s){
+  const out = [], who = x => x.staffByName || x.staffName || (x.lastBy ? whoName(x.lastBy) : "");
+  for (const b of s.bs) out.push({at:b.inv.createdAt || b.inv.date, date:b.inv.date, what:"Came in", ref:`${supName(b.inv.supplierId)} · ${b.inv.invoiceNo || ""}${b.batch ? " · batch " + b.batch : ""}`, q:b.in, who:""});
+  for (const x of E.sales) for (const l of x.lines || []) if (l.pid === p.id){ const q = (l.alloc || []).reduce((a, y) => a + n0(y.q), 0);
+    out.push({at:x.at, date:x.date, what: x.voided ? "Sold, then cancelled" : "Sold", ref:`Receipt ${x.no || x.id}${x.approvedBy && (l.alloc || []).some(y => String(y.key).startsWith("adj:")) ? " · past the stock, owner approved" : ""}`, q: x.voided ? 0 : -q, who:x.staffName || ""}); }
+  for (const x of E.moves) if (x.pid === p.id && !x.voided) out.push({at:x.at, date:x.date, what:x.reason, ref:x.note || "", q:-n0(x.q), who:who(x) + (x.approvedBy && x.approvedBy !== x.staffBy ? " · approved" : "")});
+  const keys = new Map(p.lines.map(({inv, k}) => [inv.id + ":" + k, true]));
+  for (const c of S.credits) for (const y of c.lines || []) if (keys.has(c.invoiceId + ":" + y.k)) out.push({at:c.date, date:c.date, what:"Returned to supplier", ref:`${supName(c.supplierId)}${c.verified ? "" : " · not confirmed yet"}`, q:-n0(y.qty) * p.sub, who:""});
+  for (const c of E.counts) for (const y of c.lines || []) if (y.pid === p.id) out.push({at:c.at, date:c.date, what:"Stocktake", ref:`counted ${qtyText(p, y.counted)}, system ${qtyText(p, y.system)}`, q:0, who:c.approvedBy ? whoName(c.approvedBy) : ""});
+  return out.sort((a, b) => String(b.at || b.date || "").localeCompare(String(a.at || a.date || "")));
+}
+function stockHistoryHtml(p, s){
+  const h = stockHistory(p, s); if (!h.length) return "";
+  return `<div class="sec"><h2>Stock history</h2><div class="list">${h.slice(0, 60).map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.what)}</span><span class="s">${esc(String(x.at || x.date || "").slice(0, 16).replace("T", " "))}${x.ref ? " · " + esc(x.ref) : ""}${x.who ? " · " + esc(x.who) : ""}</span></span><span class="end num">${x.q ? (x.q > 0 ? "+" : "−") + esc(qtyText(p, Math.abs(x.q))) : ""}</span></div>`).join("")}</div>${h.length > 60 ? `<p class="note">Showing the newest 60. The Excel download has all of them.</p>` : ""}</div>`;
+}
+
+/* ---- stock alerts: each names the item, how much, when, and what to do. The owner can switch types off in Settings ---- */
+const ALERT_TYPES = [["neg","Stock below zero"],["out","Out of stock"],["low","Low stock"],["expired","Expired stock"],["expiring","Expiring in 3 months"],["blocked","Sales blocked"],["override","Sold past the stock"],["diff","Stocktake differences"],["dup","Possible duplicate items"],["unapproved","Stock changes without approval"],["sync","Cloud sync failed"]];
+function stockAlerts(){
+  const off = new Set(E.cfg.alertsOff || []), cat = catalog(), used = usedMap(), out = [], since = addDays(today(), -7), add = (type, sev, p, what, qty, when, act) => { if (!off.has(type)) out.push({type, sev, pid:p?.id || "", name: p ? pname(p) : "", what, qty, when, act}); };
+  for (const p of cat){ const s = stockOf(p, used);
+    if (s.good < -1e-6 || s.bs.some(b => b.left < -1e-6)) add("neg", 3, p, "Stock below zero", qtyText(p, Math.min(s.good, ...s.bs.map(b => b.left))), "", "Do a stocktake for this item.");
+    else if (s.good <= 0 && (p.lines.length || p.min !== null)) add("out", 2, p, "Out of stock", "0", p.lastDate ? `last bought ${p.lastDate}` : "", "Restock it, or remove it from open sales.");
+    else if (p.min !== null && s.good < p.min * p.sub) add("low", 1, p, "Low stock", qtyText(p, s.good), `alert below ${p.min} boxes`, "Order more.");
+    for (const b of s.bs){ if (b.left <= 1e-6) continue;
+      if (b.expired) add("expired", 2, p, "Expired stock", qtyText(p, b.left), `batch ${b.batch || "—"} · ${b.expiry}`, "Write it off or return it to the supplier.");
+      else if (b.ml !== null && b.ml <= 3) add("expiring", 1, p, "Expiring in 3 months", qtyText(p, b.left), `batch ${b.batch || "—"} · ${b.expiry}`, "Sell it first or return it to the supplier."); } }
+  const byId = Object.fromEntries(cat.map(p => [p.id, p]));
+  for (const e of E.events) if (e.type === "blocked_sale" && e.date >= since){ const p = byId[e.pid]; add("blocked", 1, p || {id:e.pid, name:e.name}, "Sale blocked", p ? `${qtyText(p, e.want)} wanted · ${qtyText(p, e.avail)} available` : "", `${String(e.at).slice(0, 16).replace("T", " ")}${e.staffName ? " · " + e.staffName : ""}`, "Restock it."); }
+  for (const x of E.sales) if (!x.voided && x.date >= since && x.approvedBy) for (const l of x.lines || []) if ((l.alloc || []).some(a => String(a.key).startsWith("adj:"))){ const p = byId[l.pid]; add("override", 1, p || {id:l.pid, name:l.name}, "Sold past the stock", p ? qtyText(p, (l.alloc || []).filter(a => String(a.key).startsWith("adj:")).reduce((a, y) => a + n0(y.q), 0)) : "", `${x.date} · receipt ${x.no || ""} · approved by ${whoName(x.approvedBy) || "owner"}`, "Do a stocktake for this item."); }
+  const lastCount = [...E.counts].sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")))[0];
+  if (lastCount && lastCount.date >= addDays(today(), -30)) for (const y of lastCount.lines || []) if (y.diff){ const p = byId[y.pid]; add("diff", 1, p || {id:y.pid, name:y.name}, "Stocktake difference", p ? (y.diff > 0 ? "+" : "−") + qtyText(p, Math.abs(y.diff)) : String(y.diff), lastCount.date, "Check why: a sale not entered, a loss, or a counting mistake."); }
+  if (!off.has("dup")){ const groups = {}; for (const p of cat){ const k = normName(`${p.name} ${p.strength || ""}`); (groups[k] = groups[k] || []).push(p); }
+    for (const g of Object.values(groups)) if (g.length > 1) add("dup", 1, g[0], "Possible duplicate items", `${g.length} items`, g.map(pname).join(" / "), "Open each item and check the pack size; if they are the same, use one name on new invoices."); }
+  for (const m of E.moves) if (!m.voided && !m.approvedBy && m.note !== "Stocktaking" && m.date >= addDays(today(), -30)){ const p = byId[m.pid]; add("unapproved", 2, p || {id:m.pid, name:m.pid}, "Stock change without approval", p ? qtyText(p, Math.abs(m.q)) : "", `${m.date} · ${m.reason}${m.staffByName ? " · " + m.staffByName : ""}`, "Check this change with the person who made it."); }
+  if (window.ERP_SYNC?.cfg?.() && ERP_SYNC.status?.state === "error") add("sync", 3, null, "Cloud sync failed", "", ERP_SYNC.status.msg || "", "Open Settings and tap Sync now.");
+  return out.sort((a, b) => b.sev - a.sev);
+}
+function alertRow(a){ return `<button type="button" class="alert row" ${a.pid ? `data-xprod="${esc(a.pid)}"` : `data-tab="settings"`}><span class="dot ${a.sev >= 2 ? "bad" : ""}"></span><span class="main" style="display:grid;gap:2px"><span><b>${esc(a.name || "")}</b>${a.name ? " · " : ""}<span>${esc(a.what)}</span>${a.qty ? ` · <span style="unicode-bidi:isolate">${esc(a.qty)}</span>` : ""}</span><span class="s">${a.when ? `<span>${esc(a.when)}</span> · ` : ""}<span>${esc(a.act)}</span></span></span></button>`; }
+function alertsHome(){
+  const all = stockAlerts(); if (!all.length) return "";
+  const counts = ALERT_TYPES.map(([k, l]) => [k, l, all.filter(a => a.type === k).length]).filter(x => x[2]);
+  return `<section class="sec"><div class="sechead"><h2>Stock alerts</h2>${all.length > 6 ? `<button type="button" data-xalerts="1">See all ${all.length}</button>` : ""}</div>
+    <div class="chips">${counts.map(([k, l, n]) => `<button type="button" data-xalerts="${k}">${esc(l)} · ${n}</button>`).join("")}</div>
+    <div class="list">${all.slice(0, 6).map(alertRow).join("")}</div></section>`;
+}
+function alertsSheet(type){ const all = stockAlerts().filter(a => type === "1" || a.type === type);
+  openSheet("Stock alerts", `<div class="list">${all.slice(0, 300).map(alertRow).join("") || `<div class="empty">No alerts.</div>`}</div>${all.length > 300 ? `<p class="note">Showing the first 300.</p>` : ""}`); }
+function alertSettings(){ const off = new Set(E.cfg.alertsOff || []);
+  return `<fieldset style="border:0;padding:0;margin:0;display:grid;gap:6px"><b style="font-size:14px">Stock alerts on Home</b><div class="permgrid">${ALERT_TYPES.map(([k, l]) => `<label class="check"><input type="checkbox" data-xalert="${k}" ${off.has(k) ? "" : "checked"}> ${esc(l)}</label>`).join("")}</div><p class="note">Low stock uses "Alert when below" on each item.</p></fieldset>`; }
+
+/* ---- STOCK: the one stock check. Every save that takes stock out (sale, write-off, return to the supplier, invoice
+   edit, receiving) asks it right before writing, with stock worked out fresh at that moment, not what the screen showed.
+   Nothing may take a batch below zero. The one exception, by the owner's rule (22 Oct 2026): selling past zero, only
+   with the owner's PIN. Staff are never offered it. Zero stock never removes an item: it stays in every list. ---- */
+const STOCK = {
+  // boxes already taken out of one invoice line: sold, written off or counted less (and returned, unless left out)
+  outBoxes(inv, k, p, used, noReturns){ return usedBoxes(used, lineKey(inv, k), p || {legacyPer:1}) + (noReturns ? 0 : n0(returnedQty(inv.id, k))); },
+  shortText: (p, avail) => avail > 0 ? `${pname(p)}: NOT ENOUGH STOCK — Available quantity: ${qtyText(p, avail)}. This sale cannot be completed. Lower the quantity or remove the item from the invoice.`
+    : `${pname(p)}: OUT OF STOCK — Available quantity: 0. This sale cannot be completed. Restock the item or remove it from the invoice.`,
+  // blocked attempts are kept as small records, so the owner sees them in the alerts
+  async log(type, data){ if (S.readOnly) return; const id = newId("EV"); try { await write("events/" + id, {id, type, at:nowIso(), date:today(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", ...data}); } catch(e){ /* an alert record must never stop the work */ } },
+  // a new invoice line that is not an item you have, but looks like one: ask before making a second item
+  sameAs:{},
+  // largest whole number of boxes that can still go back to the supplier from one invoice line (null: not known here)
+  retMax(inv, k){ const l = inv.lines?.[k], p = l && catalog().find(x => x.id === pidOf(l)); if (!p) return null;
+    const b = stockOf(p, usedMap(true)).bs.find(x => x.key === lineKey(inv, k)); return b ? Math.max(0, Math.floor(b.left / p.sub + 1e-9)) : null; }
+};
+const boxesText = (p, boxes) => p ? qtyText(p, r6(boxes * p.sub)) : String(r6(boxes));
+window.ERP_INV_GUARD = inv => {
+  const old = inv.id ? S.invoices.find(x => x.id === inv.id) : null, used = usedMap(true), cat = catalog(), msgs = [];
+  if (old){ const pos = {}; (old.lines || []).forEach((l, j) => pos[String(l.lid ?? j)] = j);
+    inv.lines.forEach((l, i) => { const j = l.lid == null ? undefined : pos[l.lid]; if (j === undefined) return;
+      if (isNum(old.receivedLines?.[j]?.qty)) return; // stock follows the received count, not the invoice quantity
+      const p = cat.find(x => x.id === pidOf(old.lines[j])), out = STOCK.outBoxes(old, j, p, used);
+      if (n0(l.qty) + n0(l.bonus) < out - 1e-6) msgs.push(`Line ${i + 1} (${l.desc}): ${boxesText(p, out)} already sold, written off or returned. Paid + bonus can't be less than that. Cancel those first.`); }); }
+  if (msgs.length) return msgs.map(m => `<span style="display:block">${esc(m)}</span>`).join("");
+  const ids = new Set(cat.map(x => x.id)), match = itemMatcher(), ask = [];
+  inv.lines.forEach((l, i) => { if (l.pid || (old && l.lid != null) || !l.desc) return; const key = prodKey(l), id = hkey(key); if (ids.has(id)) return;
+    const ans = STOCK.sameAs[key]; if (ans === "new") return; if (ans){ l.pid = ans; return; }
+    const a = attrs(l); let m = match(`${a.name || ""} ${a.strength || ""}`.trim(), ""); if (!m.pid) m = match(l.desc, "");
+    if (m.pid && m.pid !== id) ask.push({i, l, key, pid:m.pid}); });
+  if (!ask.length) return "";
+  return `<b style="display:block">Is this an item you already have?</b>${ask.map(x => { const p = cat.find(y => y.id === x.pid);
+    return `<label style="color:var(--fg)">Line ${x.i + 1}: ${esc(x.l.desc)}<select data-xsame="${esc(x.key)}"><option value="">Choose…</option><option value="${esc(x.pid)}">Same item as ${esc(pname(p))}</option><option value="new">A new item</option></select></label>`; }).join("")}<span style="display:block">Choose for each line, then tap Save again.</span>`;
+};
+window.ERP_RECV_GUARD = (inv, rl) => { const used = usedMap(true), cat = catalog();
+  for (const [k, r] of Object.entries(rl)){ const l = inv.lines?.[+k]; if (!l) continue; const p = cat.find(x => x.id === pidOf(l)), usable = UNUSABLE.includes(r.issue) ? 0 : n0(r.qty), out = STOCK.outBoxes(inv, +k, p, used, true);
+    if (usable < out - 1e-6) return `${l.desc}: ${boxesText(p, out)} already sold or written off. The usable received quantity can't be less than that.`; }
+  return ""; };
+window.ERP_RET_MAX = (inv, k) => STOCK.retMax(inv, k);
+window.ERP_RET_GUARD = (invId, pick) => { const inv = S.invoices.find(i => i.id === invId); if (!inv) return "";
+  for (const [k, v] of Object.entries(pick || {})){ if (!(v > 0)) continue; const max = STOCK.retMax(inv, +k);
+    if (max !== null && v > max) return `${inv.lines[+k]?.desc}: only ${max} left from this invoice line (the rest was sold or written off). Stock can't go below zero.`; }
+  return ""; };
+
 /* ---- chronic patient cards ---- */
 function chrDate(c){
   const m0 = ym(), given = c.given || {};
@@ -273,7 +370,7 @@ function sellView(){
           <select data-xmode="${i}" aria-label="Sell by">${unitOpts(p, c.mode)}</select></div>
         <div class="grid2"><label>Price each (IQD)<input class="num" inputmode="numeric" data-xp="${i}" value="${esc(c.price ?? "")}" placeholder="Enter price"></label>
           <label>Line total<input class="num" value="${lineTot(c).toLocaleString("en-US")}" disabled></label></div>
-        ${needQ > s.good ? `<span class="err">Only ${esc(qtyText(p, s.good))} in stock.</span>` : ""}${!isNum(c.price) ? `<span class="err">Enter a price. Set the usual price under Stock so it fills in next time.</span>` : ""}
+        ${needQ > s.good ? `<span class="err">${esc(s.good <= 0 ? STOCK.shortText(p, 0) : `Only ${qtyText(p, s.good)} in stock.`)}</span>` : ""}${!isNum(c.price) ? `<span class="err">Enter a price. Set the usual price under Stock so it fills in next time.</span>` : ""}
       </div>`; }).join("") : `<div class="empty">Tap a quick button, scan, or search an item to start this sale.</div>`}</div>
     ${lines.length ? `<form id="sellForm" class="sum" style="gap:10px">
       <div class="r"><span>Subtotal</span><span class="num">${iqd(sub)}</span></div>
@@ -282,9 +379,8 @@ function sellView(){
       ${S.cartMeta.method === "debt" ? `<label>Customer<select id="xCust"><option value="">Choose customer</option>${E.customers.filter(c => !c.deleted).map(c => `<option value="${esc(c.id)}" ${S.cartMeta.customerId === c.id ? "selected" : ""}>${esc(c.name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("")}<option value="__new" ${S.cartMeta.customerId === "__new" ? "selected" : ""}>+ New customer</option></select></label>
       ${S.cartMeta.customerId === "__new" ? `<div class="grid2"><label>Customer name<input id="xCName" value="${esc(S.cartMeta.newName || "")}"></label><label>Phone<input id="xCPhone" inputmode="tel" value="${esc(S.cartMeta.newPhone || "")}"></label></div>` : ""}` : ""}
       ${S.cartMeta.method !== "debt" ? `<div class="grid2"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(S.cartMeta.given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(S.cartMeta.given) && S.cartMeta.given >= total ? (S.cartMeta.given - total).toLocaleString("en-US") : ""}" disabled></label></div>` : ""}
-      <label class="check"><input type="checkbox" id="xForce"> Sell even if stock shows less (fix stock later)</label>
       <div class="r big"><span>Total</span><span class="num">${iqd(total)}</span></div>
-      <p class="err" id="xErr"></p>
+      <p class="err" id="xErr">${S.sellErr && S.sellErr.cart === JSON.stringify(S.cart) ? S.sellErr.html : ""}</p>
       <button type="submit" class="primary paybtn">Save sale · ${iqd(total)}</button></form>` : ""}
   </section>
   ${sellDash()}
@@ -300,7 +396,7 @@ function stockView(){
   const cat = catalog(), used = usedMap(), q = S.stockQ.trim().toLowerCase();
   const rows = cat.map(p => ({p, s: stockOf(p, used)}));
   const f = S.stockF;
-  const passK = (f, {p, s}) => f === "low" ? (p.min !== null ? s.good < p.min * p.sub : s.good <= 0) : f === "exp" ? s.bs.some(b => b.left > 0 && b.ml !== null && b.ml >= 0 && b.ml <= 3) : f === "expired" ? s.exp > 0 : f === "fridge" ? p.fridge : f === "noprice" ? !p.sellBox : true;
+  const passK = (f, {p, s}) => f === "out" ? s.good <= 0 : f === "low" ? (p.min !== null ? s.good < p.min * p.sub : s.good <= 0) : f === "exp" ? s.bs.some(b => b.left > 0 && b.ml !== null && b.ml >= 0 && b.ml <= 3) : f === "expired" ? s.exp > 0 : f === "fridge" ? p.fridge : f === "noprice" ? !p.sellBox : true;
   const pass = r => passK(f, r);
   const list = rows.filter(pass).filter(({p}) => !q || [p.name, p.strength, p.form, p.sci, p.barcode, p.desc].join(" ").toLowerCase().includes(q));
   const cnt = k => rows.filter(r => passK(k, r)).length;
@@ -309,7 +405,7 @@ function stockView(){
     <div class="kpi"><span class="l">Items</span><span class="v num">${cat.length}</span></div><div class="kpi"><span class="l">Low or out of stock</span><span class="v num" style="color:var(--bad)">${cnt("low")}</span></div></section>
   <section class="sec"><div class="sechead"><h2>Stock</h2><div class="actions"><button type="button" class="primary" data-xcount="1">Stocktaking</button><button type="button" data-xprod="__new">+ Item</button></div></div>
     <input id="stockQ" type="search" placeholder="Name, dose, barcode" value="${esc(S.stockQ)}">
-    <div class="chips">${[["all","All"],["low","Low"],["exp","Expiring 3 months"],["expired","Expired"],["fridge","Refrigerated"],["noprice","No sell price"]].map(([k,l]) => `<button type="button" data-xsf="${k}" aria-pressed="${f === k}">${l} · ${cnt(k)}</button>`).join("")}</div>
+    <div class="chips">${[["all","All"],["out","Out of stock"],["low","Low"],["exp","Expiring 3 months"],["expired","Expired"],["fridge","Refrigerated"],["noprice","No sell price"]].map(([k,l]) => `<button type="button" data-xsf="${k}" aria-pressed="${f === k}">${l} · ${cnt(k)}</button>`).join("")}</div>
     <div class="list">${list.length ? list.map(({p, s}) => `<button type="button" class="row" data-xprod="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""}${s.next ? ` · next expiry ${esc(s.next.expiry)}` : ""}${s.exp ? ` · ${esc(qtyText(p, s.exp))} expired` : ""}${p.shelf ? ` · shelf ${esc(p.shelf)}` : ""}</span></span><span class="end"><span class="num">${esc(qtyText(p, s.good))}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : p.min !== null && s.good < p.min * p.sub ? `<span class="pill warn">Low</span>` : ""}${p.sellBox ? `<span class="s num">${iqd(p.sellBox)}</span>` : `<span class="pill">No price</span>`}</span></button>`).join("") : `<div class="empty">No items here.</div>`}</div>
     <p class="note">Stock comes from your purchase invoices (paid + bonus, or what you counted in Receiving), minus returns to suppliers, sales and write-offs. Expired batches are not sold.</p></section>`;
 }
@@ -342,7 +438,7 @@ function prodSheet(id){
       <div class="grid2"><label>Quantity<input id="aQty" class="num" inputmode="decimal" required></label><label>Unit<select id="aUnit">${unitOpts(p, "box")}</select></label></div>
       <label>Note<input id="aNote"></label><p class="err" id="aErr"></p><button type="submit">Save stock change</button></form>
     ${(m.priceHistory || []).length ? `<div class="sec"><h2>Price history</h2><div class="list">${[...m.priceHistory].reverse().map(h => `<div class="row" style="cursor:default"><span class="main"><span class="t num">${isNum(h.oldBox) ? f0(h.oldBox) : "—"} → ${isNum(h.box) ? f0(h.box) : "—"} IQD</span><span class="s">${esc((h.at || "").slice(0,10))} · ${esc(h.source || "")}${h.by ? " · " + esc(whoName(h.by)) : ""}</span></span></div>`).join("")}</div></div>` : ""}
-    ${E.moves.filter(x => x.pid === p.id && !x.voided).length ? `<div class="sec"><h2>Stock changes</h2><div class="list">${E.moves.filter(x => x.pid === p.id && !x.voided).sort((a,b) => (b.at || "").localeCompare(a.at || "")).map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.reason)}</span><span class="s">${esc(x.date)}${x.note ? " · " + esc(x.note) : ""}${x.lastBy ? " · " + esc(whoName(x.lastBy)) : ""}</span></span><span class="end num">${x.q > 0 ? "−" : "+"}${esc(qtyText(p, Math.abs(x.q)))}</span></div>`).join("")}</div></div>` : ""}` : ""}`);
+    ${s ? stockHistoryHtml(p, s) : ""}` : ""}`);
 }
 function chronicView(){
   const soon = chronicNeeds(ALERT_DAYS()), month = chronicNeeds(null), short = soon.filter(n => n.short > 0);
@@ -426,7 +522,7 @@ function settingsView(){
     <form id="cfgForm" class="sum" style="gap:10px"><div class="grid2 stack"><label>Pharmacy name on receipts<input id="cfgName" value="${esc(E.cfg.name || "صيدلية ريحانة · Raihana Pharmacy")}"></label><label>Phone on receipts<input id="cfgPhone" value="${esc(E.cfg.phone || "")}"></label></div>
       <label>Warn about chronic pickups this many days ahead<input id="sDays" class="num" inputmode="numeric" value="${ALERT_DAYS()}"></label>
       <label>Discount staff may give without your PIN (% of the receipt)<input id="sDisc" class="num" inputmode="decimal" value="${esc(n0(E.cfg.staffDiscPct))}"></label>
-      <p class="note">Staff also need your PIN to sell below the set price, sell more than the stock shows, cancel a sale or payment or expense, write off or add stock, and save a stocktake.</p><button type="submit">Save settings</button></form></section>
+      <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}<button type="submit">Save settings</button></form></section>
   <section class="sec"><h2>Where your data is</h2><div class="sum">
     ${window.ERP_MODE === "claude" ? `<p>You are using the claude.ai version. Data is saved online in your Claude account and shared on every device where you open this link. It needs internet. Photo scan works here.</p>` :
     `<p>Installed app. Data is saved on this device first, so it works with no internet.</p>
@@ -577,13 +673,15 @@ async function readSheetFile(file){
   } catch(e){ toast("That file couldn't be read. Use .xlsx, .xls or .csv."); return null; }
 }
 // find a stock item for a row of a file: barcode first, then exact name, then a close name that the user must check
+// "20 mg" and "20mg" are the same dose when matching names
+const matchKey = v => normName(v).replace(/(\d)\s+(?=\p{L})/gu, "$1");
 function itemMatcher(){
-  const cat = catalog(), by = {}; cat.forEach(p => { by[normName(pname(p))] = p; by[normName(p.name)] = by[normName(p.name)] || p; });
+  const cat = catalog(), by = {}; cat.forEach(p => { by[matchKey(pname(p))] = p; by[matchKey(p.name)] = by[matchKey(p.name)] || p; });
   return (name, bc) => {
     let p = bc && cat.find(x => x.barcode && x.barcode === bc), how = p ? "barcode" : "";
-    if (!p && name){ p = by[normName(name)]; if (p) how = "name"; }
-    if (!p && name){ const t = new Set(normName(name).split(" ").filter(w => w.length > 1)); let best = null, sc = 0;
-      for (const x of cat){ const u = normName(pname(x)).split(" ").filter(w => w.length > 1); if (!u.length || !t.size) continue; const hit = u.filter(w => t.has(w)).length; const s2 = hit / Math.max(t.size, Math.min(u.length, 4)); if (s2 > sc){ sc = s2; best = x; } }
+    if (!p && name){ p = by[matchKey(name)]; if (p) how = "name"; }
+    if (!p && name){ const t = new Set(matchKey(name).split(" ").filter(w => w.length > 1)); let best = null, sc = 0;
+      for (const x of cat){ const u = matchKey(pname(x)).split(" ").filter(w => w.length > 1); if (!u.length || !t.size) continue; const hit = u.filter(w => t.has(w)).length; const s2 = hit / Math.max(t.size, Math.min(u.length, 4)); if (s2 > sc){ sc = s2; best = x; } }
       if (best && sc >= 0.5){ p = best; how = "check"; } }
     return {pid: p ? p.id : "", how};
   };
@@ -735,6 +833,8 @@ function ctImpFill(){
   toast(`${Object.keys(add).length} items filled in from the file. Check them, then save the count.`);
 }
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
+  if (d.xoversell){ S.oversell = true; $("#sellForm")?.requestSubmit(); }
+  if (d.xalerts) alertsSheet(d.xalerts);
   if (d.xinvfile){ S.invImpBase = $("#invForm") ? readInvoice() : null; pickSheet(readInvoiceFile); }
   if (d.xiifill) invImpFill();
   if (d.xiiback){ const b = S.invImp?.base; S.invImp = null; S.invImpBase = null; b ? invoiceForm(null, b) : invoiceForm(null); }
@@ -743,6 +843,7 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (d.xciback){ S.ctImp = null; countSheet(); }
 });
 document.addEventListener("change", ev => { const t = ev.target, d = t.dataset;
+  if (d.xsame !== undefined){ if (t.value) STOCK.sameAs[d.xsame] = t.value; else delete STOCK.sameAs[d.xsame]; }
   if (d.xiicol){ S.invImp.map[d.xiicol] = +t.value; invImpParse(); invImpSheet(); }
   if (d.xcicol){ S.ctImp.map[d.xcicol] = +t.value; ctImpMatch(); ctImpSheet(); }
   if (t.id === "ciUnit"){ S.ctImp.unit = t.value; ctImpSheet(); }
@@ -913,12 +1014,12 @@ async function pinCheck(st, pin){
 }
 const pinErr = r => r.wait ? `Too many wrong PINs. Try again in ${Math.ceil(r.wait / 1000)} seconds.` : `Wrong PIN. ${r.left} tries left.`;
 // resolves to the approving owner's id (the person themself when they are the owner), or null when cancelled
-function ownerOK(why){
-  if (isOwner()) return Promise.resolve(S.staff?.id || "owner");
+function ownerOK(why, o = {}){ // o.always: ask the PIN even when the owner is the one signed in
   const owners = activeStaff().filter(x => x.role === "owner" && x.pinHash);
+  if (isOwner() && !(o.always && owners.length)) return Promise.resolve(S.staff?.id || "owner");
   if (!owners.length) return Promise.resolve(null);
   return new Promise(done => {
-    const st = {sel: owners.length === 1 ? owners[0].id : null, pin:"", err:""};
+    const st = {sel: owners.length === 1 ? owners[0].id : owners.find(x => x.id === S.staff?.id)?.id || null, pin:"", err:""};
     const el = document.createElement("div"); el.id = "ownerPin"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); document.body.appendChild(el);
     const finish = v => { el.remove(); document.removeEventListener("keydown", key, true); done(v); };
     const draw = () => { const o = owners.find(x => x.id === st.sel);
@@ -953,26 +1054,36 @@ async function saveSale(e){
   try { await saveSaleNow(); } finally { S.saving = false; }
 }
 async function saveSaleNow(){
+  const force = S.oversell === true; S.oversell = false; // set only by the "Owner: sell anyway" button
   const err = $("#xErr"), cat = catalog(), byId = Object.fromEntries(cat.map(p => [p.id, p])), used = usedMap(true);
   const lines = S.cart.map(c => ({c, p: byId[c.pid]})).filter(x => x.p && n0(x.c.qty) > 0);
   if (!lines.length){ err.textContent = "Add at least one item."; return; }
   if (lines.some(x => !isNum(x.c.price))){ err.textContent = "Every item needs a price."; return; }
-  const force = $("#xForce").checked, method = $("#xMethod").value;
+  const method = $("#xMethod").value;
   let customerId = method === "debt" ? S.cartMeta.customerId : null;
   if (method === "debt" && !customerId){ err.textContent = "Choose the customer for a debt sale."; return; }
   const newName = customerId === "__new" ? ($("#xCName")?.value || "").trim() : ""; if (customerId === "__new" && !newName){ err.textContent = "Enter the customer's name."; return; }
-  const out = [], why = [];
+  const out = [], why = [], short = []; let overs = false;
   for (const {c, p} of lines){
     let need = r6(n0(c.qty) * unitPer(p, c.mode)); const alloc = [];
     for (const b of stockOf(p, used).bs){ if (need <= 0) break; if (b.expired || b.left <= 0) continue; const q = r6(Math.min(b.left, need)); alloc.push({key:b.key, batch:b.batch, expiry:b.expiry, q, per:p.sub, cost: isNum(b.cost) ? b.cost : null}); const ux = used[b.key] || (used[b.key] = {b:0, raw:0}); ux.b += q / p.sub; need = r6(need - q); }
-    if (need > 0){ if (!force){ err.textContent = `${pname(p)}: not enough in stock. Tick "Sell even if stock shows less" to sell anyway.`; return; }
-      alloc.push({key:"adj:" + p.id, batch:"", expiry:"", q:need, per:p.sub, cost:subCostNow(p)}); why.push(`Sell ${pname(p)} past the stock (${qtyText(p, need)} more than shown)`); }
+    if (need > 0){ // stock found at a stocktake has no batch: it is sold after the batches, at the newest cost
+      const st = stockOf(p, used), free = r6(st.good - st.bs.filter(b => !b.expired && b.left > 0).reduce((a, b) => a + b.left, 0));
+      if (free > 0){ const q = r6(Math.min(free, need)), ak = "adj:" + p.id; alloc.push({key:ak, batch:"", expiry:"", q, per:p.sub, cost:subCostNow(p)}); const ux = used[ak] || (used[ak] = {b:0, raw:0, c:0}); ux.b += q / p.sub; need = r6(need - q); } }
+    if (need > 0){ if (!force){ short.push({p, want:r6(n0(c.qty) * unitPer(p, c.mode)), avail:r6(n0(c.qty) * unitPer(p, c.mode) - need)}); continue; }
+      alloc.push({key:"adj:" + p.id, batch:"", expiry:"", q:need, per:p.sub, cost:subCostNow(p)}); why.push(`Sell ${pname(p)} past the stock (${qtyText(p, need)} more than shown)`); overs = true; }
     const list = lvlPrice(p, c.mode); if (isNum(list) && wIQD(c.price) < list) why.push(`${pname(p)} at ${f0(c.price)} instead of ${f0(list)} IQD`);
     out.push({pid:p.id, name:pname(p), mode:c.mode, unit: unitName(p, c.mode), per:unitPer(p, c.mode), qty:n0(c.qty), price:wIQD(c.price), total:lineTot(c), alloc});
   }
+  if (short.length){ // checked again here, at the moment of saving: never sold past zero without the owner
+    short.forEach(x => STOCK.log("blocked_sale", {pid:x.p.id, name:pname(x.p), want:x.want, avail:x.avail}));
+    // kept in S so the message stays when the screen redraws (the alert record above redraws it), until the cart changes
+    S.sellErr = {cart:JSON.stringify(S.cart), html: short.map(x => `<span style="display:block">${esc(STOCK.shortText(x.p, x.avail))}</span>`).join("") + `<button type="button" data-xoversell="1" style="margin-top:8px">Owner: sell anyway (owner PIN)</button>`};
+    err.innerHTML = S.sellErr.html; return; }
+  S.sellErr = null;
   const {sub, disc} = cartTotals(lines.map(x => x.c), {disc:parseNum($("#xDisc").value)});
   const discMax = Math.floor(sub * n0(E.cfg.staffDiscPct) / 100); if (disc > discMax) why.push(`Discount ${f0(disc)} IQD (staff may give up to ${f0(discMax)})`);
-  let approvedBy = null; if (why.length && !isOwner()){ approvedBy = await ownerOK(why); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
+  let approvedBy = null; if (why.length && (!isOwner() || overs)){ approvedBy = await ownerOK(why, {always:overs}); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
   if (customerId === "__new"){ customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
   const id = newId("SL"), d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
   const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
@@ -1032,7 +1143,7 @@ async function backupAll(btn){
 }
 /* restore (audit F-03): shows what will change first, adds records that are missing, and replaces a record only when the
    file's copy is newer. A record changed or cancelled on this device after the backup is always kept as it is. */
-const RESTORE_COLLS = ["suppliers","invoices","payments","credits","meta","products","sales","moves","customers","custpays","chronic","expenses","closes","counts","staff","shifts"];
+const RESTORE_COLLS = ["suppliers","invoices","payments","credits","meta","products","sales","moves","customers","custpays","chronic","expenses","closes","counts","staff","shifts","events"];
 const recStamp = d => [d?.lastAt, d?.updatedAt, d?.voidedAt, d?.deletedAt, d?.staffAt, d?.at, d?.createdAt].filter(x => typeof x === "string").sort().pop() || "";
 function deviceColl(coll){
   return ({suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits || S.credits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})),
@@ -1211,7 +1322,8 @@ document.addEventListener("submit", async ev => {
     if (id === "adjForm"){
       const pid = f.dataset.id, p = catalog().find(x => x.id === pid), q = num("#aQty"); if (!(q > 0)) return fail("#aErr", "Enter a quantity above 0.");
       const units = r6(q * unitPer(p, $("#aUnit").value)), reason = $("#aReason").value, more = reason === "Count correction (more found)", key = $("#aKey").value;
-      const b = stockOf(p, usedMap()).bs.find(x => x.key === key), mid = newId("MV");
+      const st = stockOf(p, usedMap(true)), b = st.bs.find(x => x.key === key), mid = newId("MV");
+      if (!more){ const lim = Math.max(0, key.startsWith("adj:") ? st.good : n0(b?.left)); if (units > lim + 1e-9) return fail("#aErr", `Only ${qtyText(p, lim)} left ${key.startsWith("adj:") ? "in stock" : "in this batch"}. Stock can't go below zero.`); }
       const by = await ownerOK([`${reason}: ${qtyText(p, units)} of ${pname(p)}`]); if (!by) return fail("#aErr", NEED_OWNER);
       await write("moves/" + mid, {id:mid, pid, key, q: more ? -units : units, per:p.sub, reason, note:$("#aNote").value.trim(), date:today(), at:nowIso(), cost: b && isNum(b.cost) ? b.cost : subCostNow(p), approvedBy:by});
       toast("Stock updated."); prodSheet(pid); return;
@@ -1250,7 +1362,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0))}); toast("Settings saved."); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0))}); toast("Settings saved."); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -1272,6 +1384,7 @@ homeExtras = window.homeExtras = function(){
     <button type="button" class="kpi tap" data-tab="stock"><span class="l">Low or out of stock</span><span class="v num" ${low ? 'style="color:var(--bad)"' : ""}>${low}</span><span class="l">tap to see</span></button>
     <button type="button" class="kpi tap" data-tab="customers"><span class="l">Customers owe you</span><span class="v num">${iqd(E.customers.reduce((a,c) => a + Math.max(0, custBalance(c.id).bal), 0))}</span><span class="l">tap to see</span></button>
   </section>
+  ${alertsHome()}
   ${soon.length ? `<section class="sec"><div class="sechead"><h2>Chronic patients: order now</h2></div><div class="list">${soon.slice(0,5).map(n => `<button type="button" class="alert row" data-xprod="${esc(n.p.id)}"><span class="dot ${n.missing ? "bad" : ""}"></span><span><b>${esc(pname(n.p))}</b> ${n.missing ? "is missing" : "is short"}: need ${esc(qtyText(n.p, n.q))}, have ${esc(qtyText(n.p, n.have))}.</span></button>`).join("")}</div></section>` : ""}
   ${baseHomeExtras()}`;
 };
@@ -1285,6 +1398,13 @@ window.extraSheets = function(add){
   add("Chronic cards", E.chronic.filter(c => !c.deleted).flatMap(c => (c.meds || []).map(m => { const p = cat.find(x => x.id === m.pid); return {"Patient":c.name, "Phone":c.phone || "", "Day each month":c.day, "Next pickup":chrDate(c), "Active":c.active !== false ? "Yes" : "No", "Medicine":p ? pname(p) : m.pid, "Qty per month":m.qty, "Unit":p ? unitName(p, m.mode || "box") : "box", "In stock":p ? qtyText(p, stockOf(p, used).good) : ""}; })));
   add("Expenses", E.expenses.map(x => ({"Date":x.date, "Type":x.category, "Amount (IQD)":x.amount, "From cash box":x.fromCash === false ? "No" : "Yes", "Note":x.note || "", "Cancelled":x.voided ? "Yes" : ""})));
   add("Stock changes", E.moves.map(x => { const p = cat.find(y => y.id === x.pid); return {"Date":x.date, "Item":p ? pname(p) : x.pid, "Reason":x.reason, "Small units":x.q, "Note":x.note || ""}; }));
+  const st = cat.map(p => ({p, s:stockOf(p, used)}));
+  add("Out of stock", st.filter(x => x.s.good <= 0).map(({p, s}) => ({"Item":pname(p), "Form":p.form || "", "Barcode":p.barcode, "In stock (small units)":s.good, "Last bought":p.lastDate || "", "Sell price per box (IQD)":p.sellBox ?? ""})));
+  add("Low stock", st.filter(({p, s}) => p.min !== null && s.good > 0 && s.good < p.min * p.sub).map(({p, s}) => ({"Item":pname(p), "In stock":qtyText(p, s.good), "Alert below (boxes)":p.min})));
+  add("Batches and expiry", st.flatMap(({p, s}) => s.bs.map(b => ({"Item":pname(p), "Batch":b.batch, "Expiry":b.expiry, "Supplier":supName(b.inv.supplierId), "Invoice":b.inv.invoiceNo, "Came in (small units)":b.in, "Left (small units)":b.left, "Expired":b.expired ? "Yes" : ""}))));
+  add("Stock movements", st.flatMap(({p, s}) => stockHistory(p, s).map(h => ({"When":String(h.at || h.date || "").slice(0, 16).replace("T", " "), "Item":pname(p), "Movement":h.what, "Details":h.ref, "Small units":h.q, "By":h.who}))));
+  add("Stock discrepancies", E.counts.flatMap(c => (c.lines || []).filter(y => y.diff).map(y => ({"Stocktake date":c.date, "Item":y.name, "System (small units)":y.system, "Counted (small units)":y.counted, "Difference":y.diff}))));
+  add("Stock alerts", stockAlerts().map(a => ({"Type":a.what, "Item":a.name, "Quantity":a.qty, "When":a.when, "What to do":a.act})));
 };
 Object.assign(AR, {
 "Sell":"بيع","Stock":"المخزون","Chronic":"المزمنين","Customers":"الزبائن","Money":"الحسابات","Settings":"الإعدادات",
@@ -1354,6 +1474,25 @@ AR_RX.unshift([/^• (.+)$/, (m, t) => { const x = trOne(t); return x === null ?
   [/^Filled from the file (.*)\. Check every line against the paper invoice before saving\. Blank prices, batches and expiry dates stay blank until you type them\. Nothing is saved until you tap Save\.$/, "عُبئت من الملف $1. راجع كل سطر مع الفاتورة الورقية قبل الحفظ. الأسعار والوجبات وتواريخ الانتهاء الفارغة تبقى فارغة حتى تكتبها. لا يُحفظ شيء حتى تضغط حفظ."],
   [/^Put (\d+) lines into the invoice$/, "إدخال $1 سطر في الفاتورة"], [/^Put (\d+) items into the count$/, "إدخال $1 مادة في الجرد"],
   [/^(\d+) lines filled in from the file\. Check them, then tap Save invoice\.$/, "عُبئ $1 سطر من الملف. راجعها ثم اضغط حفظ الفاتورة."], [/^(\d+) items filled in from the file\. Check them, then save the count\.$/, "عُبئت $1 مادة من الملف. راجعها ثم احفظ الجرد."]);
+Object.assign(AR, {"Owner: sell anyway (owner PIN)":"المالك: بِع على أي حال (رمز المالك)","Out of stock":"نافد","Stock history":"حركة المخزون","Came in":"وارد","Sold":"مباع","Sold, then cancelled":"مباع ثم أُلغي","Returned to supplier":"مرتجع للمورد","Stocktake":"جرد",
+  "Stock alerts":"تنبيهات المخزون","Stock below zero":"مخزون تحت الصفر","Low stock":"مخزون قليل","Expired stock":"مخزون منتهي","Expiring in 3 months":"ينتهي خلال 3 أشهر","Sales blocked":"مبيعات مُنعت","Sold past the stock":"بيع أكثر من المخزون","Stocktake differences":"فروقات الجرد",
+  "Possible duplicate items":"مواد قد تكون مكررة","Stock changes without approval":"تغييرات مخزون بدون موافقة","Cloud sync failed":"فشلت المزامنة السحابية","Sale blocked":"بيع مُنع","Stocktake difference":"فرق جرد","Stock change without approval":"تغيير مخزون بدون موافقة",
+  "Do a stocktake for this item.":"اعمل جرداً لهذه المادة.","Restock it, or remove it from open sales.":"أعد تزويدها، أو احذفها من المبيعات المفتوحة.","Order more.":"اطلب كمية أكثر.","Write it off or return it to the supplier.":"أتلفها أو أرجعها للمورد.","Sell it first or return it to the supplier.":"بِعها أولاً أو أرجعها للمورد.","Restock it.":"أعد تزويدها.",
+  "Check why: a sale not entered, a loss, or a counting mistake.":"تحقق من السبب: بيع لم يُسجل، أو فقدان، أو خطأ في العد.","Open each item and check the pack size; if they are the same, use one name on new invoices.":"افتح كل مادة وتحقق من حجم العبوة؛ إذا كانت نفسها فاستخدم اسماً واحداً في الفواتير الجديدة.",
+  "Check this change with the person who made it.":"راجع هذا التغيير مع الشخص الذي قام به.","Open Settings and tap Sync now.":"افتح الإعدادات واضغط مزامنة الآن.","Stock alerts on Home":"تنبيهات المخزون في الرئيسية","Low stock uses \"Alert when below\" on each item.":"المخزون القليل يعتمد على «نبّه عندما يقل عن» في كل مادة.",
+  "No alerts.":"لا توجد تنبيهات.","Showing the first 300.":"تظهر أول 300.","Showing the newest 60. The Excel download has all of them.":"تظهر أحدث 60. ملف الإكسل فيه الكل.","Is this an item you already have?":"هل هذه مادة موجودة عندك؟","Choose…":"اختر…","A new item":"مادة جديدة",
+  "Choose for each line, then tap Save again.":"اختر لكل سطر ثم اضغط حفظ مرة أخرى.","past the stock, owner approved":"أكثر من المخزون، بموافقة المالك","not confirmed yet":"غير مؤكد بعد","approved":"بموافقة",
+  "Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.":"يحتاج الموظفون رمزك للبيع بأقل من السعر المحدد، وإلغاء بيعة أو دفعة أو مصروف، وإتلاف أو إضافة مخزون، وحفظ الجرد. لا أحد يستطيع البيع أكثر من المخزون؛ المالك فقط برمز المالك."});
+const arShort = (n, a, tail) => `${n}: ${a}. لا يمكن إكمال هذا البيع. ${tail}`;
+AR_RX.unshift([/^(.+): OUT OF STOCK — Available quantity: 0\. This sale cannot be completed\. Restock the item or remove it from the invoice\.$/, (m, n) => arShort(n, "نفد من المخزون — الكمية المتوفرة: 0", "أعد تزويد المادة أو احذفها من الفاتورة.")],
+  [/^(.+): NOT ENOUGH STOCK — Available quantity: (.+)\. This sale cannot be completed\. Lower the quantity or remove the item from the invoice\.$/, (m, n, q) => arShort(n, `المخزون غير كافٍ — الكمية المتوفرة: ${q}`, "قلّل الكمية أو احذف المادة من الفاتورة.")],
+  [/^Only (.+) left in this batch\. Stock can't go below zero\.$/, "بقي $1 فقط في هذه الوجبة. لا يمكن أن ينزل المخزون تحت الصفر."], [/^Only (.+) left in stock\. Stock can't go below zero\.$/, "بقي $1 فقط في المخزون. لا يمكن أن ينزل المخزون تحت الصفر."],
+  [/^Line (\d+) \((.*)\): (.+) already sold, written off or returned\. Paid \+ bonus can't be less than that\. Cancel those first\.$/, "السطر $1 ($2): تم بيع أو إتلاف أو إرجاع $3. لا يمكن أن يكون المدفوع + البونص أقل من ذلك. ألغها أولاً."],
+  [/^(.+): (.+) already sold or written off\. The usable received quantity can't be less than that\.$/, "$1: تم بيع أو إتلاف $2. لا يمكن أن تكون الكمية المستلمة الصالحة أقل من ذلك."],
+  [/^(.+): only (\d+) left from this invoice line \(the rest was sold or written off\)\. Stock can't go below zero\.$/, "$1: بقي $2 فقط من هذا السطر (الباقي بيع أو أُتلف). لا يمكن أن ينزل المخزون تحت الصفر."],
+  [/^Same item as (.+)$/, "نفس المادة: $1"], [/^Line (\d+): (.+)$/, "السطر $1: $2"], [/^See all (\d+)$/, "عرض الكل $1"], [/^last bought (.+)$/, "آخر شراء $1"], [/^alert below (\d+) boxes$/, "تنبيه تحت $1 علب"], [/^batch (.+)$/, "وجبة $1"],
+  [/^· (You have never downloaded a backup\.|Last backup (\d+) days ago\.) Download the Excel file weekly( \(today is Friday\))?\.$/, (m, a, d, f) => `· ${d ? `آخر نسخة احتياطية قبل ${d} يوم.` : "لم تحفظ نسخة احتياطية بعد."} حمّل ملف الإكسل كل أسبوع${f ? " (اليوم الجمعة)" : ""}.`],
+  [/^receipt (.+)$/, "وصل $1"], [/^approved by (.+)$/, "بموافقة $1"], [/^([^·]+) wanted$/, "المطلوب $1"], [/^([^·]+) available$/, "المتوفر $1"], [/^(\d+) items$/, "$1 مواد"], [/^counted (.+), system (.+)$/, "المعدود $1، النظام $2"]);
 window.addEventListener("online", () => $("#netDot")?.classList.remove("off")); window.addEventListener("offline", () => $("#netDot")?.classList.add("off"));
 // every record written while someone is signed in carries their name and the time
 const baseWrite = write;
@@ -1393,7 +1532,7 @@ if (document.readyState === "loading") document.addEventListener("DOMContentLoad
 let renderQueued = false;
 const queueRender = () => { if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); };
 (function start(){
-  const map = {staff:"staff", shifts:"shifts", counts:"counts", products:"prods", sales:"sales", moves:"moves", customers:"customers", custpays:"custpays", chronic:"chronic", expenses:"expenses", closes:"closes"};
+  const map = {staff:"staff", shifts:"shifts", counts:"counts", products:"prods", sales:"sales", moves:"moves", customers:"customers", custpays:"custpays", chronic:"chronic", expenses:"expenses", closes:"closes", events:"events"};
   const total = Object.keys(map).length, got = new Set();
   const progress = () => { const B = window.BOOT; if (!B || B.done) return; B.set(15 + (S.ready ? 35 : 0) + 50 * got.size / total);
     if (S.ready && (got.size === total || !S.db)){ staffAfterData(); render(); B.finish(); } };

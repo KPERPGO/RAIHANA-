@@ -45,6 +45,8 @@ async function addInvoice({sup='SUP-001',no,date,type='credit',total,lines,disc,
       await setv(q(f),v);} }
   await W(); const live=await text('#liveSum');
   await click('#invForm button[type=submit]'); await W(250);
+  // ERP: a line that looks like an item already in stock asks "same item?" first; these checks keep them as their own items
+  if(await ev(()=>{const x=[...document.querySelectorAll('[data-xsame]')];x.forEach(e=>{e.value='new';e.dispatchEvent(new Event('change',{bubbles:true}))});return x.length})){ await click('#invForm button[type=submit]'); await W(250); }
   return {live, err:await text('#formErr'), toast:await toastTxt()};
 }
 let r=await addInvoice({no:'A100',date:await D(-3),total:'190,000',lines:[

@@ -50,7 +50,7 @@ const rd = p => JSON.parse(fs.readFileSync(path.join(D, p)));
   // forced sale beyond stock has a cost
   const st0 = await page.evaluate(id => { const p = catalog().find(x => x.id === id); return stockOf(p, usedMap()).good; }, P.id);
   await page.evaluate(([id, q]) => { S.cart = [{pid:id, mode:"sub", qty:q + 2, price:2000}]; S.cartMeta.disc = 0; saveCart(); render(); }, [P.id, st0]);
-  await page.waitForTimeout(300); await page.check('#xForce'); await page.click('#sellForm button[type=submit]'); await page.waitForTimeout(800); await page.click('#sheetClose');
+  await page.waitForTimeout(300); await page.click('#sellForm button[type=submit]'); await page.waitForTimeout(500); await page.click('[data-xoversell]'); await page.waitForTimeout(800); await page.click('#sheetClose'); // no owner account here, so the owner button needs no PIN
   const s2 = await page.evaluate(() => E.sales[E.sales.length - 1]);
   const adj = s2.lines[0].alloc.find(a => a.key.startsWith('adj:'));
   ok('short-stock part has a cost', adj && adj.cost > 0, adj);

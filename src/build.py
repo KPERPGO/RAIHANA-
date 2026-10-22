@@ -28,6 +28,21 @@ rep("""  if (!i.lines || !i.lines.length) i.lines = [{}];
   S.draft = i;""")
 rep("""  return `<div class="lineedit" data-line="${k}" data-no="${esc(l.no||"")}">""", """  return `<div class="lineedit" data-line="${k}" data-lid="${esc(l.lid ?? "")}" data-pid="${esc(l.pid ?? "")}" data-no="${esc(l.no||"")}">""")
 rep("""    return {no: el.dataset.no || undefined, note:""", """    return {lid: el.dataset.lid || undefined, pid: el.dataset.pid || undefined, no: el.dataset.no || undefined, note:""")
+# zero-stock protection: the ERP's one stock check (STOCK in erp.js) runs before an invoice edit, a receiving count or a
+# return to the supplier is saved, so no batch goes below zero. A new line that looks like an item you have asks first.
+rep("""  if (c.dup){ err.textContent = `${supName(inv.supplierId)} invoice ${inv.invoiceNo} is already in the app. Open that one instead of adding a duplicate.`; return; }
+""", """  if (c.dup){ err.textContent = `${supName(inv.supplierId)} invoice ${inv.invoiceNo} is already in the app. Open that one instead of adding a duplicate.`; return; }
+  { const stop = window.ERP_INV_GUARD?.(inv); if (stop){ err.innerHTML = stop; return; } }
+""")
+rep("""  if (Object.values(rl).some(r => !isNum(r.qty) || r.qty < 0)){ $("#rcErr").textContent = "Use whole numbers for received quantities."; return; }
+""", """  if (Object.values(rl).some(r => !isNum(r.qty) || r.qty < 0)){ $("#rcErr").textContent = "Use whole numbers for received quantities."; return; }
+  { const stop = window.ERP_RECV_GUARD?.(i, rl); if (stop){ $("#rcErr").textContent = stop; return; } }
+""")
+rep("""max:Math.max(0, n0(l.qty) + n0(l.bonus) - returnedQty(inv.id, k))}))""", """max:(m => isNum(m) ? Math.min(m, Math.max(0, n0(l.qty) + n0(l.bonus) - returnedQty(inv.id, k))) : Math.max(0, n0(l.qty) + n0(l.bonus) - returnedQty(inv.id, k)))(window.ERP_RET_MAX?.(inv, k))}))""")
+rep("""  if (!isNum(amt) || amt <= 0){ err.textContent = "Enter the amount in IQD."; return; }
+""", """  if (!isNum(amt) || amt <= 0){ err.textContent = "Enter the amount in IQD."; return; }
+  { const stop = window.ERP_RET_GUARD?.($("#cInv").value, S.crPick); if (stop){ err.textContent = stop; return; } }
+""")
 # Excel/CSV upload: a new invoice can be filled from a file; the form then says the lines came from the file, not a photo
 rep("""  openSheet(id ? "Edit invoice" : pre ? "Check scanned invoice" : "Add invoice", `
     ${pre ? `<div class="banner">Read from the photo. Check every line against the paper before saving. Nothing is saved until you tap Save.</div>` : ""}

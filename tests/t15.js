@@ -41,7 +41,11 @@ const INV_FILE = path.join(TMP, 'invoice.xlsx'); XLSX.writeFile(wb, INV_FILE);
     ok(l3.price === null && l3.expiry === '' && l3.value === 9000, tag + ' line 3: no price and bad expiry stay blank', l3);
     ok(form.writes === writes0, tag + ' nothing saved before Save invoice', [writes0, form.writes]);
     ok(lang === 'ar' ? !/Filled from the file|Check every line/.test(form.banner) : /invoice\.xlsx/.test(form.banner), tag + ' banner names the file' + (lang === 'ar' ? ' in Arabic' : ''), form.banner);
-    await p.fill('#fTotal', '433000'); await p.click('#invForm button[type=submit]'); await p.waitForTimeout(700);
+    await p.fill('#fTotal', '433000'); await p.click('#invForm button[type=submit]'); await p.waitForTimeout(500);
+    // a line close to an item already in stock asks before making a second item
+    const asks = await p.evaluate(() => [...document.querySelectorAll('[data-xsame]')].map(x => ({ key: x.dataset.xsame, same: x.options[1]?.value })));
+    for (const a of asks) await p.selectOption(`[data-xsame="${a.key}"]`, /clexane/.test(a.key) ? a.same : 'new');
+    if (asks.length) { await p.click('#invForm button[type=submit]'); await p.waitForTimeout(700); }
     const saved = await p.evaluate(() => S.invoices.find(i => i.invoiceNo === 'X-77'));
     ok(saved && saved.lines.length === 3 && saved.lines[1].batch === '' && saved.lines[2].price == null && saved.extraction?.source === 'file', tag + ' invoice saved with the file lines as checked', saved && { lines: saved.lines.length, src: saved.extraction?.source });
     if (await p.evaluate(() => !document.querySelector('#sheet').hidden)) { await p.keyboard.press('Escape'); await p.waitForTimeout(200); }

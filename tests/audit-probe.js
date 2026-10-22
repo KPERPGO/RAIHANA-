@@ -25,7 +25,7 @@ const out = []; const rep = (id, defect, what, data) => out.push({id, result: de
   const stock = (p, id) => p.evaluate(id => { const x = catalog().find(q => q.id === id); return x ? stockOf(x, usedMap()).good : 'ITEM GONE'; }, id);
   const sell = (p, pid, qty, extra) => p.evaluate(async ([pid, qty, extra]) => {
     S.tab = 'sell'; render(); S.cart = []; S.cartMeta = {}; addToCart(pid); S.cart[0].qty = qty; if (extra?.price !== undefined) S.cart[0].price = extra.price; Object.assign(S.cartMeta, extra?.meta || {}); render();
-    if (extra?.force) document.getElementById('xForce').checked = true;
+    if (extra?.force) S.oversell = true; // what the "Owner: sell anyway" button does
     document.getElementById('sellForm').requestSubmit(); await new Promise(r => setTimeout(r, 300));
     return {err: document.getElementById('xErr')?.textContent || '', sales: E.sales.length};
   }, [pid, qty, extra || {}]);

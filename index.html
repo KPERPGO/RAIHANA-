@@ -2808,14 +2808,21 @@ const activeStaff = () => E.staff.filter(x => !x.deleted && x.active !== false);
 const hasOwner = () => activeStaff().some(x => x.role === "owner");
 // until an owner is added, whoever uses the app counts as the owner, so nobody can be locked out of Staff
 const isOwner = () => !hasOwner() || S.staff?.role === "owner";
-function shiftHours(sh, from, to){ // hours of a shift inside [from, to); an open shift counts until now
-  const a = Math.max(Date.parse(sh.start), from ? Date.parse(from) : -Infinity), b = Math.min(sh.end ? Date.parse(sh.end) : Date.now(), to ? Date.parse(to) : Infinity);
-  return b > a ? (b - a) / 36e5 : 0;
+const LATE_H = 14; // an open shift older than this is probably forgotten: it counts only this long until the owner sets the real end
+function shiftSpan(sh, from, to){ // [start, end] in ms of a shift inside [from, to)
+  const st = Date.parse(sh.start), a = Math.max(st, from ? Date.parse(from) : -Infinity), b = Math.min(sh.end ? Date.parse(sh.end) : Math.min(Date.now(), st + LATE_H * 36e5), to ? Date.parse(to) : Infinity);
+  return b > a ? [a, b] : null;
+}
+function shiftHours(sh, from, to){ const sp = shiftSpan(sh, from, to); return sp ? (sp[1] - sp[0]) / 36e5 : 0; }
+function unionHours(list, from, to){ // overlapping shifts of one person (two devices, a forgotten shift) count once, so a day never passes 24 hours
+  const spans = list.map(x => shiftSpan(x, from, to)).filter(Boolean).sort((a, b) => a[0] - b[0]); let tot = 0, cur = null;
+  for (const sp of spans){ if (cur && sp[0] <= cur[1]) cur[1] = Math.max(cur[1], sp[1]); else { if (cur) tot += cur[1] - cur[0]; cur = [...sp]; } }
+  return (tot + (cur ? cur[1] - cur[0] : 0)) / 36e5;
 }
 function monthWork(staffId, m){
   const from = new Date(+m.slice(0,4), +m.slice(5,7) - 1, 1).toISOString(), to = new Date(+m.slice(0,4), +m.slice(5,7), 1).toISOString();
   const sh = E.shifts.filter(x => x.staffId === staffId && !x.voided && shiftHours(x, from, to) > 0).sort((a,b) => a.start.localeCompare(b.start));
-  const hours = sh.reduce((a,x) => a + shiftHours(x, from, to), 0), days = new Set(sh.map(x => localDT(x.start).slice(0,10))).size;
+  const hours = unionHours(sh, from, to), days = new Set(sh.map(x => localDT(x.start).slice(0,10))).size;
   const st = E.staff.find(x => x.id === staffId) || {}, rate = n0(st.rate);
   const pay = wIQD(st.payType === "monthly" ? (isNum(st.expHours) && st.expHours > 0 && st.prorate ? rate * Math.min(1, hours / st.expHours) : rate) : st.payType === "daily" ? rate * days : rate * hours);
   const sales = E.sales.filter(s => !s.voided && s.staffId === staffId && ym(s.date) === m);
@@ -2906,7 +2913,7 @@ function staffView(){
     <div class="kpi"><span class="l">On shift now</span><span class="v num">${E.shifts.filter(x => !x.end && !x.voided).length}</span></div><div class="kpi"><span class="l">Staff</span><span class="v num">${activeStaff().length}</span></div></section>
   ${!hasOwner() ? `<div class="banner bad" style="border:0">There is no owner yet, so everyone sees every screen. Add yourself as the owner (Role: Owner) to protect the owner screens.</div>` : ""}
   ${(() => { const off = E.shifts.filter(x => !x.voided && (x.start || "").slice(0,7) === m && ((isNum(x.openDiff) && x.openDiff) || (isNum(x.closeDiff) && x.closeDiff))); return off.length ? `<div class="banner bad" style="border:0">${off.length} cash count${off.length === 1 ? "" : "s"} did not match this month. Open the person below to see each shift.</div>` : ""; })()}
-  ${late.length ? `<div class="banner bad" style="border:0">${late.length} shift${late.length === 1 ? "" : "s"} open for more than 14 hours. Someone may have forgotten to end their shift. Open the person below to fix it.</div>` : ""}
+  ${late.length ? `<div class="banner bad" style="border:0">${late.length} shift${late.length === 1 ? "" : "s"} open for more than 14 hours. Someone may have forgotten to end their shift. Until you set the real end, each counts only 14 hours. ${isOwner() ? `<button type="button" data-xfixlate="1">Close them now</button>` : ""}</div>` : ""}
   <section class="sec"><div class="sechead"><h2>Staff</h2><div class="actions"><input id="staffM" type="month" value="${esc(m)}" style="width:auto"><button type="button" class="primary" data-xstaff="__new">+ Staff</button></div></div>
     <div class="list">${rows.map(({x, w}) => `<button type="button" class="row" data-xstaff="${esc(x.id)}"><span class="main"><span class="t">${esc(x.name)} <span class="pill">${esc(x.role === "owner" ? "Owner" : x.role === "cashier" ? "Cashier" : "Pharmacist")}</span>${x.active === false ? ` <span class="pill">Stopped</span>` : ""}</span><span class="s">${hrsTxt(w.hours)} · ${w.days} days · ${w.count} sales ${iqd(w.sales)}${w.open ? ` · on shift since ${esc(hm(w.open.start))}` : ""}</span></span><span class="end"><span class="num">${iqd(w.pay)}</span><span class="s">${esc(x.payType === "monthly" ? "monthly" : x.payType === "daily" ? "per day" : "per hour")}</span></span></button>`).join("")}</div>
     <p class="note">Hours run from login to "End shift". Salary: per hour = rate × hours; per day = rate × days worked; monthly = fixed, or shared by hours worked if you tick that option.</p></section>`;
@@ -3671,6 +3678,31 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (d.xguide){ lsSet("erp.hints", {}); lsSet("erp.tourDone", false); closeSheet(); render(); return; }
 });
 Object.assign(AR, {"Tap a medicine to add it, check the quantity, then tap Pay. Made a mistake? Remove the line before you pay.":"اضغط على الدواء لإضافته، راجع الكمية، ثم اضغط دفع. أخطأت؟ احذف السطر قبل الدفع.","This is what is on the shelf now. Use Stocktaking to count a shelf and fix any difference.":"هذا ما هو موجود على الرف الآن. استعمل الجرد لعد رف وتصحيح أي فرق.","Set the selling price from the cost. The app shows the exact formula it used.":"حدد سعر البيع من الكلفة. التطبيق يعرض المعادلة التي استعملها.","Keep your regular customers here. Open a name to see what they bought.":"احفظ زبائنك الدائمين هنا. افتح الاسم لترى ما اشتراه.","Today's cash in and out. Check it at the end of the day.":"النقد الداخل والخارج اليوم. راجعه في نهاية اليوم.","Add each person with their own PIN, and choose which screens they can use.":"أضف كل شخص برقمه السري، واختر الشاشات التي يستطيع استعمالها.","Language, backup and cloud sync are here. Take a backup now and then.":"اللغة والنسخ الاحتياطي ومزامنة السحابة هنا. خذ نسخة احتياطية من حين لآخر.","Got it":"فهمت","Skip":"تخطي","Next":"التالي","Back":"رجوع","Start working":"ابدأ العمل","Welcome to Raihana":"أهلاً بك في ريحانة","A quick look in four steps. You can skip it any time.":"نظرة سريعة في أربع خطوات. يمكنك تخطيها في أي وقت.","Sell is your main screen":"البيع هو شاشتك الرئيسية","Tap a medicine to add it. Check the quantity, then tap Pay. The app tells you how much change to give back.":"اضغط على الدواء لإضافته. راجع الكمية ثم اضغط دفع. التطبيق يخبرك كم ترجع للزبون.","Your day":"يومك","At the start, count the cash in the drawer. At the end, count it again and tap End shift. The owner sees any difference.":"في البداية عدّ النقد في الصندوق. في النهاية عدّه مرة أخرى واضغط إنهاء الدوام. المالك يرى أي فرق.","Help is always near":"المساعدة دائماً قريبة","Every screen has a small tip at the top. You can show the tour and the tips again from Settings.":"في أعلى كل شاشة نصيحة صغيرة. يمكنك إظهار الجولة والنصائح مرة أخرى من الإعدادات.","✓ Shift started":"✓ بدأ الدوام","✓ Cash counted at the start":"✓ تم عدّ النقد في البداية","○ Count the cash before you sell":"○ عدّ النقد قبل البيع","Count the cash":"عدّ النقد","○ End of the day":"○ نهاية اليوم","Count cash and end shift":"عدّ النقد وإنهاء الدوام","Show the tour and tips again":"إظهار الجولة والنصائح مرة أخرى","Help":"مساعدة"});
+
+/* ---- forgotten shifts: the owner closes them in one place and the hours are recounted ---- */
+const lateShifts = () => E.shifts.filter(x => !x.end && !x.voided && Date.now() - Date.parse(x.start) > LATE_H * 36e5).sort((a, b) => a.start.localeCompare(b.start));
+function fixLateSheet(){
+  const list = lateShifts(); if (!list.length){ closeSheet(); render(); return; }
+  openSheet("Close forgotten shifts", `<p class="note">Set the real end time of each shift. The box starts at 8 hours after the start; change it to the real time. Hours are recounted when you close a shift, and a person never gets more than 24 hours in a day.</p>
+    ${list.map(x => { const def = Math.min(Date.now(), Date.parse(x.start) + 8 * 36e5); return `<div class="lineedit"><div class="lh"><b>${esc(x.staffName || (E.staff.find(y => y.id === x.staffId) || {}).name || "")}</b><span class="num">${esc(localDT(x.start).replace("T", " "))}</span></div>
+      <label>End<input type="datetime-local" data-xfixend="${esc(x.id)}" value="${esc(localDT(new Date(def).toISOString()))}"></label><button type="button" data-xfixone="${esc(x.id)}">Close this shift</button></div>`; }).join("")}
+    <p class="err" id="flErr"></p><button type="button" class="primary" data-xfixall="1">Close all with these end times</button>`);
+  if (S.lang === "ar") translate($("#sheet"));
+}
+async function closeLate(ids){
+  const err = $("#flErr"); let n = 0;
+  for (const id of ids){ const sh = E.shifts.find(x => x.id === id), inp = document.querySelector(`[data-xfixend="${id}"]`); if (!sh || !inp || !inp.value) continue;
+    const end = new Date(inp.value).toISOString(); if (end <= sh.start || Date.parse(end) > Date.now() + 6e4){ err.textContent = "Each end time must be after the start and not in the future."; return; }
+    try { await write("shifts/" + id, {end, fixedBy:S.staff?.id || null}, true); n++; } catch(e){ err.textContent = e.message; return; } }
+  toast(n ? `${n} shift${n === 1 ? "" : "s"} closed. Hours recounted.` : "Nothing to close."); fixLateSheet(); render(); syncNow();
+}
+document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
+  if (d.xfixlate || d.xfixone || d.xfixall){ if (!isOwner()){ toast("Only the owner can do this."); return; }
+    if (d.xfixlate) fixLateSheet(); else closeLate(d.xfixone ? [d.xfixone] : lateShifts().map(x => x.id)); }
+});
+Object.assign(AR, {"Close them now":"أغلقها الآن","Close forgotten shifts":"إغلاق الدوامات المنسية","Set the real end time of each shift. The box starts at 8 hours after the start; change it to the real time. Hours are recounted when you close a shift, and a person never gets more than 24 hours in a day.":"حدد وقت النهاية الحقيقي لكل دوام. الخانة تبدأ بعد 8 ساعات من البداية؛ غيّرها للوقت الحقيقي. تُعاد الساعات عند الإغلاق، ولا يحصل أي شخص على أكثر من 24 ساعة في اليوم.","Close this shift":"أغلق هذا الدوام","Close all with these end times":"أغلق الكل بهذه الأوقات","Each end time must be after the start and not in the future.":"يجب أن يكون وقت النهاية بعد البداية وليس في المستقبل.","Someone may have forgotten to end their shift. Until you set the real end, each counts only 14 hours.":"ربما نسي أحدهم إنهاء دوامه. حتى تحدد النهاية الحقيقية، يُحسب كل دوام 14 ساعة فقط."});
+AR_RX.push([/^(\d+) shifts? closed\. Hours recounted\.$/, "تم إغلاق $1 دوام. أُعيد حساب الساعات."]);
+AR_RX.push([/^(\d+) shifts? open for more than 14 hours\. Someone may have forgotten to end their shift\. Until you set the real end, each counts only 14 hours\.\s*$/, "$1 دوام مفتوح أكثر من 14 ساعة. ربما نسي أحدهم إنهاء دوامه. حتى تحدد النهاية الحقيقية، يُحسب كل دوام 14 ساعة فقط."]);
 
 </script>
 <script>

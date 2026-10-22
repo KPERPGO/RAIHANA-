@@ -71,11 +71,15 @@
     pending: () => dirty.size,
     t: null,
     soon(){ clearTimeout(this.t); this.t = setTimeout(() => this.run(), 1500); },
+    // the pharmacy types these by hand: fix the usual slips (http, missing https, trailing slash, spaces) before using them
+    cleanUrl(u){ u = String(u || "").trim().replace(/\s+/g, "").replace(/\/+$/, ""); if (u && !/^[a-z]+:\/\//i.test(u)) u = "https://" + u; return /^http:\/\/(?!localhost|127\.)/i.test(u) ? u.replace(/^http:/i, "https:") : u; },
     async login(url, anon, email, password){
-      const r = await fetch(url.replace(/\/$/, "") + "/auth/v1/token?grant_type=password", {method: "POST", headers: {apikey: anon, "Content-Type": "application/json"}, body: JSON.stringify({email, password})});
+      url = this.cleanUrl(url); anon = String(anon || "").trim(); email = String(email || "").trim();
+      let r; try { r = await fetch(url + "/auth/v1/token?grant_type=password", {method: "POST", headers: {apikey: anon, "Content-Type": "application/json"}, body: JSON.stringify({email, password})}); }
+      catch { throw new Error("Can't reach the cloud. Check the internet, and that the Project URL looks like https://xxxx.supabase.co"); }
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error_description || j.msg || "Sign-in failed. Check the email and password.");
-      lsSet("erp.sync", {url: url.replace(/\/$/, ""), anon, email, token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, ver: 0});
+      if (!r.ok) throw new Error(/invalid login/i.test(j.error_description || j.msg || "") ? "Wrong email or password. Check them and try again." : r.status === 401 || /api key|apikey/i.test(j.message || j.msg || "") ? "The public key is not right. Copy the Publishable key again from Supabase." : (j.error_description || j.msg || "Sign-in failed. Check the Project URL, key, email and password."));
+      lsSet("erp.sync", {url, anon, email, token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, ver: 0});
       for (const [p, v] of cache) if (!v.__ver && !v.__deleted) dirty.add(p); lsSet("erp.dirty", [...dirty]); // a device with data joins the pharmacy: upload it
       lsSet("erp.userId", j.user?.id || me().id); lsSet("erp.userName", j.user?.user_metadata?.name || email);
       this.run();

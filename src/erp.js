@@ -544,6 +544,7 @@ function settingsView(){
     `<p>Installed app. Data is saved on this device first, so it works with no internet.</p>
      <div class="r"><span>Cloud sync</span><span>${!c ? "Not connected" : sy.status.state === "ok" ? "✓ Up to date" : sy.status.state === "offline" ? "Offline, will sync later" : sy.status.state === "error" ? esc(sy.status.msg || "Error") : "Connecting…"}</span></div>
      <div class="r"><span>Changes waiting to upload</span><span class="num">${sy.pending()}</span></div>
+     ${c && sy.status.conflicts ? `<p class="err">${sy.status.conflicts} change(s) were not applied because another device saved the same record first. This device now shows the other version; yours is kept in the cloud (table erp_conflicts). <button type="button" data-xclearconf="1">OK, I saw it</button></p>` : ""}
      ${c ? `<p class="note">Signed in as ${esc(c.email)}.</p><div class="actions"><button type="button" data-xsync="1">Sync now</button><button type="button" class="danger" data-xlogout="1">Sign out of sync</button></div>` :
      `<form id="syncForm" style="display:grid;gap:10px"><p class="note">Fill these in once your Supabase project is ready. Type the password yourself; it is never saved in a file.</p><label>Project URL<input id="yUrl" placeholder="https://xxxx.supabase.co"></label><label>Public (anon) key<input id="yKey"></label><div class="grid2 stack"><label>Email<input id="yEmail" type="email"></label><label>Password<input id="yPass" type="password" autocomplete="current-password"></label></div><p class="err" id="yErr"></p><button type="submit" class="primary">Connect</button></form>`}`}
   </div></section>
@@ -918,7 +919,7 @@ async function tryLogin(){
   const ck = await pinCheck(st, pin); if (!ck.ok){ S.lockErr = pinErr(ck); S.lockPin = ""; drawLock(); return; }
   let sh = E.shifts.find(x => x.staffId === st.id && !x.end && !x.voided && x.device === DEVICE_ID);
   const fresh = !sh; if (fresh){ sh = {id:newId("SH"), staffId:st.id, staffName:st.name, start:nowIso(), end:null, device:DEVICE_ID}; await write("shifts/" + sh.id, sh); }
-  S.session = {staffId:st.id, shiftId:sh.id}; lsSet("erp.session", S.session); S.staff = st; S.lockSel = null; S.lockPin = ""; S.lockErr = "";
+  S.session = {staffId:st.id, shiftId:sh.id}; lsSet("erp.session", S.session); S.staff = st; S.lockSel = null; S.lockPin = ""; S.lockErr = ""; S.homeDone = true; if (st.role !== "owner" && canUse("sell")) S.tab = "sell"; // cashier and pharmacist start on the Sell screen
   drawLock(); render(); toast(`Shift started at ${hm(sh.start)}. Welcome ${st.name}.`); syncNow();
   if (fresh) cashSheet("open");
 }
@@ -1064,7 +1065,7 @@ setInterval(() => { const t = localDT(nowIso()).replace("T", " "); ["liveClock",
 function staffAfterData(){
   // keep the signed-in person in step with the data; a shift ended elsewhere signs this device out
   if (S.session){ const st = activeStaff().find(x => x.id === S.session.staffId), sh = E.shifts.find(x => x.id === S.session.shiftId);
-    if (st && sh && !sh.end) S.staff = st; else if (E.staff.length && (E.shifts.length || !st)){ S.staff = null; if (sh?.end || !st){ S.session = null; lsSet("erp.session", null); } } }
+    if (st && sh && !sh.end){ S.staff = st; if (!S.homeDone){ S.homeDone = true; if (st.role !== "owner" && canUse("sell")) S.tab = "sell"; } } else if (E.staff.length && (E.shifts.length || !st)){ S.staff = null; if (sh?.end || !st){ S.session = null; lsSet("erp.session", null); } } }
   drawLock();
 }
 
@@ -1356,6 +1357,7 @@ document.addEventListener("click", ev => {
   if (d.xbackup){ backupAll(t); return; }
   if (d.xrestore){ restoreRun(t); return; }
   if (d.xsync){ window.ERP_SYNC?.run(); toast("Syncing…"); return; }
+  if (d.xclearconf){ window.ERP_SYNC?.clearConflicts(); render(); return; }
   if (d.xlogout){ window.ERP_SYNC?.logout(); render(); return; }
   if (d.xcam){ camScan(); return; }
 });

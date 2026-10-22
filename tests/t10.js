@@ -17,5 +17,8 @@ const { chromium } = require('./pw');
   // choose account: lock, list shows both, pick Ali -> Ali sees only Sell
   await page.click('[data-xlock="1"]'); await page.waitForTimeout(300);
   console.log('accounts on lock screen', await page.$$eval('[data-xlocksel]', x => x.map(b => b.textContent.trim()).join(' | ')));
+  // a pharmacist who signs in starts on the Sell screen, the owner on Home
+  const sellHome = await page.evaluate(async () => { const st = activeStaff().find(x => x.role === 'pharmacist'); if (!st) return 'no pharmacist'; st.perms = ['sell']; st.pinHash = await pinHash2(st.id, '1111'); S.tab = 'home'; S.lockSel = st.id; S.lockPin = '1111'; await tryLogin(); return S.tab; });
+  console.log('pharmacist signs in -> tab', sellHome);
   console.log(errs.length ? errs : 'no errors'); await b.close();
 })();

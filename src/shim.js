@@ -21,7 +21,8 @@
     rq.onsuccess = () => { const c = rq.result; if (c){ cache.set(c.key, c.value); c.continue(); } else res(); };
     rq.onerror = () => res();
   })).catch(() => {});
-  const clean = v => { const o = {...v}; delete o.__deleted; delete o.__rev; return o; };
+  const strip = v => { const o = {...v}; delete o.__ver; return o; };
+  const clean = v => { const o = {...v}; delete o.__deleted; delete o.__rev; delete o.__ver; return o; };
   const snap = coll => ({docs: [...cache].filter(([p, v]) => p.split("/")[0] === coll && !v.__deleted).map(([p, v]) => ({id: p.split("/").slice(1).join("/"), data: () => clean(v)}))});
   const emit = coll => (subs.get(coll) || []).forEach(cb => { try { cb(snap(coll)); } catch(e){ console.error(e); } });
   let dirty = new Set(lsGet("erp.dirty", []));
@@ -34,9 +35,9 @@
   }
   const db = {
     doc(path){ return {
-      set: async data => { await loaded; return put(path, {...data, __rev: Date.now()}); },
-      update: async data => { await loaded; const cur = cache.get(path); if (!cur || cur.__deleted) throw Object.assign(new Error("not found"), {code: "not_found"}); return put(path, {...cur, ...data, __rev: Date.now()}); },
-      delete: async () => { await loaded; return put(path, {__deleted: true, __rev: Date.now()}); },
+      set: async data => { await loaded; return put(path, {...data, __rev: Date.now(), __ver: cache.get(path)?.__ver || 0}); },
+      update: async data => { await loaded; const cur = cache.get(path); if (!cur || cur.__deleted) throw Object.assign(new Error("not found"), {code: "not_found"}); return put(path, {...cur, ...data, __rev: Date.now(), __ver: cur.__ver || 0}); },
+      delete: async () => { await loaded; return put(path, {__deleted: true, __rev: Date.now(), __ver: cache.get(path)?.__ver || 0}); },
       get: async () => { await loaded; const v = cache.get(path); return {exists: !!v && !v.__deleted, id: path.split("/").pop(), data: () => v ? clean(v) : undefined}; }
     }; },
     collection(coll){ return { onSnapshot(cb, err){
@@ -45,7 +46,7 @@
       return () => subs.get(coll).delete(cb);
     } }; }
   };
-  window.ERP_LOCAL = {all: async () => { await loaded; return [...cache].filter(([, v]) => !v.__deleted).map(([p, v]) => [p, clean(v)]); }, put: (p, v) => put(p, {...v, __rev: Date.now()})};
+  window.ERP_LOCAL = {all: async () => { await loaded; return [...cache].filter(([, v]) => !v.__deleted).map(([p, v]) => [p, clean(v)]); }, put: (p, v) => put(p, {...v, __rev: Date.now(), __ver: cache.get(p)?.__ver || 0})};
 
   /* photos of paper invoices stay on the device (and sync as files later) */
   const urls = {};
@@ -74,10 +75,12 @@
       const r = await fetch(url.replace(/\/$/, "") + "/auth/v1/token?grant_type=password", {method: "POST", headers: {apikey: anon, "Content-Type": "application/json"}, body: JSON.stringify({email, password})});
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error_description || j.msg || "Sign-in failed. Check the email and password.");
-      lsSet("erp.sync", {url: url.replace(/\/$/, ""), anon, email, token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, since: null});
+      lsSet("erp.sync", {url: url.replace(/\/$/, ""), anon, email, token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, ver: 0});
+      for (const [p, v] of cache) if (!v.__ver && !v.__deleted) dirty.add(p); lsSet("erp.dirty", [...dirty]); // a device with data joins the pharmacy: upload it
       lsSet("erp.userId", j.user?.id || me().id); lsSet("erp.userName", j.user?.user_metadata?.name || email);
       this.run();
     },
+    clearConflicts(){ lsSet("erp.conflicts", 0); this.set({state: "ok"}); },
     logout(){ lsSet("erp.sync", null); this.set({state: "off"}); },
     async token(c){
       if (Date.now() < c.exp - 60000) return c.token;
@@ -93,22 +96,31 @@
       try {
         await loaded;
         const tok = await this.token(c), h = {apikey: c.anon, Authorization: "Bearer " + tok, "Content-Type": "application/json"};
-        const send = [...dirty].map(p => ({path: p, data: cache.get(p), rev: cache.get(p)?.__rev || Date.now(), device: me().id}));
-        for (let i = 0; i < send.length; i += 200){
-          const r = await fetch(c.url + "/rest/v1/erp_docs?on_conflict=path", {method: "POST", headers: {...h, Prefer: "resolution=merge-duplicates,return=minimal"}, body: JSON.stringify(send.slice(i, i + 200))});
-          if (!r.ok) throw new Error("Cloud refused the changes (" + r.status + ").");
-          send.slice(i, i + 200).forEach(x => dirty.delete(x.path)); lsSet("erp.dirty", [...dirty]);
+        const send = [...dirty].map(p => ({path: p, data: strip(cache.get(p)), base: cache.get(p)?.__ver || 0, rev: cache.get(p)?.__rev, device: me().id}));
+        let lost = 0;
+        for (let i = 0; i < send.length; i += 100){
+          const batch = send.slice(i, i + 100);
+          const r = await fetch(c.url + "/rest/v1/rpc/erp_push", {method: "POST", headers: h, body: JSON.stringify({rows: batch.map(({rev, ...x}) => x)})});
+          if (r.status === 404) throw new Error("The cloud setup is old. Run the newest setup SQL in Supabase.");
+          if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "This account is not on the pharmacy list. Ask the owner to add it." : "Cloud refused the changes (" + r.status + ").");
+          for (const x of await r.json()){
+            const sent = batch.find(b => b.path === x.path), cur = cache.get(x.path);
+            if (x.ok){ if (cur && cur.__rev === sent.rev){ dirty.delete(x.path); cur.__ver = x.ver; await tx("docs", "readwrite", s => s.put(cur, x.path)); } else if (cur) cur.__ver = x.ver; }
+            else { lost++; dirty.delete(x.path); await put(x.path, {...x.data, __rev: x.data.__rev || 0, __ver: x.ver}, true); } // another device saved first: take theirs, yours is kept in the cloud (erp_conflicts)
+          }
+          lsSet("erp.dirty", [...dirty]);
         }
-        let since = c.since || "1970-01-01T00:00:00Z", more = true;
+        if (lost) lsSet("erp.conflicts", (lsGet("erp.conflicts", 0)) + lost);
+        let since = Math.max(0, (c.ver || 0) - 100), top = c.ver || 0, more = true; // a little overlap, in case a change committed late
         while (more){
-          const r = await fetch(c.url + "/rest/v1/erp_docs?select=path,data,rev,updated_at&updated_at=gt." + encodeURIComponent(since) + "&order=updated_at.asc&limit=500", {headers: h});
+          const r = await fetch(c.url + "/rest/v1/erp_docs?select=path,data,ver&ver=gt." + since + "&order=ver.asc&limit=500", {headers: h});
           if (!r.ok) throw new Error("Couldn't read from the cloud (" + r.status + ").");
           const rows = await r.json();
-          for (const row of rows){ const cur = cache.get(row.path); if (!dirty.has(row.path) && (!cur || (cur.__rev || 0) <= (row.rev || 0))) await put(row.path, row.data, true); since = row.updated_at; }
+          for (const row of rows){ const cur = cache.get(row.path); if (!dirty.has(row.path) && (!cur || (cur.__ver || 0) < row.ver)) await put(row.path, {...row.data, __ver: row.ver}, true); since = Math.max(since, row.ver); top = Math.max(top, row.ver); }
           more = rows.length === 500;
         }
-        c.since = since; lsSet("erp.sync", c);
-        this.set({state: "ok"});
+        c.ver = top; lsSet("erp.sync", c);
+        this.set(lsGet("erp.conflicts", 0) ? {state: "ok", conflicts: lsGet("erp.conflicts", 0)} : {state: "ok"});
       } catch(e){ this.set({state: "error", msg: e.message}); }
       finally { this.busy = false; }
     }

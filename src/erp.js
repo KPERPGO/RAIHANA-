@@ -972,8 +972,13 @@ document.addEventListener("click", ev => { const t = ev.target.closest("[data-ta
   const k = t.id === "addBtn" || t.id === "scanBtn" ? "newinv" : t.dataset.tab || t.dataset.tabGo || t.dataset.xgo;
   if (k && !canUse(k)){ ev.preventDefault(); ev.stopImmediatePropagation(); toast("The owner has not given you this screen."); }
 }, true);
+/* Menu button shows or hides the list of screens; the choice is kept on this device */
+function navShut(on){ document.body.classList.toggle("navshut", on); lsSet("erp.navShut", on);
+  const m = document.querySelector("nav.tabs .navmenu"); if (m) m.setAttribute("aria-expanded", String(!on)); }
+navShut(lsGet("erp.navShut") === true);
+
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
-  if (d.xmenu){ openSheet("Screens", `<div class="menugrid">${[...document.querySelectorAll("nav.tabs [data-tab]")].filter(b => !b.hidden).map(b => `<button type="button" data-xgo="${esc(b.dataset.tab)}" ${S.tab === b.dataset.tab ? 'class="primary"' : ""}>${esc(b.textContent.trim())}</button>`).join("")}</div>`); return; }
+  if (d.xmenu){ navShut(!document.body.classList.contains("navshut")); return; }
   if (d.xgo){ closeSheet(); S.tab = d.xgo; render(); return; }
   if (d.xlocksel !== undefined){ S.lockSel = d.xlocksel || null; S.lockPin = ""; S.lockErr = ""; drawLock(); return; }
   if (d.xpin !== undefined){ if ((S.lockPin || "").length < 6){ S.lockPin = (S.lockPin || "") + d.xpin; S.lockErr = ""; } drawLock(); if (S.lockPin.length === 6) tryLogin(); return; }

@@ -1098,7 +1098,7 @@ const BACKUP_DAYS = 7;
 const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 S.rep = lsGet("rp.rep", "pay"); S.payScope = "week"; S.expMonths = 3; S.month = today().slice(0,7);
-S.plan = lsGet("rp.plan", {}); S.lang = lsGet("rp.lang", "en");
+S.plan = lsGet("rp.plan", {}); S.lang = lsGet("rp.lang", window.ERP_MODE === "device" ? "ar" : "en"); // the installed app starts in Arabic on a new device; the choice is remembered
 
 /* ---- 9 who did it: names come from ids, resolved for this viewer ---- */
 async function loadNames(){

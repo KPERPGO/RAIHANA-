@@ -1,0 +1,32 @@
+# Builds the app from src/ and runs the full browser test set on every push and pull request.
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install pillow
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build
+        run: python3 src/build.py
+      - name: The published site matches the source
+        run: |
+          for f in index.html sw.js manifest.webmanifest; do
+            cmp "$f" "dist/app/$f" || { echo "$f is out of date: run 'npm run site' and commit"; exit 1; }
+          done
+      - name: Tests
+        run: sh tests/run-all.sh

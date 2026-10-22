@@ -600,7 +600,7 @@ function balance(sid){
   const s = supplier(sid);
   // the opening balance counts only when verified and not set aside ("leave out until older invoices are entered")
   const open = s && s.openingVerified && !s.openingExcluded && isNum(s.openingBalance) ? s.openingBalance : 0;
-  // debt is automatic (LTH): every invoice entered counts after discount, every verified payment and confirmed return takes it off
+  // debt is automatic (owner's rule): every invoice entered counts after discount, every verified payment and confirmed return takes it off
   const inv = S.invoices.filter(i => i.supplierId === sid).reduce((a,i) => a + calc(i).dueAmt, 0);
   const pays = S.payments.filter(p => p.supplierId === sid && p.verified).reduce((a,p) => a + n0(p.amount) + n0(p.discount), 0);
   const credits = S.credits.filter(x => x.supplierId === sid && x.verified).reduce((a,x) => a + n0(x.amount), 0);

@@ -1,0 +1,217 @@
+{
+ "id": "PI-2026-0001",
+ "pid": "PI-2026-0001",
+ "invoiceNo": "T-1001",
+ "date": "2026-10-19",
+ "createdAt": "2026-10-21T07:30:00Z",
+ "dueDate": null,
+ "invoiceDiscount": null,
+ "supplierId": "SUP-001",
+ "type": "credit",
+ "status": "Awaiting Approval",
+ "receiving": "pending",
+ "printedTotal": 446050,
+ "printedPrevBalance": 1000000,
+ "notes": "Made-up test invoice (not real data).",
+ "extraction": {
+  "at": "2026-10-21T07:30:00Z",
+  "source": "photo",
+  "uncertain": [
+   "Line 12 batch unclear (test)"
+  ]
+ },
+ "lines": [
+  {
+   "desc": "Apidra Solostar 100Unites / ml 5 Pens Sanofi",
+   "qty": 1,
+   "cold": false,
+   "expiry": "2028-02",
+   "no": "1",
+   "price": 60900,
+   "value": 60900,
+   "batch": "TB001"
+  },
+  {
+   "desc": "( براد ) Clexane ** 6000IU 60mg/0.6ml 2 Seringues Sanofi",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2028-02",
+   "no": "2",
+   "price": 20150,
+   "value": 20150,
+   "batch": "TB002"
+  },
+  {
+   "desc": "Clexane ** 8000 IU (80 mg)/0.8ml 2 Syringes Sanofi",
+   "qty": 1,
+   "cold": false,
+   "expiry": "2028-01",
+   "no": "3",
+   "price": 24000,
+   "value": 24000,
+   "batch": "TB003"
+  },
+  {
+   "desc": "( براد ) Cyclogest ** 400 mg 15 Pessaries L.D Collins UK",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2028-06",
+   "no": "4",
+   "price": 33650,
+   "value": 33650,
+   "batch": "TB004"
+  },
+  {
+   "desc": "( براد ) Estrofem ** 2 mg 28 Tabs Novo Nordisk",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2029-09",
+   "no": "5",
+   "price": 12050,
+   "value": 12050,
+   "batch": "TB005"
+  },
+  {
+   "desc": "( براد ) Gestophil ** 400 mg 15 Supp Philadelphia Pharma",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2028-11",
+   "no": "6",
+   "price": 20250,
+   "value": 20250,
+   "batch": "TB006"
+  },
+  {
+   "desc": "( براد ) Glycerin 0.7g 6 Supp El-Nile",
+   "qty": 2,
+   "cold": true,
+   "expiry": "2028-12",
+   "no": "7",
+   "price": 1250,
+   "value": 2500,
+   "batch": "TB007"
+  },
+  {
+   "desc": "( براد ) Hema Plex Iron 3*10 Tabs NaturesPlus",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2028-11",
+   "no": "8",
+   "price": 32600,
+   "value": 32600,
+   "batch": "TB008"
+  },
+  {
+   "desc": "( براد ) Humulin N 100 Units/ml Vial Lilly Spain",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2028-03",
+   "no": "9",
+   "price": 16950,
+   "value": 16950,
+   "batch": "TB009"
+  },
+  {
+   "desc": "Lacoma ( FZ ) 2.5 ml0.005% Drops Ajanta Pharma",
+   "qty": 1,
+   "cold": false,
+   "expiry": "2028-06",
+   "no": "10",
+   "price": 6300,
+   "value": 6300,
+   "batch": "TB010"
+  },
+  {
+   "desc": "Lotel ** 0.5% Eye Gel Ajanta Pharma India",
+   "qty": 1,
+   "cold": false,
+   "expiry": "2028-03",
+   "no": "11",
+   "price": 7250,
+   "value": 7250,
+   "batch": "TB011"
+  },
+  {
+   "desc": "( براد ) Medaparin 2000 IU/0.2ml 2 Syringes Medis Pharma",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2028-05",
+   "no": "12",
+   "price": 6500,
+   "value": 6500,
+   "batch": "TB012"
+  },
+  {
+   "desc": "( براد ) Neurobion 3 ml 6 Amp P&G Health",
+   "qty": 2,
+   "cold": true,
+   "expiry": "2028-11",
+   "no": "13",
+   "price": 7800,
+   "value": 15600,
+   "batch": "TB013"
+  },
+  {
+   "desc": "( براد ) Novo Mix 100 Units/ml 5 Pens Novo Nordisk",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2027-10",
+   "no": "14",
+   "price": 68750,
+   "value": 68750,
+   "batch": "TB014"
+  },
+  {
+   "desc": "( براد ) NovoFine 31G6mm 100 Vial Novo Nordisk",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2028-04",
+   "no": "15",
+   "price": 36450,
+   "value": 36450,
+   "batch": "TB015"
+  },
+  {
+   "desc": "Oxytocin 10IU/ml 10IM/IV Amp MinaPharm",
+   "qty": 1,
+   "cold": false,
+   "expiry": "2029-02",
+   "no": "16",
+   "price": 7250,
+   "value": 7250,
+   "batch": "TB016"
+  },
+  {
+   "desc": "( براد ) Polygante 6 Vag Caps Vitapure",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2028-05",
+   "no": "17",
+   "price": 7300,
+   "value": 7300,
+   "batch": "TB017"
+  },
+  {
+   "desc": "( براد ) Sterogyl H 600,000IU/1.5 ml Amp Desma",
+   "qty": 10,
+   "cold": true,
+   "expiry": "2028-09",
+   "no": "18+19",
+   "bonus": 2,
+   "price": 6400,
+   "value": 64000,
+   "batch": "TB018",
+   "note": "Bonus line merged (test data)"
+  },
+  {
+   "desc": "( براد ) Vagilen ** 500 mg 10 Supp Opalia Pharma",
+   "qty": 1,
+   "cold": true,
+   "expiry": "2027-08",
+   "no": "20",
+   "price": 3600,
+   "value": 3600,
+   "batch": "TB019"
+  }
+ ]
+}

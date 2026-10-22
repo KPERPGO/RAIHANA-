@@ -1,0 +1,12 @@
+{
+ "id": "SUP-001",
+ "name": "Test Drugstore",
+ "nameAr": "مذخر تجريبي",
+ "creditDays": null,
+ "discountTiers": [],
+ "openingBalance": 1000000,
+ "openingDate": "2026-10-18",
+ "openingVerified": false,
+ "returnDays": 15,
+ "notes": "Test supplier."
+}

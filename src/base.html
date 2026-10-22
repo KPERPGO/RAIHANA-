@@ -1,0 +1,1667 @@
+<title>Raihana Pharmacy Payables</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="apple-mobile-web-app-title" content="Raihana">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: phone-first single column; sticky top bar, bottom tab bar, slide-up sheet for forms and details */
+:root{
+  --bg:#edf3f8; --surface:#ffffff; --sunk:#e1eaf3; --fg:#10243d; --muted:#56687e; --line:#cbd8e6;
+  --accent:#1557b0; --accent-ink:#ffffff; --accent2:#0b8290; --good:#0a7a83; --good-bg:#d3f0f2; --warn:#8a5a00; --warn-bg:#fbedcc; --bad:#a3271b; --bad-bg:#f8dcd7;
+  --sans:"IBM Plex Sans","IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0b1420; --surface:#121e2d; --sunk:#1a2839; --fg:#e2eaf3; --muted:#9aabbf; --line:#273a50;
+  --accent:#6aa6ff; --accent-ink:#06162b; --accent2:#3fd0d4; --good:#5fd6d6; --good-bg:#11333a; --warn:#f0c463; --warn-bg:#3a2e12; --bad:#f2948a; --bad-bg:#40201c; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0b1420; --surface:#121e2d; --sunk:#1a2839; --fg:#e2eaf3; --muted:#9aabbf; --line:#273a50;
+  --accent:#6aa6ff; --accent-ink:#06162b; --accent2:#3fd0d4; --good:#5fd6d6; --good-bg:#11333a; --warn:#f0c463; --warn-bg:#3a2e12; --bad:#f2948a; --bad-bg:#40201c; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.45;padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.wrap{max-width:760px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px;display:grid;gap:18px}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:3px solid transparent;border-image:linear-gradient(90deg,var(--accent),var(--accent2)) 1}
+header.top .in{max-width:760px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px;display:flex;align-items:center;gap:12px;justify-content:space-between}
+h1{font-size:18px;margin:0;font-weight:600}
+h1 small{display:block;font-size:12px;font-weight:400;color:var(--muted)}
+h2{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:0;font-weight:600}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;unicode-bidi:isolate}
+[dir=rtl] .num{direction:ltr}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:2px;min-width:0}
+.kpi .v{font-size:20px;font-weight:500;overflow-wrap:anywhere}
+.kpi .l{font-size:12.5px;color:var(--muted)}
+.kpi.lead{grid-column:1/-1;background:linear-gradient(120deg,var(--accent),var(--accent2));border-color:var(--accent);color:var(--accent-ink)}
+.kpi.lead .l{color:inherit;opacity:.85}
+.kpi.lead .v{font-size:28px}
+.list{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.row{display:flex;gap:12px;align-items:center;padding:12px 14px;border-top:1px solid var(--line);width:100%;background:none;border-left:0;border-right:0;border-bottom:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.row:first-child{border-top:0}
+.row:hover{background:var(--sunk)}
+.row .main{flex:1;min-width:0;display:grid;gap:2px}
+.row .t{font-weight:500;overflow-wrap:anywhere}
+.row .s{font-size:12.5px;color:var(--muted)}
+.row .end{text-align:end;display:grid;gap:4px;justify-items:end}
+.empty{padding:18px 14px;color:var(--muted);font-size:14px}
+.pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--sunk);color:var(--muted);white-space:nowrap}
+.pill.good{background:var(--good-bg);color:var(--good)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.pill.acc{background:var(--accent);color:var(--accent-ink)}
+.alert{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-top:1px solid var(--line);font-size:14px}
+.alert:first-child{border-top:0}
+.dot{width:8px;height:8px;border-radius:50%;margin-top:7px;flex:none;background:var(--warn)}
+.dot.bad{background:var(--bad)}
+.sec{display:grid;gap:8px}
+.sechead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+button,.btn{font:inherit;font-weight:600;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:9px 14px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.row:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+nav.tabs .in{max-width:760px;margin:0 auto;display:grid;grid-template-columns:repeat(6,minmax(0,1fr))}
+nav.tabs button{border:0;border-radius:0;background:none;padding:12px 2px 14px;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--muted)}
+nav.tabs button[aria-current="page"]{color:var(--accent);font-weight:600;box-shadow:inset 0 2px 0 var(--accent)}
+.sheet{position:fixed;inset:0;z-index:20;background:rgba(10,20,18,.45);display:flex;align-items:flex-end;justify-content:center}
+.sheet .panel{background:var(--bg);width:100%;max-width:760px;max-height:calc(100% - 24px - env(safe-area-inset-top,0px));overflow:auto;border-radius:14px 14px 0 0;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+.sheet .ph{position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px max(16px,env(safe-area-inset-left,0px));z-index:1}
+.sheet .ph h3{margin:0;font-size:16px}
+.sheet .pb{padding:16px max(16px,env(safe-area-inset-left,0px));display:grid;gap:16px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (max-width:420px){.grid2.stack{grid-template-columns:1fr}}
+label{display:grid;gap:4px;font-size:12.5px;color:var(--muted);min-width:0}
+input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 10px;width:100%;min-width:0}
+input.num{font-family:var(--mono)}
+.grid2>*{min-width:0}
+input[type=date]{-webkit-appearance:none;appearance:none;display:block;max-width:100%;min-height:42px;text-align:start}
+textarea{min-height:60px;resize:vertical}
+.check{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--fg)}
+.check input{width:auto}
+.lineedit{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;display:grid;gap:8px}
+.lineedit .lg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:480px){.lineedit .lg{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.lineedit .lh{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--muted);gap:8px}
+.sum{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:6px}
+.sum .r{display:flex;justify-content:space-between;gap:12px}
+.sum .r.big{font-weight:600;font-size:16px}
+.err{color:var(--bad);font-size:14px}
+.note{font-size:13px;color:var(--muted)}
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
+td b{font-weight:600}
+th,td{padding:8px 10px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-top:0;font-weight:600}
+td.n,th.n{text-align:end}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(86px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;z-index:30;font-size:14px;max-width:calc(100% - 32px)}
+.banner{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 14px;font-size:14px}
+.banner.bad{background:var(--bad-bg);color:var(--bad);border:0;width:100%;text-align:start;display:block;margin-bottom:8px}
+.tabbadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:999px;background:var(--bad);color:var(--surface,#fff);font-size:11px;line-height:18px;font-weight:700}
+.photo{max-width:100%;border-radius:10px;border:1px solid var(--line);display:block}
+.busy{display:flex;gap:10px;align-items:center}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.inv{border-top:1px solid var(--line)}
+.inv:first-child{border-top:0}
+.inv .row{border-top:0}
+.pd{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 14px 12px}
+.pd button{padding:8px 10px;font-size:14px}
+.pd button.on-paid{background:var(--good-bg);border-color:var(--good);color:var(--good)}
+.pd button.on-debt{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chips button{border-radius:999px;padding:6px 14px;font-size:14px}
+.chips button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.kpi.tap{cursor:pointer;text-align:left;font:inherit;color:inherit}
+.kpi.debt .v{color:var(--bad)} .kpi.paid .v{color:var(--good)}
+.unitin{display:flex;gap:4px}
+.unitin input{flex:1;min-width:0}
+.unitin select{width:auto;flex:none;padding-inline:6px}
+.ar{font-family:"IBM Plex Sans Arabic",var(--sans)}
+@media (prefers-reduced-motion:no-preference){.sheet .panel{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}}
+/* motion: light, fast feedback; switched off for people who ask for reduced motion */
+@media (prefers-reduced-motion:no-preference){
+button,.row,.kpi,.chips button{transition:transform .14s ease,background-color .2s ease,color .2s ease,box-shadow .2s ease,border-color .2s ease}
+button:active:not(:disabled),.row:active{transform:scale(.97)}
+nav.tabs button{transition:color .2s ease,box-shadow .25s ease}
+nav.tabs button[aria-current="page"]{animation:tabpop .3s ease-out}
+@keyframes tabpop{0%{transform:translateY(2px)}60%{transform:translateY(-2px)}100%{transform:none}}
+#view.enter > *{animation:rise .32s cubic-bezier(.2,.7,.2,1) both}
+#view.enter .kpi,#view.enter .list > *{animation:rise .34s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i,0) * 35ms)}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.sheet:not([hidden]){animation:fadebg .2s ease-out}
+@keyframes fadebg{from{background:rgba(10,20,18,0)}}
+.sheet .panel{animation:up .26s cubic-bezier(.2,.8,.2,1)!important}
+@keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+.sheet .pb > *{animation:rise .3s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i,0) * 30ms + 60ms)}
+.toast:not([hidden]){animation:toastin .32s cubic-bezier(.2,1.4,.4,1)}
+@keyframes toastin{from{opacity:0;transform:translate(-50%,16px) scale(.92)}to{opacity:1;transform:translate(-50%,0)}}
+.toast .tick{display:inline-block;width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;text-align:center;line-height:18px;font-size:12px;margin-inline-end:8px;animation:tick .45s cubic-bezier(.2,1.6,.4,1)}
+@keyframes tick{from{transform:scale(0) rotate(-90deg)}to{transform:none}}
+.on-paid{animation:paidpulse .5s ease-out}
+@keyframes paidpulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent2) 60%,transparent)}100%{box-shadow:0 0 0 12px transparent}}
+.kpi.lead{background-size:200% 200%;animation:glow 8s ease-in-out infinite}
+@keyframes glow{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+details[open] > :not(summary){animation:rise .25s ease-out both}
+.ripple{position:absolute;border-radius:50%;pointer-events:none;background:currentColor;opacity:.18;transform:scale(0);animation:rip .5s ease-out forwards}
+@keyframes rip{to{transform:scale(2.6);opacity:0}}
+.tabbadge{animation:badge 2.4s ease-in-out infinite}
+@keyframes badge{0%,85%,100%{transform:none}90%{transform:scale(1.2)}}
+}
+</style>
+
+<header class="top"><div class="in">
+  <h1>Raihana Pharmacy <span class="ar" style="color:var(--accent2);white-space:nowrap">صيدلية ريحانة</span><small id="sub">Supplier invoices, payments and balances · IQD</small></h1>
+  <div class="actions">
+    <button id="scanBtn" class="primary" type="button" hidden>Scan invoice</button>
+    <button id="addBtn" type="button">+ Invoice</button>
+    <button id="langBtn" type="button" aria-label="Switch language">عربي</button>
+  </div>
+  <input type="file" id="photoIn" accept="image/jpeg,image/png,image/webp" hidden>
+</div></header>
+
+<div id="banner" class="wrap" hidden style="padding-block:8px 0"><div class="banner" id="bannerText"></div></div>
+<main class="wrap" id="view"></main>
+
+<nav class="tabs" aria-label="Sections"><div class="in">
+  <button type="button" data-tab="home" aria-current="page">Home</button>
+  <button type="button" data-tab="invoices">Invoices</button>
+  <button type="button" data-tab="items">Items</button>
+  <button type="button" data-tab="payments">Payments</button>
+  <button type="button" data-tab="suppliers">Suppliers</button>
+  <button type="button" data-tab="reports">Reports</button>
+</div></nav>
+
+<div class="sheet" id="sheet" hidden><div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="ph"><h3 id="sheetTitle"></h3><button type="button" id="sheetClose">Close</button></div>
+  <div class="pb" id="sheetBody"></div>
+</div></div>
+<div class="toast" id="toast" hidden></div>
+<datalist id="formList"></datalist>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const TOL = 250; // IQD rounding tolerance per invoice
+const BOOKED = ["Approved for Posting","Posted to Mercato","Reconciled"];
+const S = {tab:"home", filter:"all", sort:"name", fridgeOnly:false, q:"", suppliers:[], invoices:[], payments:[], credits:[], allCredits:[], meta:{}, names:{}, meId:null, ready:false, db:null, readOnly:false};
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const n0 = v => (typeof v === "number" && isFinite(v)) ? v : 0;
+const isNum = v => typeof v === "number" && isFinite(v);
+const iqd = v => isNum(v) ? Math.round(v).toLocaleString("en-US") + " IQD" : "—";
+const pct = v => isNum(v) ? (Math.round(v*1000)/10) + "%" : "—";
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const days = (a,b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
+const addDays = (d,k) => new Date(Date.parse(d) + k*864e5).toISOString().slice(0,10);
+const normNo = s => String(s||"").replace(/[\s\-\/]/g,"").replace(/^0+/,"").toUpperCase();
+const parseNum = s => { const t = String(s ?? "").replace(/[,'\s٬]/g,"").replace(/٫/g,".").replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)); if (t === "") return null; const x = Number(t); return isFinite(x) ? x : NaN; };
+
+const FORMS = [
+  [/\b(needles?|novofine)\b/i, "Needle"],
+  [/\bvag(inal)?\s*caps?\b/i, "Vaginal capsule"],
+  [/\bpessar(y|ies)\b/i, "Pessary"],
+  [/\bsupp(ository|ositories|s)?\b/i, "Suppository"],
+  [/\b(film[- ]?coated\s*)?tab(let)?s?\b/i, "Tablet"],
+  [/\bcaps?(ule)?s?\b/i, "Capsule"],
+  [/\bamp(oule|ule)?s?\b/i, "Ampoule"],
+  [/\bvials?\b/i, "Vial"],
+  [/\bpens?\b/i, "Pen"],
+  [/\b(syringes?|seringues?)\b/i, "Prefilled syringe"],
+  [/\beye\s*drops?\b/i, "Eye drops"],
+  [/\bdrops?\b/i, "Drops"],
+  [/\beye\s*gel\b/i, "Eye gel"],
+  [/\bgel\b/i, "Gel"],
+  [/\bcream\b/i, "Cream"],
+  [/\boint(ment)?\b/i, "Ointment"],
+  [/\bsyrup\b/i, "Syrup"],
+  [/\bsusp(ension)?\b/i, "Suspension"],
+  [/\bsachets?\b/i, "Sachet"],
+  [/\bspray\b/i, "Spray"],
+  [/\binhaler\b/i, "Inhaler"],
+];
+function parseDesc(desc){
+  const raw = String(desc || "");
+  const fridge = /براد|\bfridge\b|refrigerat/i.test(raw);
+  let d = raw.replace(/\(\s*براد\s*\)/g, " ").replace(/براد/g, " ").replace(/\*\*/g, " ").replace(/\s+/g, " ").trim();
+  let form = null, formAt = -1, formWord = "";
+  for (const [re, name] of FORMS){ const m = re.exec(d); if (m){ form = name; formAt = m.index; formWord = m[0]; break; } }
+  let blisters = null, perBlister = null, pack = null;
+  const bl = /(\d{1,2})\s*[*x×]\s*(\d{1,3})/i.exec(d);
+  if (bl && +bl[1] >= 1 && +bl[1] <= 10){ blisters = +bl[1]; perBlister = +bl[2]; pack = blisters * perBlister; }
+  else if (formAt > 0){ const m = /(\d{1,4})\s*$/.exec(d.slice(0, formAt).trim()); if (m) pack = +m[1]; }
+  const unit = "(?:unites|units?|mcg|µg|mg|iu|ml|g|%)";
+  const sre = new RegExp(`(\\d[\\d,.']*\\s*${unit}(?:\\s*/\\s*\\d*[\\d.]*\\s*${unit})?(?:\\s*\\(\\s*\\d[\\d.]*\\s*${unit}\\s*\\))?(?:\\s*/\\s*\\d*[\\d.]*\\s*${unit})?)`, "i");
+  const sm = sre.exec(d);
+  const strength = sm ? sm[1].replace(/\s+/g, " ").replace(/unites/i, "Units").trim() : null;
+  let cut = d.length;
+  if (sm) cut = Math.min(cut, sm.index);
+  if (bl) cut = Math.min(cut, bl.index);
+  if (formAt >= 0) cut = Math.min(cut, formAt);
+  const firstNum = /\s\d/.exec(d); if (firstNum) cut = Math.min(cut, firstNum.index);
+  let name = d.slice(0, cut).replace(/[(\[]\s*$/, "").trim();
+  if (!name) name = d.split(" ")[0];
+  return {name, strength, form, pack, blisters, perBlister, fridge};
+}
+
+function attrs(l){
+  const p = parseDesc(l.desc);
+  const pick = (k, v) => (l[k] !== undefined && l[k] !== null && l[k] !== "") ? l[k] : v;
+  return {name: pick("name", p.name), strength: pick("strength", p.strength), form: pick("form", p.form), pack: pick("pack", p.pack), blisters: pick("blisters", p.blisters), fridge: typeof l.cold === "boolean" ? l.cold : p.fridge};
+}
+function lineGross(l){ return n0(l.qty) * n0(l.price); }
+function lineDisc(l){ const g = lineGross(l); return isNum(l.discAmt) ? l.discAmt : isNum(l.discPct) ? g * l.discPct / 100 : 0; }
+function lineBad(l){ return isNum(l.value) && Math.abs(lineNet(l) - l.value) > 1 && Math.abs(lineGross(l) - l.value) > 1; } // printed value may be before or after the line discount
+function lineNet(l){ return lineGross(l) - lineDisc(l); }
+function bonusFrom(qty, v, mode){ return mode === "%" ? (isNum(qty) && isNum(v) ? Math.floor(qty * v / 100) : null) : v; }
+const FORM_NAMES = [...new Set(FORMS.map(f => f[1]))];
+/* ---------- derived numbers ---------- */
+function whoName(id){ return !id ? "" : id === S.meId ? (S.meName ? S.meName + " (you)" : "you") : (S.names[id] || "a team member"); }
+function supplier(id){ return S.suppliers.find(s => s.id === id); }
+function supName(id){ return supplier(id)?.name || id || "Unknown supplier"; }
+const STALE_DAYS = 30, CASH_DAYS = 7; // alert when unpaid longer than this after the invoice date: credit 1 month, cash 1 week
+const limitDays = inv => inv.type === "cash" ? CASH_DAYS : STALE_DAYS;
+const limitText = inv => inv.type === "cash" ? "1 week (cash)" : "1 month";
+const staleList = () => S.invoices.filter(i => calc(i).stale).sort((a,b) => (a.date||"").localeCompare(b.date||""));
+function calc(inv){
+  const lines = inv.lines || [];
+  let sum = 0, gross = 0, mismatches = 0, bonusUnits = 0, units = 0, cold = 0;
+  for (const l of lines){
+    const net = lineNet(l);
+    sum += net; gross += lineGross(l); bonusUnits += n0(l.bonus); units += n0(l.qty) + n0(l.bonus); if (attrs(l).fridge) cold++;
+    if (lineBad(l)) mismatches++;
+  }
+  // with no priced lines, an invoice discount applies to the printed total
+  const discBase = gross ? sum : n0(inv.printedTotal);
+  const invDisc = isNum(inv.invoiceDiscountPct) ? discBase * inv.invoiceDiscountPct / 100 : n0(inv.invoiceDiscount);
+  const total = (gross ? sum : n0(inv.printedTotal)) - invDisc;
+  // the paper total may or may not already include the invoice discount; accept either
+  let diff = isNum(inv.printedTotal) && gross ? total - inv.printedTotal : null;
+  if (diff !== null && Math.abs(diff) > TOL){ for (const alt of [sum, gross]) if (Math.abs(alt - inv.printedTotal) <= TOL){ diff = alt - inv.printedTotal; break; } }
+  const okTol = diff !== null && Math.abs(diff) <= TOL;
+  const credited = S.credits.filter(x => x.invoiceId === inv.id && x.verified).reduce((a,x) => a + n0(x.amount), 0);
+  const settled = S.payments.filter(p => p.invoiceId === inv.id && p.verified).reduce((a,p) => a + n0(p.amount) + n0(p.discount), 0) + credited;
+  // amount owed is always the total after discounts
+  const base = total;
+  const outstanding = base - settled;
+  const sup = supplier(inv.supplierId);
+  let due = inv.dueDate || (sup && isNum(sup.creditDays) ? addDays(inv.date, sup.creditDays) : null);
+  if (inv.type === "cash" && inv.date){ const max = addDays(inv.date, CASH_DAYS); if (!due || due > max) due = max; } // cash is due within 1 week at most
+  const returnBy = sup && isNum(sup.returnDays) ? addDays(inv.date, sup.returnDays) : null;
+  let payStatus = outstanding <= 0 ? "Paid" : settled > 0 ? "Partly paid" : "Unpaid";
+  if (outstanding > 0 && due && due < today()) payStatus = "Overdue";
+  const tiers = (sup?.discountTiers || []).filter(t => isNum(t.days) && isNum(t.pct));
+  const age = days(inv.date, today());
+  const disc = tiers.filter(t => age <= t.days).reduce((m,t) => Math.max(m, t.pct), 0);
+  const dup = S.invoices.filter(o => o.id !== inv.id && o.supplierId === inv.supplierId && normNo(o.invoiceNo) === normNo(inv.invoiceNo)).length;
+  return {lines:lines.length, sum, gross, lineDisc: gross - sum, invDisc, discount: (gross ? gross : n0(inv.printedTotal)) - total, total, dueAmt: base, diff, okTol, mismatches, bonusUnits, units, cold, settled, outstanding, due, returnBy, payStatus, disc, tiersKnown: tiers.length > 0, dup, age, credited, stale: outstanding > 0 && age > limitDays(inv)};
+}
+// spreads the invoice discount and the payment (early-payment) discount over the items by their value, so each item shows its real discount and net cost
+// share of each line that is still owed after the invoice-level discount (1 when there is none)
+function invFactor(inv){ const c = calc(inv); return c.sum > 0 ? c.total / c.sum : 1; }
+function itemDiscounts(inv){
+  const c = calc(inv), lines = inv.lines || [];
+  const payDisc = S.payments.filter(p => p.invoiceId === inv.id && p.verified).reduce((a,p) => a + n0(p.discount), 0);
+  const extra = c.invDisc + payDisc, base = c.sum;
+  let left = Math.round(extra), lastK = -1;
+  lines.forEach((l,k) => { if (lineNet(l) > 0) lastK = k; });
+  const rows = lines.map((l,k) => {
+    const gross = lineGross(l), net = lineNet(l);
+    let share = base > 0 && net > 0 ? Math.round(extra * net / base) : 0;
+    if (k === lastK) share = left; left -= share;
+    const disc = Math.round(lineDisc(l)) + share, fin = Math.round(gross) - disc, u = n0(l.qty) + n0(l.bonus);
+    return {l, k, gross:Math.round(gross), disc, pct: gross ? disc / gross : 0, net:fin, perPaid: n0(l.qty) ? fin / n0(l.qty) : null, perUnit: u ? fin / u : null};
+  });
+  const t = rows.reduce((a,r) => ({gross:a.gross + r.gross, disc:a.disc + r.disc, net:a.net + r.net}), {gross:0, disc:0, net:0});
+  return {rows, t, payDisc, invDisc:c.invDisc};
+}
+function itemDiscHtml(inv){
+  const d = itemDiscounts(inv); if (!d.rows.some(r => r.gross)) return "";
+  const f = v => Math.round(v).toLocaleString("en-US");
+  return `<div class="sec"><h2>Discount item by item</h2>
+    <p class="note">Worked out automatically: each item's own discount${d.invDisc ? ", plus its share of the invoice discount" : ""}${d.payDisc ? `, plus its share of the ${iqd(d.payDisc)} payment discount` : ""}. Use these numbers when you enter the purchase invoice in MyPharma.</p>
+    <div class="tablewrap"><table><thead><tr><th>Item</th><th class="n">Amount</th><th class="n">Discount</th><th class="n">Net</th><th class="n">Net price per paid unit</th><th class="n">Cost per unit with bonus</th></tr></thead><tbody>
+    ${d.rows.map(r => `<tr><td>${esc(attrs(r.l).name || r.l.desc)}${attrs(r.l).name && attrs(r.l).strength ? `<div class="note">${esc(attrs(r.l).strength)}</div>` : ""}</td><td class="n num">${r.gross ? f(r.gross) : "—"}</td><td class="n num">${r.disc ? `${f(r.disc)} <span class="note">(${pct(r.pct)})</span>` : "—"}</td><td class="n num"><b>${r.gross ? f(r.net) : "—"}</b></td><td class="n num">${r.perPaid !== null && r.gross ? f(r.perPaid) : "—"}</td><td class="n num">${r.perUnit !== null && r.gross ? f(r.perUnit) : "—"}</td></tr>`).join("")}
+    <tr><td><b>Total</b></td><td class="n num"><b>${f(d.t.gross)}</b></td><td class="n num"><b>${f(d.t.disc)}</b>${d.t.gross ? ` <span class="note">(${pct(d.t.disc / d.t.gross)})</span>` : ""}</td><td class="n num"><b>${f(d.t.net)}</b></td><td></td><td></td></tr>
+    </tbody></table></div></div>`;
+}
+// once an invoice is approved nothing on it asks for attention: "confirm/check" reminders are hidden, plain notes stay
+function lineNote(inv, l){
+  const n = l.note || ""; if (!BOOKED.includes(inv.status)) return n;
+  return n.split(" · ").filter(x => !/confirm|check|unclear|not sure/i.test(x)).join(" · ");
+}
+function balance(sid){
+  const s = supplier(sid);
+  // the opening balance counts only when verified and not set aside ("leave out until older invoices are entered")
+  const open = s && s.openingVerified && !s.openingExcluded && isNum(s.openingBalance) ? s.openingBalance : 0;
+  // debt is automatic (owner's rule): every invoice entered counts after discount, every verified payment and confirmed return takes it off
+  const inv = S.invoices.filter(i => i.supplierId === sid).reduce((a,i) => a + calc(i).dueAmt, 0);
+  const pays = S.payments.filter(p => p.supplierId === sid && p.verified).reduce((a,p) => a + n0(p.amount) + n0(p.discount), 0);
+  const credits = S.credits.filter(x => x.supplierId === sid && x.verified).reduce((a,x) => a + n0(x.amount), 0);
+  const pending = S.invoices.filter(i => i.supplierId === sid && !BOOKED.includes(i.status)).reduce((a,i) => a + Math.max(0, calc(i).outstanding), 0);
+  return {open, verified: !!(s && s.openingVerified), inv, pays, credits, bal: open + inv - pays - credits, pending};
+}
+function statusPill(st){
+  const cls = {"Posted to Mercato":"good","Reconciled":"good","Approved for Posting":"acc","Awaiting Approval":"warn","Validation Required":"bad","On Hold":"bad"}[st] || "";
+  return `<span class="pill ${cls}">${esc(st === "Posted to Mercato" ? "In MyPharma" : st)}</span>`;
+}
+function payPill(ps){ return `<span class="pill ${ps==="Paid"?"good":ps==="Overdue"?"bad":ps==="Partly paid"?"warn":""}">${ps}</span>`; }
+
+/* ---------- views ---------- */
+function render(){
+  document.querySelectorAll("nav.tabs button").forEach(b => b.setAttribute("aria-current", b.dataset.tab === S.tab ? "page" : "false"));
+  const v = $("#view");
+  if (!S.ready){ v.innerHTML = `<div class="list"><div class="empty">Loading your suppliers and invoices…</div></div>`; return; }
+  const st = staleList(), tb = document.querySelector('nav.tabs [data-tab="invoices"]');
+  tb.innerHTML = `Invoices${st.length ? ` <span class="tabbadge" aria-label="${st.length} unpaid past their limit">${st.length}</span>` : ""}`;
+  if (!S.staleShown && st.length && $("#sheet").hidden){ S.staleShown = true; setTimeout(staleSheet, 0); }
+  v.innerHTML = ({home:homeView, invoices:invoicesView, items:itemsView, payments:paymentsView, suppliers:suppliersView, reports:window.reportsView || (() => "")})[S.tab]();
+  window.afterRender?.();
+  const q = $("#itemQ"); if (q && S.qFocus){ q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+}
+function staleSheet(){
+  const st = staleList();
+  openSheet("Unpaid past the limit", `<p>${st.length} invoice${st.length===1?"":"s"} not paid in time: cash within 1 week, credit within 1 month of the invoice date. Total unpaid: <b class="num">${iqd(st.reduce((a,i) => a + calc(i).outstanding, 0))}</b>.</p><div class="list">${st.map(invRow).join("")}</div>`);
+}
+function homeView(){
+  const bals = S.suppliers.map(s => ({s, b:balance(s.id)}));
+  const totalOwed = bals.reduce((a,x) => a + x.b.bal, 0);
+  const pendingSum = bals.reduce((a,x) => a + x.b.pending, 0);
+  const now = today(), in7 = addDays(now,7);
+  let due7 = 0, overdue = 0, awaiting = 0, notEntered = 0, discToday = 0;
+  const alerts = [];
+  for (const i of S.invoices){
+    const c = calc(i);
+    if (c.outstanding > 0 && c.due && c.due < now) overdue += c.outstanding;
+    else if (c.outstanding > 0 && c.due && c.due <= in7) due7 += c.outstanding;
+    if (["Awaiting Approval","Validation Required"].includes(i.status)) awaiting++;
+    if (i.status === "Approved for Posting") notEntered++;
+    if (c.outstanding > 0 && c.disc > 0) discToday += c.outstanding * c.disc;
+    const tag = `${esc(supName(i.supplierId))} ${esc(i.invoiceNo)}`;
+    if (c.stale) alerts.push([`bad`, `${tag}: unpaid for ${c.age} days, limit ${limitText(i)} (${iqd(c.outstanding)}).`, i.id]);
+    if (c.dup) alerts.push([`bad`, `${tag}: possible duplicate (same supplier and invoice number).`, i.id]);
+    if (c.diff !== null && !c.okTol) alerts.push([`bad`, `${tag}: calculated total differs from printed by ${iqd(c.diff)}.`, i.id]);
+    if (c.mismatches) alerts.push([`warn`, `${tag}: ${c.mismatches} line value(s) don't equal qty × price.`, i.id]);
+    if ((i.receiving || "pending") === "pending" && i.status !== "On Hold") alerts.push([`warn`, `${tag}: receiving not confirmed${c.cold ? ` (${c.cold} cold-chain lines)` : ""}.`, i.id]);
+    if (c.returnBy && c.returnBy >= now && days(now, c.returnBy) <= 5) alerts.push([`warn`, `${tag}: return window closes ${c.returnBy}.`, i.id]);
+    if (i.status === "Approved for Posting") alerts.push([`warn`, `${tag}: approved, not yet entered in MyPharma.`, i.id]);
+  }
+  for (const {s} of bals) if (isNum(s.openingBalance) && !s.openingVerified && !s.openingExcluded) alerts.push([`warn`, `${esc(s.name)}: opening balance not verified, so its debt is incomplete.`, "sup:"+s.id]);
+  const recent = [...S.invoices].sort((a,b) => (b.date||"").localeCompare(a.date||"")).slice(0,5);
+  return `
+  <section class="kpis" aria-label="Summary">
+    <div class="kpi lead"><span class="l">Owed to suppliers (unpaid invoices after discount)</span><span class="v num">${iqd(totalOwed)}</span></div>
+    <button type="button" class="kpi tap debt" data-gofilter="debt"><span class="l">Debt · unpaid invoices</span><span class="v num">${iqd(S.invoices.reduce((a,i) => a + Math.max(0, calc(i).outstanding), 0))}</span><span class="l">${S.invoices.filter(i => calc(i).outstanding > 0).length} invoices · tap to see</span></button>
+    <button type="button" class="kpi tap paid" data-gofilter="paid"><span class="l">Paid invoices</span><span class="v num">${S.invoices.filter(i => calc(i).outstanding <= 0).length}</span><span class="l">tap to see</span></button>
+    <div class="kpi"><span class="l">Awaiting approval</span><span class="v num">${awaiting}</span><span class="l num">${iqd(pendingSum)}</span></div>
+    <div class="kpi"><span class="l">Approved, not in MyPharma</span><span class="v num">${notEntered}</span></div>
+    <div class="kpi"><span class="l">Overdue</span><span class="v num">${iqd(overdue)}</span></div>
+    <div class="kpi"><span class="l">Due in 7 days</span><span class="v num">${iqd(due7)}</span></div>
+  </section>
+  ${(() => { const st = staleList(); return st.length ? `<button type="button" class="banner bad tap" data-gofilter="old"><b>⚠ ${st.length} invoice${st.length===1?"":"s"} unpaid past the limit</b> (cash 1 week, credit 1 month) · <span class="num">${iqd(st.reduce((a,i) => a + calc(i).outstanding, 0))}</span> · oldest ${calc(st[0]).age} days. Tap to see.</button>` : ""; })()}
+  ${window.homeExtras ? homeExtras() : ""}
+  ${discToday > 0 ? `<div class="banner">Paying today would earn about <b class="num">${iqd(discToday)}</b> in early-payment discounts.</div>` : ""}
+  <section class="sec"><div class="sechead"><h2>Needs attention</h2><span class="note">${alerts.length}</span></div>
+    <div class="list">${alerts.length ? alerts.map(a => `<button type="button" class="alert row" data-open="${esc(a[2])}"><span class="dot ${a[0]==="bad"?"bad":""}"></span><span>${a[1]}</span></button>`).join("") : `<div class="empty">Nothing needs attention.</div>`}</div></section>
+  <section class="sec"><div class="sechead"><h2>Balance by supplier</h2></div>
+    <div class="list">${bals.length ? bals.map(({s,b}) => `<button type="button" class="row" data-open="sup:${esc(s.id)}"><span class="main"><span class="t">${esc(s.name)} <span class="ar note">${esc(s.nameAr||"")}</span></span><span class="s">${supplier(s.id)?.openingExcluded ? "Opening balance left out" : b.verified ? "Opening balance verified" : isNum(supplier(s.id)?.openingBalance) ? "Opening balance not verified" : "No opening balance"}${b.pending ? ` · includes ${iqd(b.pending)} not approved yet` : ""}</span></span><span class="end num">${iqd(b.bal)}</span></button>`).join("") : `<div class="empty">No suppliers yet. Add one under Suppliers.</div>`}</div></section>
+  <section class="sec"><div class="sechead"><h2>Latest invoices</h2><button type="button" data-tab-go="invoices">All</button></div>
+    <div class="list">${recent.length ? recent.map(invRow).join("") : `<div class="empty">No invoices yet. Tap + Invoice to add the first one.</div>`}</div></section>
+  <section class="sec"><div class="sechead"><h2>Export</h2></div>
+    <div class="list"><div class="row" style="cursor:default"><span class="main"><span class="t">Excel workbook</span><span class="s">Invoices, invoice lines, payments, suppliers and balances as of ${today()}</span></span><button type="button" data-act="export" ${S.dl ? "" : "disabled"}>Download .xlsx</button></div></div>
+    ${S.dl ? "" : `<p class="note">Excel download isn't available in this view. Open the app on claude.ai.</p>`}</section>
+  <p class="note">Data source: this app only. MyPharma is not connected; an invoice shows “In MyPharma” only after you record its MyPharma number.</p>`;
+}
+function invRow(i){
+  const c = calc(i);
+  const paid = c.outstanding <= 0;
+  return `<div class="inv"><button type="button" class="row" data-open="${esc(i.id)}"><span class="main"><span class="t">${esc(supName(i.supplierId))} · ${esc(i.invoiceNo)}</span><span class="s">${esc(i.date)} · ${i.type === "cash" ? "Cash" : "Credit"} · ${c.lines} lines${c.bonusUnits ? ` · ${c.bonusUnits} bonus` : ""}</span></span><span class="end"><span class="num">${iqd(c.dueAmt)}</span>${c.discount && Math.abs(c.dueAmt - n0(i.printedTotal)) > 1 && isNum(i.printedTotal) ? `<span class="s num" style="text-decoration:line-through">${iqd(i.printedTotal)}</span>` : ""}<span>${statusPill(i.status)} ${payPill(c.payStatus)}</span>${!paid && c.settled > 0 ? `<span class="s num">${iqd(c.outstanding)} left</span>` : ""}${c.stale ? `<span class="pill bad">${c.age} days unpaid</span>` : ""}${c.outstanding < -TOL ? `<span class="pill warn">Overpaid ${iqd(-c.outstanding)}</span>` : ""}</span></button>
+  ${S.readOnly ? "" : `<div class="pd"><button type="button" class="${paid ? "on-paid" : ""}" data-markpaid="${esc(i.id)}" aria-pressed="${paid}">${paid ? "✓ Paid" : "Paid"}</button><button type="button" class="${paid ? "" : "on-debt"}" data-markdebt="${esc(i.id)}" aria-pressed="${!paid}">${paid ? "Debt" : "● Debt"}</button></div>`}</div>`;
+}
+function invoicesView(){
+  const all = [...S.invoices].sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  const list = all.filter(i => S.filter === "all" ? true : S.filter === "paid" ? calc(i).outstanding <= 0 : S.filter === "old" ? calc(i).stale : calc(i).outstanding > 0);
+  const debtSum = all.reduce((a,i) => a + Math.max(0, calc(i).outstanding), 0);
+  const chips = `<div class="chips" role="group" aria-label="Show">${[["all","All",all.length],["debt","Debt",all.filter(i => calc(i).outstanding > 0).length],["old","Late",all.filter(i => calc(i).stale).length],["paid","Paid",all.filter(i => calc(i).outstanding <= 0).length]].map(([k,l,n]) => `<button type="button" data-filter="${k}" aria-pressed="${S.filter===k}">${l} · ${n}</button>`).join("")}</div>
+  ${S.filter === "debt" ? `<p class="note">Unpaid on these invoices: <b class="num">${iqd(debtSum)}</b></p>` : ""}
+  ${S.filter === "old" ? `<p class="note">Not paid in time (cash within 1 week, credit within 1 month): <b class="num">${iqd(list.reduce((a,i) => a + calc(i).outstanding, 0))}</b></p>` : ""}`;
+  return `<section class="sec"><div class="sechead"><h2>Invoices</h2></div>
+  ${chips}
+  <div class="list">${list.length ? list.map(invRow).join("") : `<div class="empty">${S.filter === "paid" ? "No paid invoices yet." : S.filter === "debt" ? "No unpaid invoices." : S.filter === "old" ? "No late invoices." : "No invoices yet."}</div>`}</div></section>`;
+}
+const SORTS = {name:"Name", form:"Dosage form", strength:"Dose", pack:"Pack size", blisters:"Blisters", fridge:"Refrigerated first", manufacturer:"Company", expiry:"Expiry (soonest)", cost:"Unit cost", supplier:"Supplier", date:"Invoice date (newest)"};
+function allItems(){
+  const out = [];
+  for (const i of S.invoices) (i.lines||[]).forEach((l,k) => { const a = attrs(l); const net = lineNet(l), u = n0(l.qty)+n0(l.bonus);
+    out.push({inv:i, l, k, no:l.no||k+1, ...a, manufacturer:l.company||"", cost: u ? net/u : null, supplier:supName(i.supplierId)}); });
+  return out;
+}
+function itemsView(){
+  let items = allItems();
+  if (S.fridgeOnly) items = items.filter(x => x.fridge);
+  if (S.q){ const q = S.q.toLowerCase(); items = items.filter(x => [x.l.desc, x.name, x.form, x.strength, x.supplier].join(" ").toLowerCase().includes(q)); }
+  const k = S.sort, str = v => String(v ?? "\uffff").toLowerCase(), numv = v => isNum(v) ? v : Infinity;
+  const strengthNum = v => { const m = /[\d.,']+/.exec(String(v||"")); return m ? parseFloat(m[0].replace(/[,']/g,"")) : Infinity; };
+  const cmp = {name:(a,b) => str(a.name).localeCompare(str(b.name)) || strengthNum(a.strength) - strengthNum(b.strength),
+    form:(a,b) => str(a.form).localeCompare(str(b.form)) || str(a.name).localeCompare(str(b.name)),
+    strength:(a,b) => strengthNum(a.strength) - strengthNum(b.strength) || str(a.name).localeCompare(str(b.name)),
+    pack:(a,b) => numv(a.pack) - numv(b.pack), blisters:(a,b) => numv(a.blisters) - numv(b.blisters) || str(a.name).localeCompare(str(b.name)),
+    fridge:(a,b) => (b.fridge?1:0) - (a.fridge?1:0) || str(a.name).localeCompare(str(b.name)),
+    manufacturer:(a,b) => str(a.manufacturer).localeCompare(str(b.manufacturer)), expiry:(a,b) => str(a.l.expiry).localeCompare(str(b.l.expiry)),
+    cost:(a,b) => numv(a.cost) - numv(b.cost), supplier:(a,b) => str(a.supplier).localeCompare(str(b.supplier)), date:(a,b) => str(b.inv.date).localeCompare(str(a.inv.date))}[k] || (() => 0);
+  items.sort(cmp);
+  const fridgeCount = allItems().filter(x => x.fridge).length;
+  return `<section class="sec"><div class="sechead"><h2>Items on invoices</h2><span class="note">${items.length}</span></div>
+    <div class="grid2 stack">
+      <label>Sort by<select id="itemSort">${Object.entries(SORTS).map(([v,l]) => `<option value="${v}" ${v===k?"selected":""}>${l}</option>`).join("")}</select></label>
+      <label>Search<input id="itemQ" type="search" value="${esc(S.q)}" placeholder="Name, dose, form, supplier"></label>
+    </div>
+    <div class="chips"><button type="button" data-fridge="1" aria-pressed="${S.fridgeOnly}">Refrigerated only · ${fridgeCount}</button></div>
+    <div class="tablewrap"><table><thead><tr><th>Name</th><th>Dose</th><th>Dosage form</th><th class="n">Pack</th><th class="n">Blisters</th><th>Refrigerated</th><th class="n">Paid + bonus</th><th class="n">Unit cost</th><th>Expiry</th><th>Batch</th><th>Supplier · invoice</th><th>As printed</th></tr></thead><tbody>
+    ${items.length ? items.map(x => `<tr><td><b>${esc(x.name||"")}</b></td><td>${esc(x.strength||"—")}</td><td>${esc(x.form||"—")}</td><td class="n num">${x.pack ?? "—"}</td><td class="n num">${x.blisters ?? "—"}</td><td>${x.fridge ? `<span class="pill acc">Yes · براد</span>` : `<span class="pill">No</span>`}</td><td class="n num">${n0(x.l.qty)}${n0(x.l.bonus) ? ` + ${x.l.bonus}` : ""}</td><td class="n num">${isNum(x.cost) ? Math.round(x.cost).toLocaleString("en-US") : "—"}</td><td class="num">${esc(x.l.expiry||"Not provided")}</td><td class="num">${esc(x.l.batch||"")}</td><td><button type="button" data-open="${esc(x.inv.id)}" style="padding:4px 8px;font-size:13px">${esc(x.supplier)} · ${esc(x.inv.invoiceNo)}</button></td><td class="note">${esc(x.l.desc)}</td></tr>`).join("") : `<tr><td colspan="12" class="note">No items match.</td></tr>`}
+    </tbody></table></div>
+    <p class="note">Name, dose, dosage form, pack and blisters are read from the printed description. Correct any of them by editing the invoice line.</p></section>`;
+}
+function paymentsView(){
+  const list = [...S.payments].sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  const vp = S.payments.filter(p => p.verified), cashT = vp.reduce((a,p) => a + n0(p.amount), 0), discT = vp.reduce((a,p) => a + n0(p.discount), 0);
+  return `<section class="sec"><div class="sechead"><h2>Payments</h2><button type="button" class="primary" data-act="newPay">+ Payment</button></div>
+  ${vp.length ? `<div class="sum"><div class="r"><span>Total paid before discount</span><span class="num">${iqd(cashT + discT)}</span></div><div class="r"><span>Payment discount</span><span class="num">−${iqd(discT)}</span></div><div class="r big"><span>Total paid after discount (cash)</span><span class="num">${iqd(cashT)}</span></div></div>` : ""}
+  <div class="list">${list.length ? list.map(p => { const inv = S.invoices.find(i => i.id === p.invoiceId);
+    return `<button type="button" class="row" data-open="pay:${esc(p.id)}"><span class="main"><span class="t">${esc(supName(p.supplierId))}</span><span class="s">${esc(p.date)} · ${esc(p.method||"")}${inv ? ` · invoice ${esc(inv.invoiceNo)}` : " · not allocated"}${p.receiptNo ? ` · receipt ${esc(p.receiptNo)}` : ""}</span></span><span class="end">${n0(p.discount) ? `<span class="s num">before discount ${iqd(n0(p.amount) + n0(p.discount))}</span>` : ""}<span class="num">${iqd(p.amount)}</span>${n0(p.discount) ? `<span class="s num">after ${iqd(p.discount)} discount</span>` : ""}<span class="pill ${p.verified?"good":"warn"}">${p.verified?"Verified":"Unverified"}</span></span></button>`; }).join("") : `<div class="empty">No payments recorded yet. Record each payment with its stamped receipt number.</div>`}</div></section>`
+  + (window.creditsSection ? creditsSection() : "");
+}
+function supTotals(sid){
+  const b = balance(sid), pays = S.payments.filter(p => p.supplierId === sid && p.verified);
+  return {b, paid:pays.reduce((a,p) => a + n0(p.amount), 0), disc:pays.reduce((a,p) => a + n0(p.discount), 0),
+    credits:S.credits.filter(x => x.supplierId === sid && x.verified).reduce((a,x) => a + n0(x.amount), 0),
+    creditsWaiting:S.credits.filter(x => x.supplierId === sid && !x.verified).reduce((a,x) => a + n0(x.amount), 0),
+    youOwe:Math.max(0, b.bal), theyOwe:Math.max(0, -b.bal)};
+}
+function supInvoices(sid){
+  const f = S.supFilter || "all";
+  const all = S.invoices.filter(i => i.supplierId === sid).sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  const list = all.filter(i => { const c = calc(i); return f === "all" || (f === "unpaid" ? c.outstanding > TOL : c.outstanding <= TOL); });
+  const unalloc = S.payments.filter(p => p.supplierId === sid && !p.invoiceId);
+  return `<div style="display:grid;gap:8px">
+    <div class="chips" role="group" aria-label="Show">${[["all","All"],["unpaid","Unpaid"],["paid","Paid"]].map(([k,l]) => `<button type="button" data-supf="${k}" aria-pressed="${f===k}">${l} · ${all.filter(i => { const c = calc(i); return k === "all" || (k === "unpaid" ? c.outstanding > TOL : c.outstanding <= TOL); }).length}</button>`).join("")}</div>
+    ${list.length ? list.map(i => { const c = calc(i); const paid = S.payments.filter(p => p.invoiceId === i.id && p.verified).reduce((a,p) => a + n0(p.amount), 0), pd = S.payments.filter(p => p.invoiceId === i.id && p.verified).reduce((a,p) => a + n0(p.discount), 0);
+      return `<button type="button" class="row" data-open="${esc(i.id)}" style="display:block;text-align:start"><span class="t" style="display:flex;justify-content:space-between;gap:8px"><b>Invoice ${esc(i.invoiceNo)}</b><span>${payPill(c.payStatus)}</span></span>
+      <span class="s">${esc(i.date)} · ${i.type === "cash" ? "Cash" : "Credit"}${BOOKED.includes(i.status) ? "" : " · not approved"}${c.stale ? ` · ${c.age} days unpaid` : ""}</span>
+      <span class="sum" style="margin-top:6px;display:grid;gap:2px">
+        <span class="r"><span>Amount</span><span class="num">${iqd(c.gross || i.printedTotal)}</span></span>
+        ${c.discount ? `<span class="r"><span>Invoice discounts</span><span class="num">−${iqd(c.discount)}</span></span>` : ""}
+        <span class="r"><span>Due after discount</span><span class="num">${iqd(c.dueAmt)}</span></span>
+        <span class="r"><span>Paid before discount</span><span class="num">${iqd(paid + pd)}</span></span>
+        ${pd ? `<span class="r"><span>Payment discount</span><span class="num">−${iqd(pd)}</span></span>` : ""}
+        <span class="r"><span>Paid after discount (cash)</span><span class="num">${iqd(paid)}</span></span>
+        ${c.credited ? `<span class="r"><span>Returns</span><span class="num">−${iqd(c.credited)}</span></span>` : ""}
+        <span class="r big"><span>${c.outstanding < -TOL ? "Supplier owes you" : "Remaining"}</span><span class="num" style="color:var(--${c.outstanding > TOL ? "bad" : "good"})">${iqd(Math.abs(c.outstanding))}</span></span></span></button>`; }).join("") : `<div class="empty">No invoices here.</div>`}
+    ${unalloc.length ? `<p class="note">Payments not linked to an invoice: ${unalloc.map(p => `${iqd(p.amount)} on ${esc(p.date)}`).join(", ")}</p>` : ""}
+    <button type="button" data-open="sup:${esc(sid)}">Supplier details and payments</button></div>`;
+}
+function suppliersView(){
+  const T = S.suppliers.map(s => supTotals(s.id)), sum = k => T.reduce((a,t) => a + t[k], 0);
+  return `<section class="sec"><div class="sechead"><h2>Paid and owed by supplier</h2></div>
+  <div class="list">${S.suppliers.map((s,k) => { const t = T[k]; return `<button type="button" class="row" data-supx="${esc(s.id)}" aria-expanded="${S.supOpen === s.id}" style="display:block;text-align:start"><span class="t" style="display:flex;justify-content:space-between"><b>${esc(s.name)}</b><span>${S.supOpen === s.id ? "▾" : "▸"}</span></span>
+    <span class="kpis" style="margin-top:8px;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">
+      <span class="kpi"><span class="l">Paid before discount</span><span class="num">${iqd(t.paid + t.disc)}</span></span>
+      <span class="kpi"><span class="l">Paid after discount (cash)</span><span class="num">${iqd(t.paid)}</span></span>
+      <span class="kpi"><span class="l">You owe</span><span class="num" ${t.youOwe ? 'style="color:var(--bad)"' : ""}>${iqd(t.youOwe)}</span></span>
+      <span class="kpi"><span class="l">Owes you</span><span class="num" ${t.theyOwe ? 'style="color:var(--good)"' : ""}>${iqd(t.theyOwe)}</span></span></span>
+    <span class="s" style="display:block;margin-top:6px">${t.b.pending ? `<b style="color:var(--warn)">includes ${iqd(t.b.pending)} on invoices not approved yet</b> · ` : ""}Discounts ${iqd(t.disc)} · Returns ${iqd(t.credits)}${t.creditsWaiting ? ` (+ ${iqd(t.creditsWaiting)} waiting)` : ""}${s.openingExcluded ? ` · earlier debt ${iqd(s.openingBalance)} left out` : s.openingVerified || !isNum(s.openingBalance) ? "" : " · opening balance not verified"}</span></button>`; }).join("")}
+  ${S.suppliers.length > 1 ? `<div class="sum"><div class="r"><span>All suppliers: paid before discount</span><span class="num">${iqd(sum("paid") + sum("disc"))}</span></div><div class="r big"><span>All suppliers: paid after discount (cash)</span><span class="num">${iqd(sum("paid"))}</span></div><div class="r"><span>You owe</span><span class="num">${iqd(sum("youOwe"))}</span></div><div class="r"><span>Owe you</span><span class="num">${iqd(sum("theyOwe"))}</span></div><div class="r"><span>Discounts · returns</span><span class="num">${iqd(sum("disc"))} · ${iqd(sum("credits"))}</span></div></div>` : ""}</div>
+  ${S.supOpen && supplier(S.supOpen) ? `<div class="sechead"><h2>${esc(supName(S.supOpen))}: invoice by invoice</h2><button type="button" data-supx="${esc(S.supOpen)}">Hide</button></div>${supInvoices(S.supOpen)}` : `<p class="note">Tap a supplier's name to see each invoice one by one.</p>`}
+  <p class="note">Paid before discount = what the payments settled. Paid after discount = the cash you actually handed over. Discounts = early-payment discounts taken. Returns = confirmed returns and credit notes. "You owe" = every unpaid invoice after discount, minus payments and returns. It goes to zero by itself when everything is paid. "Owes you" = you paid or returned more than you owe them.</p></section>
+  <section class="sec"><div class="sechead"><h2>Suppliers</h2><button type="button" class="primary" data-act="newSup">+ Supplier</button></div>
+  <div class="list">${S.suppliers.length ? S.suppliers.map(s => { const b = balance(s.id); const tiers = (s.discountTiers||[]);
+    return `<button type="button" class="row" data-open="sup:${esc(s.id)}"><span class="main"><span class="t">${esc(s.name)} <span class="ar note">${esc(s.nameAr||"")}</span></span><span class="s">${isNum(s.creditDays)?`Credit ${s.creditDays} days`:"Credit terms not set"} · ${isNum(s.returnDays)?`Returns ${s.returnDays} days`:"Return window not set"} · ${tiers.length ? tiers.map(t => `${pct(t.pct)} ≤${t.days}d`).join(", ") : "No discount terms"}</span></span><span class="end num">${iqd(b.bal)}</span></button>`; }).join("") : `<div class="empty">No suppliers yet.</div>`}</div></section>`;
+}
+
+/* ---------- sheets ---------- */
+function openSheet(title, html){ $("#sheetTitle").textContent = title; $("#sheetBody").innerHTML = html; $("#sheet").hidden = false; }
+function closeSheet(){ $("#sheet").hidden = true; $("#sheetBody").innerHTML = ""; }
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2600); }
+
+function invoiceDetail(id){
+  const i = S.invoices.find(x => x.id === id); if (!i) return;
+  const c = calc(i);
+  const canApprove = c.okTol && !c.dup && !S.readOnly;
+  openSheet(`${supName(i.supplierId)} · ${i.invoiceNo}`, `
+    ${S.readOnly ? "" : `<button type="button" data-newcredit="${esc(i.id)}">↩ Return goods from this invoice</button>`}
+    <div class="actions">${statusPill(i.status)} ${payPill(c.payStatus)} <span class="pill">${i.type==="cash"?"Cash":"Credit"}</span> <span class="pill ${i.receiving==="complete"?"good":i.receiving==="discrepancy"?"bad":BOOKED.includes(i.status)?"":"warn"}">Receiving: ${esc(i.receiving||"pending")}</span></div>
+    <div class="sum">
+      <div class="r"><span>Internal ID</span><span class="num">${esc(i.pid||i.id)}</span></div>
+      <div class="r"><span>Invoice date</span><span class="num">${esc(i.date)}</span></div>
+      <div class="r"><span>Printed total</span><span class="num">${iqd(i.printedTotal)}</span></div>
+      <div class="r"><span>Total before discount</span><span class="num">${iqd(c.gross)}</span></div>
+      ${c.lineDisc ? `<div class="r"><span>Line discounts</span><span class="num">−${iqd(c.lineDisc)}</span></div>` : ""}
+      ${c.invDisc ? `<div class="r"><span>Invoice discount</span><span class="num">−${iqd(c.invDisc)}</span></div>` : ""}
+      <div class="r big"><span>Total after discount</span><span class="num">${iqd(c.total)}</span></div>
+      <div class="r"><span>Difference from printed</span><span class="num" style="color:var(--${c.okTol?"good":"bad"})">${c.diff===null?"—":iqd(c.diff)}</span></div>
+      <div class="r big"><span>Amount due (after discount)</span><span class="num">${iqd(c.dueAmt)}</span></div>
+      ${(() => { const ps = S.payments.filter(p => p.invoiceId === i.id && p.verified), cash = ps.reduce((a,p) => a + n0(p.amount), 0), pd = ps.reduce((a,p) => a + n0(p.discount), 0);
+        return `<div class="r"><span>Paid before discount</span><span class="num">${iqd(cash + pd)}</span></div>
+      ${pd ? `<div class="r"><span>Payment discount</span><span class="num">−${iqd(pd)}</span></div>` : ""}
+      <div class="r"><span>Paid after discount (cash)</span><span class="num">${iqd(cash)}</span></div>
+      ${c.credited ? `<div class="r"><span>Returns credited</span><span class="num">${iqd(c.credited)}</span></div>` : ""}`; })()}
+      <div class="r"><span>${c.outstanding < -TOL ? "Overpaid (supplier owes you)" : "Outstanding"}</span><span class="num" ${c.outstanding < -TOL ? 'style="color:var(--bad)"' : ""}>${iqd(Math.abs(c.outstanding))}</span></div>
+      <div class="r"><span>Due date</span><span class="num">${c.due || "Not provided"}</span></div>
+      <div class="r"><span>Return window ends</span><span class="num">${c.returnBy || "Not set"}</span></div>
+      ${c.outstanding > 0 ? `<div class="r"><span>Discount if paid today</span><span class="num">${c.tiersKnown ? `${pct(c.disc)} → pay ${iqd(c.outstanding*(1-c.disc))}` : "No terms recorded"}</span></div>` : ""}
+      ${isNum(i.printedPrevBalance) ? `<div class="r note"><span>Supplier printed previous debt</span><span class="num">${iqd(i.printedPrevBalance)}</span></div>` : ""}
+      <div class="r"><span>MyPharma number</span><span class="num">${esc(i.mercatoRef||"Not entered")}</span></div>
+    </div>
+    ${i.photo ? `<details><summary>Original invoice photo</summary><img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice"></details>` : ""}
+    ${i.extraction?.uncertain?.length && !BOOKED.includes(i.status) ? `<div class="sum"><b>Flagged when read from the photo</b>${i.extraction.uncertain.map(u => `<div class="note">• ${esc(u)}</div>`).join("")}</div>` : ""}
+    ${c.dup ? `<div class="err">Possible duplicate: another invoice from this supplier has the same number.</div>` : ""}
+    <div class="tablewrap"><table><thead><tr><th>#</th><th>Product</th><th>Name</th><th>Dose</th><th>Dosage form</th><th class="n">Pack</th><th class="n">Blisters</th><th>Refrigerated</th><th class="n">Paid</th><th class="n">Bonus</th><th class="n">Price</th><th class="n">Amount</th><th class="n">Discount</th><th class="n">After discount</th><th class="n">Printed value</th><th class="n">Unit cost</th><th>Batch</th><th>Expiry</th></tr></thead><tbody>
+    ${(i.lines||[]).map((l,k) => { const net = lineNet(l); const bad = lineBad(l); const u = n0(l.qty)+n0(l.bonus);
+      const a = attrs(l);
+      return `<tr><td class="num">${esc(l.no||k+1)}</td><td>${esc(l.desc)}${lineNote(i,l)?`<div class="note">${esc(lineNote(i,l))}</div>`:""}</td><td><b>${esc(a.name||"")}</b></td><td>${esc(a.strength||"—")}</td><td>${esc(a.form||"—")}</td><td class="n num">${a.pack ?? "—"}</td><td class="n num">${a.blisters ?? "—"}</td><td>${a.fridge ? `<span class="pill acc">Yes</span>` : "No"}</td><td class="n num">${esc(l.qty)}</td><td class="n num">${n0(l.bonus)||""}${isNum(l.bonusPct)?` <span class="note">(${l.bonusPct}%)</span>`:""}</td><td class="n num">${isNum(l.price)?Math.round(l.price).toLocaleString("en-US"):"—"}</td><td class="n num">${lineGross(l)?Math.round(lineGross(l)).toLocaleString("en-US"):"—"}</td><td class="n num">${lineDisc(l)?Math.round(lineDisc(l)).toLocaleString("en-US")+(isNum(l.discPct)?` (${l.discPct}%)`:""):"—"}</td><td class="n num"><b>${lineGross(l)?Math.round(net).toLocaleString("en-US"):"—"}</b></td><td class="n num" ${bad && !BOOKED.includes(i.status)?'style="color:var(--bad)"':""}>${isNum(l.value)?l.value.toLocaleString("en-US"):"—"}</td><td class="n num">${u?Math.round(net/u).toLocaleString("en-US"):"—"}</td><td class="num">${esc(l.batch||"")}</td><td class="num">${esc(l.expiry||"Not provided")}</td></tr>`; }).join("")}
+    </tbody></table></div>
+    ${i.notes ? `<p class="note">${esc(i.notes)}</p>` : ""}
+    ${itemDiscHtml(i)}
+    ${(() => { const vs = (S.allPayments||[]).filter(p => p.invoiceId === i.id && p.voided); return vs.length ? `<details><summary>Cancelled payments (${vs.length})</summary>${vs.map(p => `<div class="note" style="text-decoration:line-through">${iqd(p.amount)} · ${esc(p.date)} · ${esc(p.method||"")}</div><div class="note">Cancelled ${esc((p.voidedAt||"").slice(0,10))}</div>`).join("")}</details>` : ""; })()}
+    ${(() => { const ps = S.payments.filter(p => p.invoiceId === i.id); return ps.length ? `<div class="sec"><h2>Payments on this invoice</h2><div class="list">${ps.map(p => `<button type="button" class="row" data-open="pay:${esc(p.id)}"><span class="main"><span class="t num">${iqd(p.amount)}${n0(p.discount) ? ` + ${iqd(p.discount)} discount` : ""}</span><span class="s">${esc(p.date)} · ${esc(p.method||"")}${p.verified ? "" : " · unverified"}${p.history?.length ? " · edited" : ""}</span></span><span class="end">${S.readOnly ? "" : "Edit ›"}</span></button>`).join("")}</div></div>` : ""; })()}
+    ${window.creditsFor ? creditsFor(i) : ""}
+    ${window.priceNotes ? priceNotes(i) : ""}
+    ${historyHtml(i.history)}
+    ${i.approvedById || i.createdBy ? `<p class="note">${i.createdBy ? `Added by ${esc(whoName(i.createdBy))}. ` : ""}${i.approvedById ? `Approved by ${esc(whoName(i.approvedById))} on ${esc((i.approvedAt||"").slice(0,10))}.` : ""}</p>` : ""}
+    ${S.readOnly ? `<p class="note">You can view this invoice but not change it.</p>` : `
+    <div class="sec"><h2>Receiving</h2>${window.recvSummary ? recvSummary(i) : ""}<div class="actions">
+      <button type="button" class="primary" data-recvlines="${esc(i.id)}">Check each line</button>
+      <button type="button" data-recv="complete" data-id="${esc(i.id)}">All received as invoiced</button>
+      <button type="button" data-newcredit="${esc(i.id)}">Return or credit note</button></div></div>
+    <div class="sec"><h2>Approval and MyPharma</h2>
+      ${!canApprove && !BOOKED.includes(i.status) ? `<p class="note">Approval is blocked until the totals agree within ${TOL} IQD and there is no duplicate.</p>` : ""}
+      <div class="grid2 stack"><label>Approved by<input id="apBy" value="${esc(i.approvedBy||S.meName||"")}" autocomplete="name"></label>
+      <label>MyPharma invoice number<input id="mRef" value="${esc(i.mercatoRef||"")}"></label></div>
+      <div class="actions">
+        <button type="button" class="primary" data-approve="${esc(i.id)}" ${canApprove && !BOOKED.includes(i.status) ? "" : "disabled"}>Approve</button>
+        <button type="button" data-posted="${esc(i.id)}" ${BOOKED.includes(i.status) && i.status!=="Reconciled" ? "" : "disabled"}>Save MyPharma number</button>
+        <button type="button" data-recon="${esc(i.id)}" ${i.status==="Posted to Mercato" ? "" : "disabled"}>Checked against MyPharma</button>
+        <button type="button" data-hold="${esc(i.id)}">${i.status==="On Hold"?"Release hold":"Put on hold"}</button>
+        <button type="button" data-edit="${esc(i.id)}">Edit</button>
+        <button type="button" data-paythis="${esc(i.id)}" ${c.outstanding > 0 ? "" : "disabled"}>Record payment</button>
+      </div><div class="err" id="detErr"></div></div>`}`);
+}
+
+function lineEditor(l, k){
+  const a = l.desc ? attrs(l) : {name:l.name, strength:l.strength, form:l.form, pack:l.pack, blisters:l.blisters, fridge:!!l.cold};
+  return `<div class="lineedit" data-line="${k}" data-no="${esc(l.no||"")}">
+    <div class="lh"><span>Line ${k+1}</span><button type="button" data-delline="${k}">Remove</button></div>
+    <label>Product as printed<input data-f="desc" value="${esc(l.desc||"")}"></label>
+    ${l.note ? `<div class="note" data-f-note>${esc(l.note)}</div>` : ""}
+    <div class="lg">
+      <label>Paid qty<input class="num" inputmode="decimal" data-f="qty" value="${esc(l.qty??"")}"></label>
+      <label>Bonus<span class="unitin"><input class="num" inputmode="decimal" data-f="bonusIn" value="${esc(isNum(l.bonusPct) ? l.bonusPct : (l.bonus||""))}"><select data-f="bonusMode" aria-label="Bonus unit"><option value="packs" ${isNum(l.bonusPct)?"":"selected"}>packs</option><option value="%" ${isNum(l.bonusPct)?"selected":""}>%</option></select></span><span class="note" data-f-bonusout></span></label>
+      <label>Unit price<input class="num" inputmode="decimal" data-f="price" value="${esc(l.price??"")}"></label>
+      <label>Discount<span class="unitin"><input class="num" inputmode="decimal" data-f="discIn" value="${esc(isNum(l.discPct) ? l.discPct : (l.discAmt ?? ""))}"><select data-f="discMode" aria-label="Discount unit"><option value="%" ${isNum(l.discAmt)?"":"selected"}>%</option><option value="IQD" ${isNum(l.discAmt)?"selected":""}>IQD</option></select></span><span class="note" data-f-discout></span></label>
+      <label>Printed value<input class="num" inputmode="decimal" data-f="value" value="${esc(l.value??"")}" placeholder="blank if bonus"></label>
+      <label>Batch<input data-f="batch" value="${esc(l.batch||"")}"></label>
+      <label>Expiry (YYYY-MM)<input data-f="expiry" value="${esc(l.expiry||"")}" placeholder="2028-02" pattern="\\d{4}-\\d{2}"></label>
+    </div>
+    <div class="lg">
+      <label>Name<input data-f="name" value="${esc(a.name||"")}"></label>
+      <label>Dose<input data-f="strength" value="${esc(a.strength||"")}"></label>
+      <label>Dosage form<input data-f="form" list="formList" value="${esc(a.form||"")}"></label>
+      <label>Pack size (units)<input class="num" inputmode="numeric" data-f="pack" value="${esc(a.pack ?? "")}"></label>
+      <label>Blisters<select data-f="blisters"><option value="">—</option>${[1,2,3,4,5,6,7,8,9,10].map(n => `<option ${a.blisters==n?"selected":""}>${n}</option>`).join("")}</select></label>
+      <label class="check" style="align-self:end"><input type="checkbox" data-f="cold" ${a.fridge?"checked":""}> Refrigerated (براد)</label>
+    </div></div>`;
+}
+// an invoice that is approved, in MyPharma or has payments is "settled history": edits need a reason and are logged
+const needsReason = i => !!i && (BOOKED.includes(i.status) || S.payments.some(p => p.invoiceId === i.id));
+function diffFields(before, after, fields){
+  const out = [];
+  for (const [k, label, f] of fields){ const a = f ? f(before) : before?.[k], b = f ? f(after) : after?.[k]; if (String(a ?? "") !== String(b ?? "")) out.push({field:label, from:a ?? "", to:b ?? ""}); }
+  return out;
+}
+const INV_FIELDS = [["invoiceNo","Invoice no."],["date","Date"],["type","Payment type"],["supplierId","Supplier",x => supName(x.supplierId)],["printedTotal","Printed total"],["dueDate","Due date"],
+  ["discount","Invoice discount",x => isNum(x.invoiceDiscountPct) ? x.invoiceDiscountPct + "%" : x.invoiceDiscount ?? ""],["lines","Lines",x => (x.lines||[]).length],["due","Amount due",x => Math.round(calc(x).dueAmt)],["lineDetail","Line details",x => JSON.stringify((x.lines||[]).map(l => [l.desc,l.qty,l.bonus,l.price,l.discPct,l.discAmt,l.batch,l.expiry].map(v => v ?? "")))]];
+const PAY_FIELDS = [["date","Date"],["amount","Amount"],["discount","Discount"],["invoiceId","Invoice",x => x.invoiceId ? (S.invoices.find(i => i.id === x.invoiceId)?.invoiceNo || x.invoiceId) : "Not allocated"],["method","Method"],["receiptNo","Receipt"],["verified","Verified"]];
+function historyHtml(h){
+  if (!h || !h.length) return "";
+  return `<details><summary>Change history (${h.length})</summary>${[...h].reverse().map(e => `<div class="note" style="margin-top:6px"><b>${esc(e.at.slice(0,16).replace("T"," "))}</b>${e.by ? ` · ${esc(whoName(e.by))}` : ""} · ${esc(e.reason)}${e.changes.filter(c => c.field !== "Line details").map(c => `<div>• ${esc(c.field)}: ${esc(String(c.from))} → ${esc(String(c.to))}</div>`).join("")}${e.changes.some(c => c.field === "Line details") ? `<div>• Line details changed</div>` : ""}</div>`).join("")}</details>`;
+}
+function invoiceForm(id, pre){
+  const i = id ? structuredClone(S.invoices.find(x => x.id === id)) : pre ? pre : {supplierId:S.suppliers[0]?.id || "__new", date:today(), type:"credit", lines:[{}]};
+  if (!i.lines || !i.lines.length) i.lines = [{}];
+  S.draft = i;
+  const ex = i.extraction;
+  openSheet(id ? "Edit invoice" : pre ? "Check scanned invoice" : "Add invoice", `
+    ${pre ? `<div class="banner">Read from the photo. Check every line against the paper before saving. Nothing is saved until you tap Save.</div>` : ""}
+    ${ex && ex.uncertain && ex.uncertain.length ? `<div class="sum"><b>Couldn't read clearly</b>${ex.uncertain.map(u => `<div class="note">• ${esc(u)}</div>`).join("")}</div>` : ""}
+    ${i.photo ? `<img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice">` : ""}
+    <form id="invForm" class="sec" novalidate>
+      <div class="grid2 stack">
+        <label>Supplier<select id="fSup">${S.suppliers.map(s => `<option value="${esc(s.id)}" ${s.id===i.supplierId?"selected":""}>${esc(s.name)}</option>`).join("")}<option value="__new" ${i.supplierId==="__new"?"selected":""}>New supplier…</option></select></label>
+        <label id="newSupWrap" ${i.supplierId==="__new"?"":"hidden"}>New supplier name<input id="fNewSup" value="${esc(i.newSupplierName||"")}"></label>
+        <label>Supplier invoice number<input id="fNo" value="${esc(i.invoiceNo||"")}" required></label>
+        <label>Invoice date<input id="fDate" type="date" value="${esc(i.date||"")}" required></label>
+        <label>Payment<select id="fType"><option value="credit" ${i.type!=="cash"?"selected":""}>Credit (آجل)</option><option value="cash" ${i.type==="cash"?"selected":""}>Cash (نقد)</option></select></label>
+        <label>Printed final total<input id="fTotal" class="num" inputmode="decimal" value="${esc(i.printedTotal??"")}" required></label>
+        <label>Invoice discount (if printed)<span class="unitin"><input id="fDisc" class="num" inputmode="decimal" value="${esc(isNum(i.invoiceDiscountPct) ? i.invoiceDiscountPct : (i.invoiceDiscount ?? ""))}"><select id="fDiscMode" aria-label="Invoice discount unit"><option value="IQD" ${isNum(i.invoiceDiscountPct)?"":"selected"}>IQD</option><option value="%" ${isNum(i.invoiceDiscountPct)?"selected":""}>%</option></select></span></label>
+        <label>Supplier's printed previous debt<input id="fPrev" class="num" inputmode="decimal" value="${esc(i.printedPrevBalance??"")}"></label>
+        <label>Due date (if printed)<input id="fDue" type="date" value="${esc(i.dueDate||"")}"></label>
+      </div>
+      <p class="note">A line with a quantity but no value is bonus for the priced line of the same product: put its quantity in Bonus qty on that line.</p>
+      <div id="lines" class="sec">${i.lines.map(lineEditor).join("")}</div>
+      <button type="button" id="addLine">+ Add line</button>
+      <label>Notes<textarea id="fNotes">${esc(i.notes||"")}</textarea></label>
+      <div class="sum" id="liveSum"></div>
+      ${id && needsReason(S.invoices.find(x => x.id === id)) ? `<div class="banner">This invoice is ${S.payments.some(p => p.invoiceId === id) ? "paid or part paid" : "approved"}. Your change is saved with the old and new values. If the amount due changes, the invoice goes back to approval and must be corrected in MyPharma too. A discount the supplier gives when you pay belongs on the payment (Discount taken), not here.</div>
+      <label>Reason for change (required)<input id="fReason" placeholder="e.g. supplier gave extra 5% discount"></label>` : ""}
+      <div class="err" id="formErr"></div>
+      <button type="submit" class="primary">${id ? "Save changes" : "Save invoice"}</button>
+    </form>`);
+  liveSum();
+}
+function readLines(){
+  return [...document.querySelectorAll("#lines .lineedit")].map(el => {
+    const g = f => el.querySelector(`[data-f="${f}"]`); const nt = el.querySelector("[data-f-note]");
+    const qty = parseNum(g("qty").value), bMode = g("bonusMode").value, bIn = parseNum(g("bonusIn").value), dMode = g("discMode").value, dIn = parseNum(g("discIn").value);
+    return {no: el.dataset.no || undefined, note: nt ? nt.textContent : undefined, desc:g("desc").value.trim(), qty, bonus:bonusFrom(qty, bIn, bMode), bonusPct: bMode === "%" ? bIn : null,
+      discPct: dMode === "%" ? dIn : null, discAmt: dMode === "IQD" ? dIn : null, price:parseNum(g("price").value), value:parseNum(g("value").value), batch:g("batch").value.trim(), expiry:g("expiry").value.trim(), cold:g("cold").checked,
+      name:g("name").value.trim() || null, strength:g("strength").value.trim() || null, form:g("form").value.trim() || null, pack:parseNum(g("pack").value), blisters:parseNum(g("blisters").value)};
+  });
+}
+function readInvoice(){
+  const d = S.draft || {};
+  return {...d, newSupplierName:$("#fNewSup").value.trim(), supplierId:$("#fSup").value, invoiceNo:$("#fNo").value.trim(), date:$("#fDate").value, type:$("#fType").value,
+    printedTotal:parseNum($("#fTotal").value), invoiceDiscount: $("#fDiscMode").value === "IQD" ? parseNum($("#fDisc").value) : null, invoiceDiscountPct: $("#fDiscMode").value === "%" ? parseNum($("#fDisc").value) : null, printedPrevBalance:parseNum($("#fPrev").value),
+    dueDate:$("#fDue").value || null, notes:$("#fNotes").value.trim(), lines:readLines()};
+}
+function liveSum(){
+  const box = $("#liveSum"); if (!box) return;
+  document.querySelectorAll("#lines .lineedit").forEach(el => {
+    const g = f => el.querySelector(`[data-f="${f}"]`); const qty = parseNum(g("qty").value), price = parseNum(g("price").value);
+    const bMode = g("bonusMode").value, bIn = parseNum(g("bonusIn").value), b = bonusFrom(qty, bIn, bMode);
+    el.querySelector("[data-f-bonusout]").textContent = bMode === "%" && isNum(b) ? `= ${b} pack${b===1?"":"s"} free` : "";
+    const dMode = g("discMode").value, dIn = parseNum(g("discIn").value), gross = n0(qty) * n0(price);
+    el.querySelector("[data-f-discout]").textContent = isNum(dIn) && dIn > 0 && gross ? (dMode === "%" ? `= ${iqd(gross * dIn / 100)} off` : `= ${pct(dIn / gross)} off`) + ` · after discount ${iqd(gross - (dMode === "%" ? gross * dIn / 100 : dIn))}` : gross ? `Amount ${iqd(gross)}` : "";
+  });
+  const inv = readInvoice(); const c = calc(inv);
+  box.innerHTML = `<div class="r"><span>Lines</span><span class="num">${c.lines}${c.bonusUnits?` · ${c.bonusUnits} bonus units`:""}</span></div>
+    <div class="r"><span>Total before discount</span><span class="num">${iqd(c.gross)}</span></div>
+    ${c.discount ? `<div class="r"><span>Total discount</span><span class="num">−${iqd(c.discount)}</span></div>` : ""}
+    <div class="r big"><span>Total after discount</span><span class="num">${iqd(c.total)}</span></div>
+    <div class="r big"><span>Difference from printed</span><span class="num" style="color:var(--${c.diff===null?"muted":c.okTol?"good":"bad"})">${c.diff===null?"Enter printed total":iqd(c.diff)}</span></div>
+    ${c.mismatches?`<div class="err">${c.mismatches} line(s): qty × price doesn't equal the printed value.</div>`:""}
+    ${c.dup?`<div class="err">This supplier already has invoice ${esc(inv.invoiceNo)} in the app.</div>`:""}`;
+}
+
+function paymentForm(invId, quick, payId){
+  const ep = payId ? S.payments.find(p => p.id === payId) : null; S.editPay = ep || null;
+  const inv = S.invoices.find(i => i.id === invId);
+  const sid = inv ? inv.supplierId : S.suppliers[0]?.id;
+  if (!sid){ openSheet("Record payment", `<p>Add a supplier first.</p>`); return; }
+  const c = inv ? calc(inv) : null;
+  const sugDisc = !ep && c && c.disc ? c.outstanding * c.disc : null;
+  openSheet(ep ? "Edit payment" : quick ? `Mark paid · ${supName(sid)} ${inv ? inv.invoiceNo : ""}` : "Record payment", `
+    <form id="payForm" class="sec" novalidate>
+      <div class="sum" id="paySum"></div>
+      <div class="grid2 stack">
+        <label>Supplier<select id="pSup">${S.suppliers.map(s => `<option value="${esc(s.id)}" ${s.id===sid?"selected":""}>${esc(s.name)}</option>`).join("")}</select></label>
+        <label>Pays invoice<select id="pInv"><option value="">Not allocated yet</option>${S.invoices.filter(i => calc(i).outstanding > 0 || i.id === invId).map(i => `<option value="${esc(i.id)}" ${i.id===invId?"selected":""}>${esc(supName(i.supplierId))} · ${esc(i.invoiceNo)} · ${iqd(calc(i).outstanding)} due</option>`).join("")}</select></label>
+        <label>Date paid<input id="pDate" type="date" value="${esc(ep ? ep.date : today())}"></label>
+        <label>Amount paid<input id="pAmt" class="num" inputmode="decimal" value="${ep ? ep.amount : c ? Math.round(c.outstanding - (sugDisc||0)) : ""}"></label>
+        <label>Discount taken<span class="unitin"><input id="pDisc" class="num" inputmode="decimal" value="${ep ? (n0(ep.discount) || "") : sugDisc ? Math.round(sugDisc) : ""}"><select id="pDiscMode" aria-label="Discount unit"><option value="IQD">IQD</option><option value="%">%</option></select></span><span class="note" id="pDiscOut"></span></label>
+        <label>Method<select id="pMeth">${["Cash","Bank transfer","Cheque","Mobile wallet","Other"].map(m => `<option ${ep && ep.method === m ? "selected" : ""}>${m}</option>`).join("")}</select></label>
+        <label>Stamped receipt number<input id="pRec" value="${esc(ep?.receiptNo||"")}"></label>
+        <label class="check" style="align-self:end"><input type="checkbox" id="pVer" ${(ep ? ep.verified : quick) ? "checked" : ""}> I have the stamped receipt (verified)</label>
+      </div>
+      ${sugDisc ? `<p class="note">Suggested early-payment discount (${pct(c.disc)}) uses this supplier's ${pct(c.disc)} tier for paying within ${days(inv.date, today())} days. Change it if the supplier gave a different amount.</p>` : ""}
+      <label>Notes<textarea id="pNotes">${esc(ep?.notes||"")}</textarea></label>
+      ${ep ? `<label>Reason for change (required)<input id="pReason"></label>` : ""}
+      <div class="err" id="payErr"></div>
+      <button type="submit" class="primary">${ep ? "Save changes" : quick ? "Confirm paid" : "Save payment"}</button>
+    </form>`);
+  S.amtTouched = !!ep; payDiscOut();
+}
+function payRoom(inv){
+  // what this payment can still settle: outstanding, plus this payment's own old amount when editing
+  const ep = S.editPay;
+  const pendingOthers = S.payments.filter(p => p.invoiceId === inv.id && !p.verified && (!ep || p.id !== ep.id)).reduce((a,p) => a + n0(p.amount) + n0(p.discount), 0);
+  return calc(inv).outstanding - pendingOthers + (ep && ep.invoiceId === inv.id && ep.verified ? n0(ep.amount) + n0(ep.discount) : 0);
+}
+function payDiscIQD(inv){
+  const v = parseNum($("#pDisc").value);
+  if (!isNum(v)) return 0;
+  return $("#pDiscMode").value === "%" ? (inv ? Math.round(payRoom(inv) * v / 100) : 0) : v;
+}
+function debtSheet(invId){
+  const inv = S.invoices.find(i => i.id === invId); if (!inv) return;
+  const pays = S.payments.filter(p => p.invoiceId === invId);
+  openSheet(`Mark as debt · ${supName(inv.supplierId)} ${inv.invoiceNo}`, `
+    ${pays.length ? `<p>These payments make this invoice paid. Remove the one that was recorded by mistake and the invoice goes back to debt. It stays in the records as cancelled.</p>
+      <div class="list">${pays.map(p => `<div class="row" style="cursor:default"><span class="main"><span class="t num">${iqd(p.amount)}${n0(p.discount) ? ` + ${iqd(p.discount)} discount` : ""}</span><span class="s">${esc(p.date)} · ${esc(p.method||"")}${p.receiptNo ? ` · receipt ${esc(p.receiptNo)}` : ""}</span></span><button type="button" class="danger" data-delpay="${esc(p.id)}">Remove</button></div>`).join("")}</div>` :
+      `<p>This invoice is already unpaid.</p>`}
+    <div class="err" id="debtErr"></div>`);
+}
+function paymentDetail(id){
+  const p = S.payments.find(x => x.id === id); if (!p) return;
+  const inv = S.invoices.find(i => i.id === p.invoiceId);
+  openSheet("Payment", `<div class="sum">
+    <div class="r"><span>Supplier</span><span>${esc(supName(p.supplierId))}</span></div>
+    <div class="r"><span>Date</span><span class="num">${esc(p.date)}</span></div>
+    <div class="r"><span>Paid before discount</span><span class="num">${iqd(n0(p.amount) + n0(p.discount))}</span></div>
+    <div class="r"><span>Discount taken</span><span class="num">−${iqd(n0(p.discount))}</span></div>
+    <div class="r big"><span>Paid after discount (cash)</span><span class="num">${iqd(p.amount)}</span></div>
+    <div class="r"><span>Invoice</span><span>${inv ? esc(inv.invoiceNo) : "Not allocated"}</span></div>
+    <div class="r"><span>Method</span><span>${esc(p.method||"")}</span></div>
+    <div class="r"><span>Receipt</span><span class="num">${esc(p.receiptNo||"—")}</span></div>
+    <div class="r"><span>Status</span><span>${p.verified?"Verified":"Unverified: not counted in balances"}</span></div></div>
+    ${p.notes?`<p class="note">${esc(p.notes)}</p>`:""}
+    ${p.createdBy ? `<p class="note">Recorded by ${esc(whoName(p.createdBy))}</p>` : ""}
+    ${historyHtml(p.history)}
+    ${S.readOnly?"":`<div class="actions"><button type="button" data-editpay="${esc(p.id)}">Edit payment</button><button type="button" data-payver="${esc(p.id)}">${p.verified?"Mark unverified":"Mark verified (receipt in hand)"}</button></div>`}`);
+}
+function supplierForm(id){
+  const s = id ? structuredClone(supplier(id)) : {discountTiers:[]};
+  const b = id ? balance(id) : null;
+  const tiers = s.discountTiers?.length ? s.discountTiers : [{}];
+  openSheet(id ? s.name : "Add supplier", `
+    ${b ? `<div class="sum"><div class="r big"><span>Balance owed</span><span class="num">${iqd(b.bal)}</span></div>
+      <div class="r"><span>Opening balance</span><span class="num">${s.openingExcluded ? `${iqd(s.openingBalance)} (left out)` : b.verified ? iqd(b.open) : "Not verified"}</span></div>
+      <div class="r"><span>Invoices (after discount)</span><span class="num">${iqd(b.inv)}</span></div>
+      <div class="r"><span>Payments and discounts</span><span class="num">${iqd(b.pays)}</span></div>
+      ${b.credits ? `<div class="r"><span>Returns and credit notes</span><span class="num">${iqd(b.credits)}</span></div>` : ""}
+      <div class="r note"><span>Of which not approved yet</span><span class="num">${iqd(b.pending)}</span></div>
+      ${(() => { const t = supTotals(id); return `<div class="r"><span>Paid before discount</span><span class="num">${iqd(t.paid + t.disc)}</span></div><div class="r"><span>Paid after discount (cash)</span><span class="num">${iqd(t.paid)}</span></div>${t.theyOwe ? `<div class="r big"><span>Supplier owes you</span><span class="num" style="color:var(--good)">${iqd(t.theyOwe)}</span></div>` : ""}${t.creditsWaiting ? `<div class="r note"><span>Returns waiting for supplier</span><span class="num">${iqd(t.creditsWaiting)}</span></div>` : ""}`; })()}</div>
+      ${(() => { const ps = S.payments.filter(p => p.supplierId === id).sort((a,b) => (b.date||"").localeCompare(a.date||"")); return ps.length ? `<details><summary>Payments to ${esc(s.name)} (${ps.length})</summary><div class="list">${ps.map(p => `<button type="button" class="row" data-open="pay:${esc(p.id)}"><span class="main"><span class="t num">${iqd(p.amount)}${n0(p.discount) ? ` + ${iqd(p.discount)} discount` : ""}</span><span class="s">${esc(p.date)} · ${esc(S.invoices.find(i => i.id === p.invoiceId)?.invoiceNo ? "invoice " + S.invoices.find(i => i.id === p.invoiceId).invoiceNo : "not allocated")}${p.verified ? "" : " · unverified"}</span></span></button>`).join("")}</div></details>` : ""; })()}` : ""}
+    <form id="supForm" class="sec" novalidate>
+      <div class="grid2 stack">
+        <label>Name (English)<input id="sName" value="${esc(s.name||"")}"></label>
+        <label>Name (Arabic)<input id="sAr" class="ar" dir="rtl" value="${esc(s.nameAr||"")}"></label>
+        <label>Credit days (blank if unknown)<input id="sCred" class="num" inputmode="numeric" value="${esc(s.creditDays??"")}"></label>
+        <label>Return window days<input id="sRet" class="num" inputmode="numeric" value="${esc(s.returnDays??"")}"></label>
+        <label>Opening balance (IQD)<input id="sOpen" class="num" inputmode="decimal" value="${esc(s.openingBalance??"")}"></label>
+        <label class="check" style="align-self:end"><input type="checkbox" id="sOpenV" ${s.openingVerified?"checked":""}> Opening balance verified (from MyPharma or statement)</label>
+        <label class="check" style="align-self:end"><input type="checkbox" id="sOpenX" ${s.openingExcluded?"checked":""}> Leave the opening balance out of totals until I enter the older invoices</label>
+        <label>Opening balance as of<input id="sOpenD" type="date" value="${esc(s.openingDate||"")}"></label>
+      </div>
+      <div class="sec"><h2>Early-payment discounts</h2><p class="note">One row per tier. Cash = 0 days. The highest discount whose days cover the time since the invoice applies.</p>
+        <div id="tiers" class="sec">${tiers.map((t,k) => `<div class="grid2" data-tier="${k}"><label>Paid within (days)<input class="num" inputmode="numeric" data-t="days" value="${esc(t.days??"")}"></label><label>Discount %<input class="num" inputmode="decimal" data-t="pct" value="${isNum(t.pct)?Math.round(t.pct*1000)/10:""}"></label></div>`).join("")}</div>
+        <button type="button" id="addTier">+ Add tier</button></div>
+      <label>Notes<textarea id="sNotes">${esc(s.notes||"")}</textarea></label>
+      ${historyHtml(s.history)}
+      <div class="err" id="supErr"></div>
+      ${S.readOnly ? "" : `<button type="submit" class="primary">${id?"Save supplier":"Add supplier"}</button>`}
+    </form>`);
+  S.supDraft = s;
+}
+
+/* ---------- writes ---------- */
+async function write(path, data, merge){
+  if (!S.db) throw new Error("Saving is not available in this view.");
+  const ref = S.db.doc(path);
+  if (data && typeof data === "object" && S.meId) data = {...data, lastBy:S.meId, lastAt:new Date().toISOString()};
+  try { merge ? await ref.update(data) : await ref.set(data); }
+  catch (e) {
+    if (e && e.code === "invalid_argument" && !merge){ S.readOnly = true; }
+    throw new Error(e?.code === "quota_exceeded" ? "Storage is full. Delete old records before adding more." : e?.code === "invalid_argument" ? "You don't have permission to change this data." : "Couldn't save. Check your connection and try again.");
+  }
+}
+function nextPid(){
+  const y = new Date().getFullYear(); const nums = S.invoices.map(i => /PI-(\d{4})-(\d+)/.exec(i.pid||i.id)).filter(m => m && +m[1] === y).map(m => +m[2]);
+  return `PI-${y}-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4,"0")}`;
+}
+async function saveInvoice(e){
+  e.preventDefault();
+  const inv = readInvoice(), err = $("#formErr");
+  inv.lines = inv.lines.filter(l => l.desc || isNum(l.qty) || isNum(l.price));
+  const bad = [];
+  if (inv.supplierId === "__new" && !inv.newSupplierName) bad.push("the new supplier's name");
+  if (!inv.invoiceNo) bad.push("invoice number");
+  if (!inv.date) bad.push("date");
+  else if (inv.date > addDays(today(), 1)) bad.push("an invoice date that is not in the future");
+  if (!isNum(inv.printedTotal)) bad.push("printed total");
+  if (!inv.lines.length) bad.push("at least one line");
+  if (inv.lines.some(l => Number.isNaN(l.pack) || Number.isNaN(l.blisters))) bad.push("numbers only in pack size");
+  if (inv.lines.some(l => Number.isNaN(l.discPct) || Number.isNaN(l.discAmt) || Number.isNaN(l.bonusPct) || (isNum(l.discPct) && (l.discPct < 0 || l.discPct > 100)) || (isNum(l.bonusPct) && (l.bonusPct < 0 || l.bonusPct > 100)))) bad.push("discount and bonus % between 0 and 100");
+  if (inv.lines.some(l => Number.isNaN(l.qty) || Number.isNaN(l.price) || Number.isNaN(l.value) || Number.isNaN(l.bonus))) bad.push("numbers only in qty, price and value");
+  if (inv.lines.some(l => l.expiry && !/^\d{4}-\d{2}$/.test(l.expiry))) bad.push("expiry as YYYY-MM");
+  if (bad.length){ err.textContent = "Please add: " + bad.join(", ") + "."; return; }
+  const c = calc(inv);
+  if (c.dup){ err.textContent = `${supName(inv.supplierId)} invoice ${inv.invoiceNo} is already in the app. Open that one instead of adding a duplicate.`; return; }
+  if (S.saving) return; S.saving = true; // a second tap while saving must not create a second invoice
+  for (const l of inv.lines){ for (const k of ["qty","bonus","bonusPct","discPct","discAmt","price","value","note","no","name","strength","form","pack","blisters"]) if (l[k] === null || l[k] === undefined) delete l[k]; }
+  if (inv.supplierId === "__new"){
+    const nums = S.suppliers.map(x => +(/SUP-(\d+)/.exec(x.id)||[])[1]||0); const sid = "SUP-" + String(Math.max(0,...nums)+1).padStart(3,"0");
+    try { await write("suppliers/" + sid, {id:sid, name:inv.newSupplierName, nameAr:inv.newSupplierAr||"", creditDays:null, returnDays:null, openingBalance:null, openingVerified:false, discountTiers:[], notes:"Added from an invoice"}); }
+    catch(x){ S.saving = false; err.textContent = x.message; return; }
+    inv.supplierId = sid; S.suppliers.push({id:sid, name:inv.newSupplierName});
+  }
+  delete inv.newSupplierName; delete inv.newSupplierAr;
+  const old = inv.id ? S.invoices.find(x => x.id === inv.id) : null;
+  if (!inv.id){ inv.pid = nextPid(); inv.id = inv.pid; inv.createdAt = new Date().toISOString(); inv.createdBy = S.meId; inv.receiving = "pending"; }
+  if (old && needsReason(old)){
+    const reason = $("#fReason")?.value.trim(), changes = diffFields(old, inv, INV_FIELDS);
+    if (changes.length && !reason){ S.saving = false; err.textContent = "Write the reason for the change."; return; }
+    if (changes.length) inv.history = [...(old.history||[]), {at:new Date().toISOString(), by:S.meId, reason, changes}];
+    // keep approval when the amount owed did not change; otherwise it needs approving (and correcting in MyPharma) again
+    const sameDue = Math.abs(calc(old).dueAmt - c.dueAmt) <= 1;
+    inv.status = sameDue && BOOKED.includes(old.status) ? old.status : c.okTol ? "Awaiting Approval" : "Validation Required";
+    if (!sameDue && old.mercatoRef) inv.notes = [inv.notes, `Amount changed after entry in MyPharma (${old.mercatoRef}); correct it there too.`].filter(Boolean).join(" ");
+  } else
+  inv.status = c.okTol ? (inv.status === "On Hold" ? "On Hold" : "Awaiting Approval") : "Validation Required";
+  inv.updatedAt = new Date().toISOString();
+  try { await write("invoices/" + inv.id, inv); S.saving = false; closeSheet(); toast(`Saved ${inv.pid}.`); }
+  catch(x){ S.saving = false; err.textContent = x.message; }
+}
+async function savePayment(e){
+  e.preventDefault();
+  const amt = parseNum($("#pAmt").value), err = $("#payErr");
+  let disc = parseNum($("#pDisc").value);
+  if ($("#pDiscMode").value === "%" && isNum(disc)){
+    const inv0 = S.invoices.find(i => i.id === $("#pInv").value);
+    if (!inv0){ err.textContent = "Choose the invoice to use a % discount, or enter the discount in IQD."; return; }
+    if (disc < 0 || disc > 100){ err.textContent = "Discount % must be between 0 and 100."; return; }
+    disc = payDiscIQD(inv0);
+  }
+  { const i0 = S.invoices.find(i => i.id === $("#pInv").value); if (!S.editPay && i0 && payRoom(i0) <= TOL){ err.textContent = "This invoice is already paid or has a payment waiting to be verified. Open that payment to change it."; return; } }
+  if (!isNum(amt) || amt <= 0){ err.textContent = "Enter the amount paid."; return; }
+  if (Number.isNaN(disc) || (isNum(disc) && disc < 0)){ err.textContent = "Discount must be a positive number or blank."; return; }
+  const invId = $("#pInv").value || null, sid = $("#pSup").value, ep = S.editPay;
+  const inv = S.invoices.find(i => i.id === invId);
+  if (inv && inv.supplierId !== sid){ err.textContent = "That invoice belongs to a different supplier."; return; }
+  // when editing, this payment's own old amount is not part of what is still owed
+  const room = inv ? payRoom(inv) : 0;
+  if (inv && amt + n0(disc) - room > TOL){ err.textContent = `This is more than the ${iqd(room)} outstanding. Leave it unallocated or split it.`; return; }
+  if (!ep && inv && room <= TOL){ err.textContent = "This invoice is already fully paid or has a payment waiting to be verified. Open that payment to change it."; return; }
+  if (!ep && S.payments.some(p => p.invoiceId && p.invoiceId === invId && Math.abs(n0(p.amount) - amt) <= 1 && p.date === ($("#pDate").value || today()))){ err.textContent = "The same payment (amount and date) is already recorded for this invoice."; return; }
+  if (S.saving) return; S.saving = true;
+  const id = ep ? ep.id : "PAY-" + Date.now().toString(36).toUpperCase();
+  const p = {...(ep||{}), id, supplierId:sid, invoiceId:invId, date:$("#pDate").value || today(), amount:amt, discount:isNum(disc)?disc:0, method:$("#pMeth").value, receiptNo:$("#pRec").value.trim(), verified:$("#pVer").checked, notes:$("#pNotes").value.trim(), createdAt:ep?.createdAt || new Date().toISOString(), createdBy:ep?.createdBy || S.meId};
+  if (ep){
+    const changes = diffFields(ep, p, PAY_FIELDS), reason = $("#pReason").value.trim();
+    if (!changes.length && p.notes === (ep.notes||"")){ S.saving = false; closeSheet(); toast("Nothing changed."); return; }
+    if (changes.length && !reason){ S.saving = false; err.textContent = "Write the reason for the change."; return; }
+    if (changes.length) p.history = [...(ep.history||[]), {at:new Date().toISOString(), by:S.meId, reason, changes}];
+    p.updatedAt = new Date().toISOString();
+  }
+  try { await write("payments/" + id, p); S.saving = false; closeSheet(); S.editPay = null; toast(ep ? "Payment updated." : p.verified ? "Payment saved." : "Payment saved as unverified. It counts once you mark the receipt verified."); }
+  catch(x){ S.saving = false; err.textContent = x.message; }
+}
+async function saveSupplier(e){
+  e.preventDefault();
+  const err = $("#supErr"), s = {...S.supDraft};
+  s.name = $("#sName").value.trim(); s.nameAr = $("#sAr").value.trim();
+  if (!s.name){ err.textContent = "Enter the supplier's name."; return; }
+  const cred = parseNum($("#sCred").value), ret = parseNum($("#sRet").value), open = parseNum($("#sOpen").value);
+  if ([cred,ret,open].some(Number.isNaN)){ err.textContent = "Use numbers only for days and balance."; return; }
+  s.creditDays = cred; s.returnDays = ret; s.openingBalance = open; s.openingVerified = $("#sOpenV").checked && isNum(open); s.openingDate = $("#sOpenD").value || null; s.openingExcluded = $("#sOpenX").checked;
+  s.discountTiers = [...document.querySelectorAll("#tiers [data-tier]")].map(r => ({days:parseNum(r.querySelector('[data-t="days"]').value), pct:parseNum(r.querySelector('[data-t="pct"]').value)})).filter(t => isNum(t.days) && isNum(t.pct)).map(t => ({days:t.days, pct:t.pct/100}));
+  s.notes = $("#sNotes").value.trim();
+  if (!s.id){ const nums = S.suppliers.map(x => +(/SUP-(\d+)/.exec(x.id)||[])[1]||0); s.id = "SUP-" + String(Math.max(0,...nums)+1).padStart(3,"0"); }
+  try { await write("suppliers/" + s.id, s); closeSheet(); toast("Supplier saved."); }
+  catch(x){ err.textContent = x.message; }
+}
+async function setInv(id, patch, msg){
+  try { await write("invoices/" + id, {...patch, updatedAt:new Date().toISOString()}, true); toast(msg); invoiceDetail(id); }
+  catch(x){ const e = $("#detErr"); if (e) e.textContent = x.message; }
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", ev => {
+  const t = ev.target.closest("button"); if (!t) return;
+  if (t.dataset.tab){ S.tab = t.dataset.tab; render(); window.scrollTo(0,0); return; }
+  if (t.dataset.fridge){ S.fridgeOnly = !S.fridgeOnly; render(); return; }
+  if (t.dataset.filter){ S.filter = t.dataset.filter; render(); return; }
+  if (t.dataset.gofilter){ S.tab = "invoices"; S.filter = t.dataset.gofilter; render(); window.scrollTo(0,0); return; }
+  if (t.dataset.markpaid){ const i = S.invoices.find(x => x.id === t.dataset.markpaid); if (calc(i).outstanding <= 0){ toast("Already paid."); return; } return paymentForm(i.id, true); }
+  if (t.dataset.markdebt){ const i = S.invoices.find(x => x.id === t.dataset.markdebt); if (calc(i).outstanding > 0){ toast("Already unpaid (debt)."); return; } return debtSheet(i.id); }
+  if (t.dataset.tocredit){ const id = t.dataset.tocredit; write("invoices/" + id, {type:"credit", updatedAt:new Date().toISOString()}, true).then(() => { closeSheet(); toast("Changed to debt."); }).catch(x => { $("#debtErr").textContent = x.message; }); return; }
+  if (t.dataset.delpay){
+    if (t.dataset.armed !== "1"){ t.dataset.armed = "1"; t.textContent = "Tap again to remove"; return; }
+    const p = S.payments.find(x => x.id === t.dataset.delpay); const invId = p?.invoiceId;
+    // never delete a payment: cancel it and keep the record
+    write("payments/" + t.dataset.delpay, {voided:true, voidedAt:new Date().toISOString(), voidReason:"Removed from Mark as debt"}, true).then(() => { toast("Payment removed. Invoice is debt again."); if (invId) setTimeout(() => debtSheet(invId), 300); }).catch(() => { $("#debtErr").textContent = "Couldn't remove it. Check your connection and try again."; });
+    return;
+  }
+  if (t.dataset.tabGo){ S.tab = t.dataset.tabGo; render(); return; }
+  if (t.dataset.open){ const o = t.dataset.open; if (o.startsWith("sup:")) supplierForm(o.slice(4)); else if (o.startsWith("pay:")) paymentDetail(o.slice(4)); else invoiceDetail(o); return; }
+  const act = t.dataset.act;
+  if (act === "newInv") return invoiceForm();
+  if (act === "newPay") return paymentForm();
+  if (act === "newSup") return supplierForm();
+  if (t.id === "addBtn") return invoiceForm();
+  if (t.id === "scanBtn" || act === "scan") return $("#photoIn").click();
+  if (act === "export") return exportXlsx(t);
+  if (t.id === "scanStop"){ S.scanCtl?.abort(); return; }
+  if (t.id === "sheetClose") return closeSheet();
+  if (t.id === "addLine"){ const box = $("#lines"); box.insertAdjacentHTML("beforeend", lineEditor({}, box.children.length)); box.lastElementChild.querySelector("input").focus(); return liveSum(); }
+  if (t.dataset.delline !== undefined){ t.closest(".lineedit").remove(); document.querySelectorAll("#lines .lineedit .lh span").forEach((s,k) => s.textContent = "Line " + (k+1)); return liveSum(); }
+  if (t.id === "addTier"){ const box = $("#tiers"); box.insertAdjacentHTML("beforeend", `<div class="grid2" data-tier="${box.children.length}"><label>Paid within (days)<input class="num" inputmode="numeric" data-t="days"></label><label>Discount %<input class="num" inputmode="decimal" data-t="pct"></label></div>`); return; }
+  if (t.dataset.recv) return setInv(t.dataset.id, {receiving:t.dataset.recv}, "Receiving updated.");
+  if (t.dataset.approve){ const by = $("#apBy").value.trim(); if (!by){ $("#detErr").textContent = "Enter who approved it."; return; } return setInv(t.dataset.approve, {status:"Approved for Posting", approvedBy:by, approvedById:S.meId, approvedAt:new Date().toISOString()}, "Approved. Now enter it in MyPharma."); }
+  if (t.dataset.posted){ const ref = $("#mRef").value.trim(); if (!ref){ $("#detErr").textContent = "Enter the invoice number MyPharma gave it. An invoice only counts as entered with that number."; return; } return setInv(t.dataset.posted, {status:"Posted to Mercato", mercatoRef:ref, postedAt:new Date().toISOString()}, "Recorded as entered in MyPharma."); }
+  if (t.dataset.recon) return setInv(t.dataset.recon, {status:"Reconciled", reconciledAt:new Date().toISOString()}, "Marked as checked against MyPharma.");
+  if (t.dataset.hold){ const i = S.invoices.find(x => x.id === t.dataset.hold); const c = calc(i); return setInv(i.id, {status: i.status === "On Hold" ? (c.okTol ? "Awaiting Approval" : "Validation Required") : "On Hold"}, i.status === "On Hold" ? "Hold released." : "Put on hold."); }
+  if (t.dataset.supx){ S.supOpen = S.supOpen === t.dataset.supx ? null : t.dataset.supx; return render(); }
+  if (t.dataset.supf){ S.supFilter = t.dataset.supf; return render(); }
+  if (t.dataset.edit) return invoiceForm(t.dataset.edit);
+  if (t.dataset.editpay){ const p = S.payments.find(x => x.id === t.dataset.editpay); if (p) return paymentForm(p.invoiceId, false, p.id); return; }
+  if (t.dataset.paythis) return paymentForm(t.dataset.paythis);
+  if (t.dataset.payver){ const p = S.payments.find(x => x.id === t.dataset.payver); write("payments/" + p.id, {verified:!p.verified}, true).then(() => { toast("Payment updated."); paymentDetail(p.id); }).catch(x => toast(x.message)); return; }
+});
+document.addEventListener("input", ev => { if (ev.target.closest("#invForm")) liveSum(); if (ev.target.closest("#payForm")) payDiscOut(ev); });
+document.addEventListener("change", ev => { if (ev.target.closest("#invForm")) liveSum(); if (ev.target.closest("#payForm")) payDiscOut(ev); });
+function payDiscOut(ev){
+  const o = $("#pDiscOut"); if (!o) return;
+  if (ev && ev.target.id === "pAmt") S.amtTouched = true;
+  if (ev && ev.target.id === "pInv") S.amtTouched = false;
+  const v = parseNum($("#pDisc").value), inv = S.invoices.find(i => i.id === $("#pInv").value);
+  const room = inv ? payRoom(inv) : 0, d = payDiscIQD(inv);
+  o.textContent = $("#pDiscMode").value === "%" && isNum(v) ? (inv ? `= ${iqd(d)}` : "Choose the invoice for %") : (isNum(v) && v && room > 0 ? `= ${pct(v / room)}` : "");
+  // the amount to pay follows the discount until the amount is typed by hand
+  if (inv && !S.amtTouched) $("#pAmt").value = Math.max(0, Math.round(room - d)) || "";
+  const amt = n0(parseNum($("#pAmt").value)), left = room - amt - d;
+  const unv = inv ? S.payments.filter(p => p.invoiceId === inv.id && !p.verified && (!S.editPay || p.id !== S.editPay.id)) : [];
+  if (inv && room <= TOL && !S.editPay){ $("#paySum").innerHTML = unv.length ? `<div class="err">This invoice already has an unverified payment of ${unv.map(p => iqd(p.amount)).join(", ")}. Open it from the invoice to verify or edit it instead of adding another.</div>` : `<div class="r"><span>This invoice</span><span class="pill good">Already paid</span></div>`; return; }
+  $("#paySum").innerHTML = inv ? `${unv.length ? `<div class="err">This invoice already has ${unv.length} unverified payment${unv.length===1?"":"s"} (${unv.map(p => iqd(p.amount)).join(", ")}). Open it from the invoice and verify or edit it instead of adding another.</div>` : ""}<div class="r"><span>Amount due on invoice</span><span class="num">${iqd(room)}</span></div>
+    ${d ? `<div class="r"><span>Discount taken</span><span class="num">−${iqd(d)}</span></div>` : ""}
+    <div class="r big"><span>To pay</span><span class="num">${iqd(Math.max(0, room - d))}</span></div>
+    ${Math.abs(left) > TOL ? `<div class="r"><span>${left > 0 ? "Still owed after this payment" : "More than owed by"}</span><span class="num" style="color:var(--${left > 0 ? "warn" : "bad"})">${iqd(Math.abs(left))}</span></div>` : `<div class="r"><span>After this payment</span><span class="pill good">Paid in full</span></div>`}`
+    : `<div class="note">Not linked to an invoice: counts against the supplier's balance only.</div>`;
+}
+document.addEventListener("input", ev => { if (ev.target.id === "itemQ"){ S.q = ev.target.value; S.qFocus = true; render(); S.qFocus = false; } });
+document.addEventListener("change", ev => {
+  if (ev.target.id === "itemSort"){ S.sort = ev.target.value; render(); return; }
+  if (ev.target.dataset && ev.target.dataset.f === "desc"){ const box = ev.target.closest(".lineedit"); const p = parseDesc(ev.target.value); const set = (f, v) => { const el = box.querySelector(`[data-f="${f}"]`); if (el && (el.value === "" || el.value === "—") && v !== null && v !== undefined) el.value = v; }; set("name", p.name); set("strength", p.strength); set("form", p.form); set("pack", p.pack); set("blisters", p.blisters); if (p.fridge) box.querySelector('[data-f="cold"]').checked = true; }
+});
+document.addEventListener("change", ev => { if (ev.target.id === "fSup"){ $("#newSupWrap").hidden = ev.target.value !== "__new"; liveSum(); } });
+document.addEventListener("submit", ev => {
+  if (ev.target.id === "invForm") return saveInvoice(ev);
+  if (ev.target.id === "payForm") return savePayment(ev);
+  if (ev.target.id === "supForm") return saveSupplier(ev);
+});
+$("#sheet").addEventListener("click", ev => { if (ev.target.id === "sheet") closeSheet(); });
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !$("#sheet").hidden) closeSheet(); });
+
+/* ---------- scan a photo ---------- */
+const EXTRACT = `You are reading a photo of a paper purchase invoice from a pharmaceutical drug store (مذخر) in Iraq, addressed to a pharmacy. Currency is Iraqi dinar (IQD).
+Reply with ONLY one JSON object of this shape:
+{"supplierName": string|null, "supplierNameAr": string|null, "invoiceNo": string|null, "date": "YYYY-MM-DD"|null, "type": "credit"|"cash"|null,
+ "printedTotal": number|null, "invoiceDiscount": number|null, "printedPrevBalance": number|null, "printedTotalDebt": number|null,
+ "lines": [{"no": string, "desc": string, "company": string|null, "qty": number|null, "bonus": number|null, "price": number|null, "value": number|null, "batch": string|null, "expiry": "YYYY-MM"|null, "fridge": boolean, "name": string|null, "strength": string|null, "form": string|null, "pack": number|null, "blisters": number|null, "note": string|null}],
+ "uncertain": [string]}
+Rules:
+- Copy product descriptions exactly as printed, including (براد).
+- Numbers: the apostrophe or comma is a thousands separator (405'436 = 405436). Convert Arabic-Indic digits.
+- qty = the printed quantity (الكمية), price = unit price (السعر), value = line value (القيمة), batch = (باج نمبر / Batch), expiry = (الصلاحية) as YYYY-MM.
+- (براد) next to a product means it must be stored in a refrigerator: set fridge true; otherwise false.
+- From each description also fill: name = brand/product name only (e.g. "Clexane"), strength = dose as printed (e.g. "6000IU 60mg/0.6ml", "500 mg"), form = dosage form in English (Tablet, Capsule, Suppository, Pessary, Ampoule, Vial, Pen, Prefilled syringe, Drops, Eye drops, Gel, Eye gel, Cream, Ointment, Syrup, Suspension, Sachet, Spray, Vaginal capsule), pack = units per pack (e.g. 28 Tabs = 28; 3*10 Tabs = 30), blisters = number of blister strips 1-10 when shown as N*M (3*10 = 3), else null.
+- A line with a quantity but NO value printed is bonus (free goods) for the priced line of the SAME product: do not output it as its own line; add its quantity to that line's "bonus" and say so in "note" (e.g. "Line 19 qty 2 with no value = bonus"). If there is no matching priced line, keep it as its own line with value null and note "No value printed; no matching priced line".
+- payment آجل = "credit", نقد = "cash". المجموع الصافي = printedTotal. الديون السابقة = printedPrevBalance. الديون الكلية = printedTotalDebt.
+- NEVER guess. If any number, batch, expiry, invoice number or date is unreadable, put null and add a short entry to "uncertain" naming the line and field. Also list handwritten marks or corrections that change a printed value.
+- Do not invent lines. Keep the printed line order.`;
+async function scanPhoto(file){
+  if (!file) return;
+  const ctl = new AbortController(); S.scanCtl = ctl;
+  openSheet("Reading invoice", `<div class="busy"><span class="spin"></span><span id="scanMsg">Saving the original photo…</span></div><p class="note">This can take up to a minute. Keep this screen open.</p><button type="button" id="scanStop">Stop</button>`);
+  let photoId = null;
+  try { if (S.assets){ const r = await S.assets.upload(file, {type: file.type || "image/jpeg"}); photoId = r.id; } }
+  catch(e){ /* keep going without storing the photo */ }
+  const msg = $("#scanMsg"); if (msg) msg.textContent = "Reading the invoice…";
+  let out;
+  try { out = await S.sample.json(EXTRACT, {images:[file], signal:ctl.signal, modelTier:"complex", cache:false}); }
+  catch(e){
+    if (e && e.code === "cancelled"){ closeSheet(); return; }
+    const copy = {not_granted:"Reading photos needs your permission. Allow it when asked, or enter the invoice by hand.", rate_limited:"Too many requests right now. Wait a minute and try again.", image_rejected:"That photo couldn't be read. Try a sharper JPEG or PNG under 20 MB.", invalid_json:"The reply couldn't be understood. Try again, or enter the invoice by hand.", refused:"This photo couldn't be processed. Enter the invoice by hand."}[e?.code] || "Reading the photo failed. Try again, or enter the invoice by hand.";
+    openSheet("Couldn't read the photo", `<p>${esc(copy)}</p><div class="actions"><button type="button" class="primary" data-act="scan">Try another photo</button><button type="button" data-act="newInv">Enter by hand</button></div>`);
+    return;
+  }
+  if (!out || typeof out !== "object"){ openSheet("Couldn't read the photo", `<p>No invoice data came back. Try a clearer photo.</p>`); return; }
+  const num = v => (typeof v === "number" && isFinite(v)) ? v : (typeof v === "string" ? (x => isFinite(x) ? x : null)(parseNum(v)) : null);
+  const nm = String(out.supplierName || "").toLowerCase(), nmAr = String(out.supplierNameAr || "");
+  const match = S.suppliers.find(s => (nm && s.name && (nm.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(nm))) || (nmAr && s.nameAr && (nmAr.includes(s.nameAr) || s.nameAr.includes(nmAr))));
+  const uncertain = Array.isArray(out.uncertain) ? out.uncertain.map(String).slice(0,40) : [];
+  if (isNum(num(out.printedPrevBalance)) && isNum(num(out.printedTotal)) && isNum(num(out.printedTotalDebt)) && Math.abs(num(out.printedPrevBalance) + num(out.printedTotal) - num(out.printedTotalDebt)) > 1) uncertain.push("Printed previous debt + this invoice doesn't equal printed total debt.");
+  const pre = {
+    supplierId: match ? match.id : "__new", newSupplierName: match ? "" : (out.supplierName || out.supplierNameAr || ""), newSupplierAr: out.supplierNameAr || "",
+    invoiceNo: out.invoiceNo ? String(out.invoiceNo) : "", date: /^\d{4}-\d{2}-\d{2}$/.test(out.date||"") ? out.date : "",
+    type: out.type === "cash" ? "cash" : "credit", printedTotal: num(out.printedTotal), invoiceDiscount: num(out.invoiceDiscount), printedPrevBalance: num(out.printedPrevBalance),
+    lines: (Array.isArray(out.lines) ? out.lines : []).map(l => ({no: l.no ? String(l.no) : undefined, desc: String(l.desc || ""), qty: num(l.qty), bonus: num(l.bonus), price: num(l.price), value: num(l.value), batch: l.batch ? String(l.batch) : "", expiry: /^\d{4}-\d{2}$/.test(l.expiry||"") ? l.expiry : "", cold: !!(l.fridge ?? l.cold), name: l.name ? String(l.name) : null, strength: l.strength ? String(l.strength) : null, form: l.form ? String(l.form) : null, pack: num(l.pack), blisters: (n => isNum(n) && n >= 1 && n <= 10 ? n : null)(num(l.blisters)), note: l.note ? String(l.note) : undefined})),
+    photo: photoId, extraction: {uncertain, at: new Date().toISOString(), source: "photo"}, notes: ""
+  };
+  if (!pre.date) uncertain.push("Invoice date not read; enter it.");
+  invoiceForm(null, pre);
+}
+$("#photoIn").addEventListener("change", ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ""; scanPhoto(f); });
+
+/* ---------- export ---------- */
+async function exportXlsx(btn){
+  if (!S.dl || !window.XLSX){ toast("Excel export isn't available here."); return; }
+  btn.disabled = true;
+  try {
+    const wb = XLSX.utils.book_new();
+    const add = (name, rows) => { const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{Note:"No records"}]); ws["!cols"] = Object.keys(rows[0] || {Note:1}).map(k => ({wch: Math.max(10, Math.min(40, k.length + 4))})); XLSX.utils.book_append_sheet(wb, ws, name); };
+    add("Purchase Invoices", S.invoices.map(i => { const c = calc(i); return {"Processing ID":i.pid||i.id, "Supplier":supName(i.supplierId), "Supplier Invoice No.":i.invoiceNo, "Invoice Date":i.date, "Type":i.type==="cash"?"Cash":"Credit", "Lines":c.lines, "Bonus Units":c.bonusUnits, "Total Before Discount (IQD)":Math.round(c.gross), "Line Discounts (IQD)":Math.round(c.lineDisc), "Invoice Discount (IQD)":Math.round(c.invDisc), "Total Discount (IQD)":Math.round(c.discount), "Total After Discount (IQD)":Math.round(c.total), "Amount Due (IQD)":Math.round(c.dueAmt), "Printed Total (IQD)":i.printedTotal ?? "", "Difference (IQD)":c.diff===null?"":Math.round(c.diff), "Within Tolerance":c.okTol?"Yes":"No", "Paid Before Discount (IQD)":Math.round(S.payments.filter(p => p.invoiceId === i.id && p.verified).reduce((a,p) => a + n0(p.amount) + n0(p.discount), 0)), "Payment Discount (IQD)":Math.round(S.payments.filter(p => p.invoiceId === i.id && p.verified).reduce((a,p) => a + n0(p.discount), 0)), "Paid After Discount - Cash (IQD)":Math.round(S.payments.filter(p => p.invoiceId === i.id && p.verified).reduce((a,p) => a + n0(p.amount), 0)), "Returns Credited (IQD)":Math.round(c.credited||0), "Outstanding (IQD)":Math.round(c.outstanding), "Payment Status":c.payStatus, "Days Since Invoice":c.age ?? "", "Late (cash > 1 week, credit > 1 month)":c.stale?"Yes":"No", "Due Date":c.due||"Not provided", "Return Deadline":c.returnBy||"", "Receiving":i.receiving||"pending", "Status":i.status, "Approved By":i.approvedBy||"", "MyPharma No.":i.mercatoRef||"", "Supplier Printed Prev. Debt":i.printedPrevBalance ?? "", "Photo Stored":i.photo?"Yes":"No", "Notes":i.notes||""}; }));
+    const lines = []; for (const i of S.invoices){ const idd = itemDiscounts(i).rows; (i.lines||[]).forEach((l,k) => { const net = lineNet(l), u = n0(l.qty)+n0(l.bonus), a = attrs(l), r = idd[k]; lines.push({"Processing ID":i.pid||i.id, "Supplier":supName(i.supplierId), "Invoice No.":i.invoiceNo, "Line":l.no||k+1, "Product (as printed)":l.desc, "Paid Qty":l.qty ?? "", "Bonus Qty":l.bonus ?? 0, "Bonus %":l.bonusPct ?? "", "Unit Price (IQD)":l.price ?? "", "Amount Before Discount (IQD)":Math.round(lineGross(l)), "Line Discount %":l.discPct ?? "", "Line Discount (IQD)":lineDisc(l) ? Math.round(lineDisc(l)) : "", "Amount After Discount (IQD)":Math.round(net), "Printed Value (IQD)":l.value ?? "", "Effective Unit Cost (IQD)":u?Math.round(net/u*100)/100:"", "Name":a.name||"", "Dose":a.strength||"", "Dosage Form":a.form||"", "Pack Size":a.pack ?? "", "Blisters":a.blisters ?? "", "Refrigerated":a.fridge?"Yes":"No", "Batch":l.batch||"", "Expiry":l.expiry||"Not provided", "Total Discount Item by Item (IQD)":r ? r.disc : "", "Total Discount %":r && r.gross ? Math.round(r.pct*1000)/10 : "", "Final Net (IQD)":r ? r.net : "", "Net Price per Paid Unit (IQD)":r && r.perPaid !== null ? Math.round(r.perPaid) : "", "Cost per Unit with Bonus (IQD)":r && r.perUnit !== null ? Math.round(r.perUnit) : "", "Note":l.note||""}); }); }
+    add("Invoice Lines", lines);
+    add("Payments", (S.allPayments || S.payments).map(p => ({"Payment ID":p.id, "Supplier":supName(p.supplierId), "Date":p.date, "Paid Before Discount (IQD)":n0(p.amount) + n0(p.discount), "Discount Taken (IQD)":n0(p.discount), "Paid After Discount - Cash (IQD)":p.amount, "Invoice No.":S.invoices.find(i => i.id === p.invoiceId)?.invoiceNo || "Not allocated", "Method":p.method||"", "Receipt No.":p.receiptNo||"", "Verified":p.verified?"Yes":"No", "Cancelled":p.voided?"Yes (not counted)":"", "Notes":p.notes||""})));
+    add("Suppliers", S.suppliers.map(s => { const b = balance(s.id); return {"Supplier ID":s.id, "Name":s.name, "Arabic Name":s.nameAr||"", "Credit Days":s.creditDays ?? "", "Return Days":s.returnDays ?? "", "Opening Balance (IQD)":s.openingBalance ?? "", "Opening Verified":s.openingVerified?"Yes":"No", "Opening Left Out":s.openingExcluded?"Yes":"No", "Discount Terms":(s.discountTiers||[]).map(t => `${pct(t.pct)} within ${t.days} days`).join("; "), "Approved Invoices (IQD)":Math.round(b.inv), "Payments + Discounts (IQD)":Math.round(b.pays), "Balance (IQD)":Math.round(b.bal), "Awaiting Approval (IQD)":Math.round(b.pending), "Paid Before Discount (IQD)":Math.round(supTotals(s.id).paid + supTotals(s.id).disc), "Paid After Discount - Cash (IQD)":Math.round(supTotals(s.id).paid), "Discounts Taken (IQD)":Math.round(supTotals(s.id).disc), "Returns and Credits (IQD)":Math.round(supTotals(s.id).credits), "You Owe (IQD)":Math.round(supTotals(s.id).youOwe), "Supplier Owes You (IQD)":Math.round(supTotals(s.id).theyOwe)}; }));
+    window.extraSheets?.(add);
+    add("About", [{"Field":"Exported", "Value":new Date().toISOString().slice(0,16).replace("T"," ")}, {"Field":"Data source", "Value":"Raihana Pharmacy Payables app. Not synchronized with MyPharma/Mercato."}, {"Field":"Balances", "Value":"Every invoice entered counts after discount, minus verified payments and confirmed returns; unverified opening balances count as 0."}]);
+    const buf = XLSX.write(wb, {bookType:"xlsx", type:"array"});
+    await S.dl.save({filename:`Raihana_Pharmacy_Payables_${today()}.xlsx`, data:new Blob([buf])});
+    toast("Excel file saved.");
+    window.markBackup?.();
+  } catch(e){
+    toast(e?.code === "declined" ? "Download cancelled." : e?.code === "rate_limited" ? "A download prompt is already open." : "Excel export failed. Try again.");
+  } finally { btn.disabled = false; }
+}
+
+/* ---------- data ---------- */
+function refreshOpenSheet(){
+  // keep an open detail sheet current when data changes; never touch an open form
+  if ($("#sheet").hidden || document.querySelector("#sheetBody form")) return;
+  const title = $("#sheetTitle").textContent;
+  const inv = S.invoices.find(i => `${supName(i.supplierId)} · ${i.invoiceNo}` === title);
+  if (inv) invoiceDetail(inv.id);
+}
+(async () => {
+  $("#formList").innerHTML = FORM_NAMES.map(f => `<option value="${esc(f)}">`).join("");
+  render();
+  let db = null;
+  try { db = await window.claude?.use?.("db"); } catch { db = null; }
+  if (!db){
+    S.ready = true; S.readOnly = true; render();
+    $("#banner").hidden = false; $("#bannerText").textContent = "Your saved data can't load here. Open this page from claude.ai while signed in.";
+    return;
+  }
+  S.db = db;
+  Promise.all([window.claude.use("sample").catch(() => null), window.claude.use("assets").catch(() => null), window.claude.use("downloads").catch(() => null)]).then(async ([sm, as, dl]) => {
+    S.assets = as; S.dl = dl;
+    if (sm){ const lim = await sm.limits().catch(() => null); if (lim && lim.images){ S.sample = sm; $("#scanBtn").hidden = false; } }
+    render();
+  });
+  try { const user = await window.claude.use("user"); S.user = user; const can = user ? await user.can("data.write") : null; if (can === false){ S.readOnly = true; }
+    if (user){ const me = await user.me(); S.meId = me.id || null; S.meName = me.name || ""; } } catch {}
+  let got = 0;
+  const done = () => { if (++got >= 3){ S.ready = true; } render(); refreshOpenSheet(); window.loadNames?.(); };
+  const fail = () => { $("#banner").hidden = false; $("#bannerText").textContent = "Live updates stopped. Reload the page to see the latest data."; };
+  db.collection("suppliers").onSnapshot(s => { S.suppliers = s.docs.map(d => ({id:d.id, ...d.data()})); done(); }, fail);
+  db.collection("invoices").onSnapshot(s => { S.invoices = s.docs.map(d => ({id:d.id, ...d.data()})); done(); }, fail);
+  db.collection("payments").onSnapshot(s => { S.allPayments = s.docs.map(d => ({id:d.id, ...d.data()})); S.payments = S.allPayments.filter(p => !p.voided); done(); }, fail);
+  db.collection("credits").onSnapshot(s => { S.allCredits = s.docs.map(d => ({id:d.id, ...d.data()})); S.credits = S.allCredits.filter(x => !x.voided); render(); refreshOpenSheet(); window.loadNames?.(); }, () => {});
+  db.collection("meta").onSnapshot(s => { S.meta = Object.fromEntries(s.docs.map(d => [d.id, d.data()])); render(); }, () => {});
+})();
+</script>
+<script>
+/* ---------- features added 2026-10-21: backup reminder, returns/credits, statement check, pay plan,
+   receiving per line, expiry watch, price changes, monthly report, who did it, Arabic ---------- */
+const BACKUP_DAYS = 7;
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+S.rep = lsGet("rp.rep", "pay"); S.payScope = "week"; S.expMonths = 3; S.month = today().slice(0,7);
+S.plan = lsGet("rp.plan", {}); S.lang = lsGet("rp.lang", "en");
+
+/* ---- 9 who did it: names come from ids, resolved for this viewer ---- */
+async function loadNames(){
+  if (!S.user) return;
+  const ids = new Set();
+  const take = o => { for (const k of ["lastBy","createdBy","approvedById","by","checkedBy"]) if (o && o[k]) ids.add(o[k]); (o?.history||[]).forEach(h => h.by && ids.add(h.by)); };
+  [...S.invoices, ...(S.allPayments||[]), ...S.allCredits, ...S.suppliers].forEach(take);
+  Object.values(S.meta||{}).forEach(take);
+  const need = [...ids].filter(id => !(id in S.names) && id !== S.meId);
+  if (!need.length) return;
+  try { const ps = await S.user.profiles(need); let changed = false; for (const id of need){ S.names[id] = ps[id]?.name || ""; changed = true; } if (changed){ render(); } } catch {}
+}
+
+/* ---- 1 backup reminder ---- */
+function backupAge(){ const at = S.meta?.backup?.lastAt; return at ? days(at.slice(0,10), today()) : null; }
+async function markBackup(){ try { await write("meta/backup", {lastAt:new Date().toISOString(), by:S.meId}); } catch {} }
+function homeExtras(){
+  const age = backupAge(), due = age === null || age >= BACKUP_DAYS;
+  const exp = expiringItems(3).length, rises = priceChanges().filter(x => x.pct > 0.02 && x.inv.date >= addDays(today(), -60)).length;
+  const plan = payCandidates("week");
+  return `${S.readOnly ? "" : `<button type="button" class="primary" data-newcredit="" style="width:100%;padding:12px">↩ Return goods to a supplier</button>`}
+  ${due ? `<div class="banner" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap"><span><b>Backup</b> · ${age === null ? "You have never downloaded a backup." : `Last backup ${age} days ago.`} Download the Excel file weekly${new Date().getDay() === 5 ? " (today is Friday)" : ""}.</span><button type="button" class="primary" data-act="export" ${S.dl ? "" : "disabled"}>Back up now</button></div>` : `<p class="note">Last backup: ${age === 0 ? "today" : `${age} day${age===1?"":"s"} ago`}${S.meta?.backup?.by ? ` by ${esc(whoName(S.meta.backup.by))}` : ""}.</p>`}
+  <section class="kpis" aria-label="Reports">
+    <button type="button" class="kpi tap" data-goreport="pay"><span class="l">To pay this week</span><span class="v num">${iqd(plan.reduce((a,x) => a + x.toPay, 0))}</span><span class="l">${plan.length} invoices · tap to plan</span></button>
+    <button type="button" class="kpi tap" data-goreport="expiry"><span class="l">Expiring in 3 months</span><span class="v num" ${exp ? 'style="color:var(--warn)"' : ""}>${exp}</span><span class="l">items · tap to see</span></button>
+    <button type="button" class="kpi tap" data-goreport="prices"><span class="l">Price increases (60 days)</span><span class="v num" ${rises ? 'style="color:var(--bad)"' : ""}>${rises}</span><span class="l">tap to see</span></button>
+    <button type="button" class="kpi tap" data-goreport="month"><span class="l">This month's purchases</span><span class="v num">${iqd(monthStats(today().slice(0,7)).purchases)}</span><span class="l">tap for report</span></button>
+  </section>`;
+}
+
+/* ---- 2 returns and credit notes ---- */
+const CREDIT_REASONS = ["Expired or short expiry","Damaged","Shortage","Wrong item","Price correction","Other"];
+function creditForm(pre){
+  const p = pre || {};
+  const sid = p.supplierId || S.suppliers[0]?.id;
+  if (!sid){ openSheet("Return or credit note", `<p>Add a supplier first.</p>`); return; }
+  S.creditDraft = p;
+  openSheet("Return or credit note", `<form id="crForm" class="sec" novalidate>
+    <p class="note">A return or credit note lowers what you owe. It counts once the supplier confirms it (credit note in hand).</p>
+    <div class="grid2 stack">
+      <label>Supplier<select id="cSup">${S.suppliers.map(s => `<option value="${esc(s.id)}" ${s.id===sid?"selected":""}>${esc(s.name)}</option>`).join("")}</select></label>
+      <label>Against invoice<select id="cInv"><option value="">Not linked to one invoice</option>${S.invoices.filter(i => i.supplierId === sid).map(i => `<option value="${esc(i.id)}" ${i.id===p.invoiceId?"selected":""}>${esc(i.invoiceNo)} · ${esc(i.date)}</option>`).join("")}</select></label>
+      <label>Type<select id="cType">${["Return of goods","Credit note","Price difference"].map(t => `<option ${t===(p.type||"Return of goods")?"selected":""}>${t}</option>`).join("")}</select></label>
+      <label>Reason<select id="cReason">${CREDIT_REASONS.map(t => `<option ${t===p.reason?"selected":""}>${t}</option>`).join("")}</select></label>
+      <label>Date<input id="cDate" type="date" value="${esc(p.date || today())}"></label>
+      <label>Amount (IQD)<input id="cAmt" class="num" inputmode="decimal" value="${isNum(p.amount) ? Math.round(p.amount) : ""}"></label>
+      <label>Supplier credit note number<input id="cRef" value="${esc(p.ref||"")}"></label>
+      <label class="check" style="align-self:end"><input type="checkbox" id="cVer" ${p.verified?"checked":""}> Supplier confirmed (credit note in hand)</label>
+    </div>
+    <div id="cPick"></div>
+    <label>Items returned (filled from your choices; you can add notes)<textarea id="cItems">${esc(p.items||"")}</textarea></label>
+    <label>Notes<textarea id="cNotes">${esc(p.notes||"")}</textarea></label>
+    <div class="err" id="crErr"></div>
+    <button type="submit" class="primary">Save</button></form>`);
+  S.crAmtTouched = isNum(p.amount); S.crPick = p.pick || {}; S.crQ = "";
+  crPicker();
+  if (p.pick) crPickApply();
+}
+// how many units of line k of an invoice were already returned on earlier (not cancelled) returns
+function returnedQty(invId, k){ return S.credits.filter(x => x.invoiceId === invId && x.lines).reduce((a,x) => a + n0(x.lines.find(y => y.k === k)?.qty), 0); }
+// credit value per unit: the line's cost after discount spread over paid + bonus units
+function retUnit(l, inv){ inv = inv || S.invoices.find(i => (i.lines||[]).includes(l)); const u = n0(l.qty) + n0(l.bonus); return u ? lineNet(l) * (inv ? invFactor(inv) : 1) / u : 0; }
+function crPicker(){
+  const box = $("#cPick"); if (!box) return;
+  const inv = S.invoices.find(i => i.id === $("#cInv").value);
+  if (!inv){ box.innerHTML = `<p class="note">Choose the invoice above to pick the items and quantities from it.</p>`; return; }
+  const q = (S.crQ || "").toLowerCase();
+  const rows = (inv.lines||[]).map((l,k) => ({l, k, a:attrs(l), max:Math.max(0, n0(l.qty) + n0(l.bonus) - returnedQty(inv.id, k))}))
+    .filter(x => !q || [x.l.desc, x.a.name, x.a.strength].join(" ").toLowerCase().includes(q));
+  box.innerHTML = `<div class="sechead"><h2>Items from invoice ${esc(inv.invoiceNo)}</h2><span class="note">${Object.values(S.crPick).filter(v => v > 0).length} chosen</span></div>
+    <input type="search" id="cQ" placeholder="Search items" value="${esc(S.crQ||"")}">
+    <div class="list" style="max-height:340px;overflow:auto">${rows.map(x => { const v = n0(S.crPick[x.k]);
+      return `<div class="row" style="cursor:default;${v ? "background:var(--good-bg)" : ""}"><span class="main"><span class="t">${x.a.fridge ? `<span class="pill acc">براد</span> ` : ""}${esc(x.a.name || x.l.desc)} ${esc(x.a.strength||"")}</span><span class="s">${n0(x.l.qty)}${n0(x.l.bonus) ? ` + ${x.l.bonus} bonus` : ""} received · ${Math.round(retUnit(x.l)).toLocaleString("en-US")} IQD each${x.l.expiry ? ` · exp ${esc(x.l.expiry)}` : ""}${x.max < n0(x.l.qty) + n0(x.l.bonus) ? ` · ${n0(x.l.qty) + n0(x.l.bonus) - x.max} already returned` : ""}</span></span>
+      <span class="end" style="display:flex;align-items:center;gap:6px"><button type="button" data-cqm="${x.k}" ${v ? "" : "disabled"} aria-label="Less">−</button><input class="num" inputmode="numeric" data-cq="${x.k}" data-max="${x.max}" value="${v || ""}" placeholder="0" style="width:52px;text-align:center"><button type="button" data-cqp="${x.k}" ${v >= x.max ? "disabled" : ""} aria-label="More">+</button></span></div>`; }).join("") || `<div class="empty">No items match.</div>`}</div>
+    <div class="sum"><div class="r big"><span>Value of chosen items</span><span class="num">${iqd(crPickValue(inv))}</span></div></div>`;
+}
+function crPickValue(inv){ return Object.entries(S.crPick).reduce((a,[k,v]) => a + n0(v) * retUnit(inv.lines[+k]), 0); }
+function crPickApply(){
+  const inv = S.invoices.find(i => i.id === $("#cInv").value); if (!inv) return;
+  const chosen = Object.entries(S.crPick).filter(([,v]) => v > 0);
+  if (!S.crAmtTouched) $("#cAmt").value = chosen.length ? Math.round(crPickValue(inv)) : "";
+  $("#cItems").value = chosen.map(([k,v]) => { const l = inv.lines[+k]; return `${attrs(l).name || l.desc} ${attrs(l).strength || ""} × ${v}${l.batch ? ` (batch ${l.batch})` : ""}`.replace(/\s+/g," "); }).join("\n");
+}
+function crSetQty(k, v){
+  const el = document.querySelector(`[data-cq="${k}"]`), max = +el.dataset.max;
+  S.crPick[k] = Math.max(0, Math.min(max, Math.round(n0(v))));
+  crPickApply(); const y = $("#cPick .list")?.scrollTop; crPicker(); const lst = $("#cPick .list"); if (lst && y) lst.scrollTop = y;
+}
+async function saveCredit(e){
+  e.preventDefault();
+  const err = $("#crErr"), amt = parseNum($("#cAmt").value);
+  if (!isNum(amt) || amt <= 0){ err.textContent = "Enter the amount in IQD."; return; }
+  if (S.saving) return; S.saving = true;
+  const id = "CR-" + Date.now().toString(36).toUpperCase();
+  const c = {id, supplierId:$("#cSup").value, invoiceId:$("#cInv").value || null, type:$("#cType").value, reason:$("#cReason").value, date:$("#cDate").value || today(), amount:amt, ref:$("#cRef").value.trim(), verified:$("#cVer").checked, items:$("#cItems").value.trim(), notes:$("#cNotes").value.trim(), source:S.creditDraft?.source || null, createdAt:new Date().toISOString(), createdBy:S.meId,
+    lines:Object.entries(S.crPick||{}).filter(([,v]) => v > 0).map(([k,v]) => { const l = S.invoices.find(i => i.id === $("#cInv").value)?.lines?.[+k]; return {k:+k, desc:l?.desc || "", qty:v, unit:l ? Math.round(retUnit(l)) : 0}; })};
+  try { await write("credits/" + id, c); S.saving = false; closeSheet(); toast(c.verified ? "Saved. What you owe went down." : "Saved. It counts once you mark it confirmed."); }
+  catch(x){ S.saving = false; err.textContent = x.message; }
+}
+function creditRow(x){
+  const inv = S.invoices.find(i => i.id === x.invoiceId);
+  return `<button type="button" class="row" data-credit="${esc(x.id)}"><span class="main"><span class="t">${esc(supName(x.supplierId))} · ${esc(x.type)}</span><span class="s">${esc(x.date)} · ${esc(x.reason)}${inv ? ` · invoice ${esc(inv.invoiceNo)}` : ""}${x.ref ? ` · note ${esc(x.ref)}` : ""}</span></span><span class="end"><span class="num">−${iqd(x.amount)}</span><span class="pill ${x.verified?"good":"warn"}">${x.verified?"Confirmed":"Waiting for supplier"}</span></span></button>`;
+}
+function creditsSection(){
+  const list = [...S.credits].sort((a,b) => (b.date||"").localeCompare(a.date||""));
+  return `<section class="sec"><div class="sechead"><h2>Returns and credit notes</h2>${S.readOnly ? "" : `<button type="button" class="primary" data-newcredit="">↩ Return goods</button>`}</div>
+  <div class="list">${list.length ? list.map(creditRow).join("") : `<div class="empty">No returns yet. Use this when you send goods back or the supplier gives a credit.</div>`}</div></section>`;
+}
+function creditsFor(i){
+  const list = S.credits.filter(x => x.invoiceId === i.id);
+  return list.length ? `<div class="sec"><h2>Returns and credits on this invoice</h2><div class="list">${list.map(creditRow).join("")}</div></div>` : "";
+}
+function creditDetail(id){
+  const x = S.allCredits.find(c => c.id === id); if (!x) return;
+  openSheet(`${x.type} · ${supName(x.supplierId)}`, `<div class="sum">
+    <div class="r big"><span>Amount</span><span class="num">−${iqd(x.amount)}</span></div>
+    <div class="r"><span>Date</span><span class="num">${esc(x.date)}</span></div>
+    <div class="r"><span>Reason</span><span>${esc(x.reason)}</span></div>
+    <div class="r"><span>Invoice</span><span>${esc(S.invoices.find(i => i.id === x.invoiceId)?.invoiceNo || "Not linked")}</span></div>
+    <div class="r"><span>Credit note number</span><span class="num">${esc(x.ref || "—")}</span></div>
+    <div class="r"><span>Status</span><span>${x.voided ? "Cancelled" : x.verified ? "Confirmed: counted" : "Waiting for supplier: not counted yet"}</span></div></div>
+    ${x.items ? `<p style="white-space:pre-line">${esc(x.items)}</p>` : ""}${x.notes ? `<p class="note">${esc(x.notes)}</p>` : ""}
+    ${x.createdBy ? `<p class="note">Recorded by ${esc(whoName(x.createdBy))}</p>` : ""}
+    ${S.readOnly || x.voided ? "" : `<div class="actions"><button type="button" class="primary" data-crver="${esc(x.id)}">${x.verified ? "Mark not confirmed" : "Supplier confirmed it"}</button><button type="button" class="danger" data-crvoid="${esc(x.id)}">Cancel this return</button></div>`}
+    <div class="err" id="crDetErr"></div>`);
+}
+
+/* ---- 3 supplier statement check ---- */
+function statementSheet(sid, amount, asOf){
+  const s = supplier(sid); if (!s) return;
+  const date = asOf || today();
+  const printedDebt = i => isNum(i.printedTotalDebt) ? i.printedTotalDebt : isNum(i.printedPrevBalance) && isNum(i.printedTotal) ? i.printedPrevBalance + i.printedTotal : null;
+  const printed = [...S.invoices].filter(i => i.supplierId === sid && isNum(printedDebt(i))).sort((a,b) => (b.date||"").localeCompare(a.date||""))[0];
+  S.stmt = {sid, date, amount: isNum(amount) ? amount : null, off:new Set()};
+  openSheet(`Statement check · ${s.name}`, `<p class="note">Type the total debt printed on the supplier's statement or latest invoice. The app compares it with your records up to that date. Untick anything that is not on their statement to find the difference.</p>
+    <div class="grid2 stack"><label>Supplier says you owe (IQD)<input id="stAmt" class="num" inputmode="decimal" value="${isNum(amount) ? amount : ""}"></label>
+    <label>As of<input id="stDate" type="date" value="${esc(date)}"></label></div>
+    ${printed ? `<button type="button" data-stfill="${esc(printed.id)}" data-amt="${printedDebt(printed)}">Use ${iqd(printedDebt(printed))} printed on invoice ${esc(printed.invoiceNo)}</button>` : ""}
+    <div id="stBody"></div>`);
+  stmtRefresh();
+}
+function stmtRows(){
+  const {sid, date} = S.stmt;
+  const inv = S.invoices.filter(i => i.supplierId === sid && i.date <= date).map(i => ({k:"i:"+i.id, date:i.date, label:`Invoice ${i.invoiceNo}${BOOKED.includes(i.status) ? "" : " (not approved)"}`, amt:calc(i).dueAmt}));
+  const pay = S.payments.filter(p => p.supplierId === sid && p.verified && p.date <= date).map(p => ({k:"p:"+p.id, date:p.date, label:`Payment${p.receiptNo ? " receipt " + p.receiptNo : ""}${n0(p.discount) ? ` (incl. ${iqd(p.discount)} discount)` : ""}`, amt:-(n0(p.amount) + n0(p.discount))}));
+  const cr = S.credits.filter(x => x.supplierId === sid && x.verified && x.date <= date).map(x => ({k:"c:"+x.id, date:x.date, label:`${x.type}${x.ref ? " " + x.ref : ""}`, amt:-n0(x.amount)}));
+  return [...inv, ...pay, ...cr].sort((a,b) => a.date.localeCompare(b.date));
+}
+function stmtRefresh(){
+  const box = $("#stBody"); if (!box || !S.stmt) return;
+  const s = supplier(S.stmt.sid), rows = stmtRows();
+  const open = n0(s.openingBalance), useOpen = !S.stmt.off.has("open");
+  const mine = (useOpen ? open : 0) + rows.filter(r => !S.stmt.off.has(r.k)).reduce((a,r) => a + r.amt, 0);
+  const theirs = S.stmt.amount, diff = isNum(theirs) ? theirs - mine : null;
+  box.innerHTML = `<div class="sum">
+    <div class="r"><span>Your records</span><span class="num">${iqd(mine)}</span></div>
+    <div class="r"><span>Supplier's statement</span><span class="num">${isNum(theirs) ? iqd(theirs) : "Type it above"}</span></div>
+    <div class="r big"><span>Difference</span><span class="num" style="color:var(--${diff === null ? "muted" : Math.abs(diff) <= TOL ? "good" : "bad"})">${diff === null ? "—" : Math.abs(diff) <= TOL ? "Matches ✓" : (diff > 0 ? "Supplier shows " : "You show ") + iqd(Math.abs(diff)) + " more"}</span></div></div>
+    ${diff !== null && Math.abs(diff) <= TOL && !s.openingVerified && isNum(s.openingBalance) && useOpen ? `<button type="button" class="primary" data-stverify="${esc(s.id)}">It matches: mark opening balance ${iqd(s.openingBalance)} as verified</button>` : ""}
+    ${diff !== null && Math.abs(diff) > TOL ? `<p class="note">Look for an invoice, payment or return that one side is missing. ${rows.some(r => Math.abs(Math.abs(r.amt) - Math.abs(diff)) <= TOL) ? `<b>Same amount as the difference:</b> ${rows.filter(r => Math.abs(Math.abs(r.amt) - Math.abs(diff)) <= TOL).map(r => esc(r.label)).join(", ")}.` : ""}</p>` : ""}
+    <div class="list">
+      <label class="row check" style="cursor:pointer"><input type="checkbox" data-stk="open" ${useOpen ? "checked" : ""}><span class="main"><span class="t">Opening balance${s.openingDate ? ` (${esc(s.openingDate)})` : ""}</span><span class="s">${s.openingVerified ? "Verified" : "Not verified yet"}</span></span><span class="end num">${iqd(open)}</span></label>
+      ${rows.map(r => `<label class="row check" style="cursor:pointer"><input type="checkbox" data-stk="${esc(r.k)}" ${S.stmt.off.has(r.k) ? "" : "checked"}><span class="main"><span class="t">${esc(r.label)}</span><span class="s num">${esc(r.date)}</span></span><span class="end num">${r.amt < 0 ? "−" : ""}${iqd(Math.abs(r.amt))}</span></label>`).join("")}
+    </div>
+    ${S.readOnly || !isNum(theirs) ? "" : `<button type="button" data-stsave="1">Save this check</button>`}
+    ${(s.statements||[]).length ? `<details><summary>Earlier checks (${s.statements.length})</summary>${[...s.statements].reverse().map(c => `<div class="note">${esc(c.date)}: supplier ${iqd(c.theirs)}, you ${iqd(c.mine)}, ${Math.abs(c.diff) <= TOL ? "matched" : "difference " + iqd(c.diff)}${c.by ? " · " + esc(whoName(c.by)) : ""}</div>`).join("")}</details>` : ""}`;
+  S.stmt.mine = mine; S.stmt.diff = diff;
+}
+
+/* ---- 4 what to pay this week ---- */
+function payBy(i, c){ return c.due || addDays(i.date, i.type === "cash" ? CASH_DAYS : STALE_DAYS); }
+function discEnds(i){
+  const sup = supplier(i.supplierId), c = calc(i);
+  if (!c.disc) return null;
+  const t = (sup?.discountTiers||[]).filter(t => t.pct === c.disc && t.days >= c.age).sort((a,b) => b.days - a.days)[0];
+  return t ? addDays(i.date, t.days) : null;
+}
+function payCandidates(scope){
+  const week = addDays(today(), 7);
+  return S.invoices.map(i => { const c = calc(i); if (c.outstanding <= TOL) return null;
+    const by = payBy(i, c), de = discEnds(i), save = c.outstanding * c.disc;
+    return {i, c, by, de, save, toPay:c.outstanding - save, late: by < today()}; }).filter(Boolean)
+    .filter(x => scope === "all" || x.by <= week || (x.de && x.de <= week));
+}
+function payView(){
+  let list = payCandidates(S.payScope);
+  list.sort(S.paySort === "save" ? (a,b) => b.save - a.save || a.by.localeCompare(b.by) : (a,b) => a.by.localeCompare(b.by));
+  const chosen = list.filter(x => S.plan[x.i.id] !== false);
+  const total = chosen.reduce((a,x) => a + x.toPay, 0), saved = chosen.reduce((a,x) => a + x.save, 0);
+  return `<div class="chips" role="group" aria-label="Which invoices">${[["week","Due this week"],["all","All unpaid"]].map(([k,l]) => `<button type="button" data-payscope="${k}" aria-pressed="${S.payScope===k}">${l}</button>`).join("")}
+    ${[["due","Soonest first"],["save","Biggest discount first"]].map(([k,l]) => `<button type="button" data-paysort="${k}" aria-pressed="${(S.paySort||"due")===k}">${l}</button>`).join("")}</div>
+  <div class="sum"><div class="r big"><span>Cash needed for ticked invoices</span><span class="num">${iqd(total)}</span></div>
+    ${saved ? `<div class="r"><span>Early-payment discounts you keep</span><span class="num" style="color:var(--good)">${iqd(saved)}</span></div>` : ""}
+    <div class="r note"><span>${chosen.length} of ${list.length} invoices ticked</span><span></span></div></div>
+  <div class="list">${list.length ? list.map(x => `<div class="inv"><label class="row check" style="cursor:pointer"><input type="checkbox" data-plan="${esc(x.i.id)}" ${S.plan[x.i.id] !== false ? "checked" : ""}><span class="main"><span class="t">${esc(supName(x.i.supplierId))} · ${esc(x.i.invoiceNo)}</span><span class="s">${x.late ? `<b style="color:var(--bad)">Late since ${esc(x.by)}</b>` : `Pay by ${esc(x.by)}`}${x.de ? ` · ${pct(x.c.disc)} discount until ${esc(x.de)}` : ""}${BOOKED.includes(x.i.status) ? "" : " · not approved yet"}</span></span><span class="end"><span class="num">${iqd(x.toPay)}</span>${x.save ? `<span class="s num">save ${iqd(x.save)}</span>` : ""}</span></label>
+    ${S.readOnly ? "" : `<div class="pd"><button type="button" data-markpaid="${esc(x.i.id)}">Pay now</button></div>`}</div>`).join("") : `<div class="empty">${S.payScope === "week" ? "Nothing due this week." : "No unpaid invoices."}</div>`}</div>
+  <p class="note">Pay-by date: the supplier's credit days if set, otherwise 1 week for cash and 1 month for credit. Your ticks are kept on this phone.</p>`;
+}
+
+/* ---- 5 receiving per line ---- */
+const RECV_ISSUES = ["OK","Short","Damaged","Short expiry","Wrong item","Not received"];
+function recvSheet(id){
+  const i = S.invoices.find(x => x.id === id); if (!i) return;
+  const rl = i.receivedLines || {};
+  const order = (i.lines||[]).map((l,k) => ({l,k,cold:attrs(l).fridge})).sort((a,b) => (b.cold?1:0) - (a.cold?1:0) || a.k - b.k);
+  openSheet(`Receive · ${supName(i.supplierId)} ${i.invoiceNo}`, `<form id="rcForm" class="sec" novalidate data-id="${esc(i.id)}">
+    <p class="note">Count what arrived. Refrigerated (براد) lines are listed first. Change only the lines that differ.</p>
+    ${order.map(({l,k,cold}) => { const exp = n0(l.qty) + n0(l.bonus), r = rl[k] || {};
+      return `<div class="lineedit" data-rl="${k}"><div class="lh"><span>${cold ? `<span class="pill acc">براد</span> ` : ""}${esc(attrs(l).name || l.desc)} ${esc(attrs(l).strength||"")}</span><span class="note num">expected ${exp}</span></div>
+      <div class="grid2"><label>Received<input class="num" inputmode="numeric" data-r="qty" value="${isNum(r.qty) ? r.qty : exp}"></label>
+      <label>Problem<select data-r="issue">${RECV_ISSUES.map(o => `<option ${o===(r.issue||"OK")?"selected":""}>${o}</option>`).join("")}</select></label></div>
+      ${l.expiry ? `<p class="note">Printed expiry ${esc(l.expiry)}${l.batch ? ` · batch ${esc(l.batch)}` : ""}</p>` : ""}</div>`; }).join("")}
+    <div class="sum" id="rcSum"></div>
+    <div class="err" id="rcErr"></div>
+    <button type="submit" class="primary">Save receiving</button></form>`);
+  rcSum();
+}
+function readRecv(){
+  const out = {};
+  document.querySelectorAll("#rcForm [data-rl]").forEach(el => { out[el.dataset.rl] = {qty:parseNum(el.querySelector('[data-r="qty"]').value), issue:el.querySelector('[data-r="issue"]').value}; });
+  return out;
+}
+function shortage(i, rl){
+  let units = 0, value = 0; const lines = [];
+  (i.lines||[]).forEach((l,k) => { const r = rl[k]; if (!r) return; const exp = n0(l.qty) + n0(l.bonus);
+    const missing = Math.max(0, exp - n0(r.qty)) + (["Damaged","Wrong item","Short expiry"].includes(r.issue) ? n0(r.qty) : 0);
+    // missing bonus units cost nothing: only units beyond the bonus are charged
+    const charged = Math.max(0, Math.min(n0(l.qty), missing - n0(l.bonus)));
+    if (missing > 0 || r.issue !== "OK"){ const unit = n0(l.qty) ? lineNet(l) * invFactor(i) / n0(l.qty) : 0; units += missing; value += charged * unit; lines.push({k, l, missing, issue:r.issue, value:charged * unit}); } });
+  return {units, value, lines};
+}
+function rcSum(){
+  const f = $("#rcForm"); if (!f) return;
+  const i = S.invoices.find(x => x.id === f.dataset.id), sh = shortage(i, readRecv());
+  $("#rcSum").innerHTML = sh.lines.length ? `<div class="r"><span>Lines with a problem</span><span class="num">${sh.lines.length}</span></div><div class="r"><span>Units missing or not usable</span><span class="num">${sh.units}</span></div><div class="r big"><span>Value to claim from supplier</span><span class="num">${iqd(sh.value)}</span></div>` : `<div class="r"><span>Everything received</span><span class="pill good">OK</span></div>`;
+}
+async function saveRecv(e){
+  e.preventDefault();
+  const f = $("#rcForm"), i = S.invoices.find(x => x.id === f.dataset.id), rl = readRecv();
+  if (Object.values(rl).some(r => !isNum(r.qty) || r.qty < 0)){ $("#rcErr").textContent = "Use whole numbers for received quantities."; return; }
+  const sh = shortage(i, rl);
+  try { await write("invoices/" + i.id, {receivedLines:rl, receiving: sh.lines.length ? "discrepancy" : "complete", receivedAt:new Date().toISOString(), checkedBy:S.meId}, true);
+    toast(sh.lines.length ? "Saved with problems noted." : "All received.");
+    if (sh.value > 0 && !S.readOnly){ creditForm({supplierId:i.supplierId, invoiceId:i.id, type:"Return of goods", reason:sh.lines.some(x => x.issue === "Damaged") ? "Damaged" : "Shortage", amount:Math.round(sh.value), items:sh.lines.map(x => `${attrs(x.l).name || x.l.desc} × ${x.missing} (${x.issue})`).join("\n"), source:"receiving"}); }
+    else invoiceDetail(i.id); }
+  catch(x){ $("#rcErr").textContent = x.message; }
+}
+function recvSummary(i){
+  if (!i.receivedLines) return "";
+  const sh = shortage(i, i.receivedLines);
+  return sh.lines.length ? `<div class="sum"><b>Problems found${i.checkedBy ? ` by ${esc(whoName(i.checkedBy))}` : ""}</b>${sh.lines.map(x => `<div class="note">• ${esc(attrs(x.l).name || x.l.desc)}: ${x.missing} ${esc(x.issue === "OK" ? "missing" : x.issue.toLowerCase())}${x.value ? ` (${iqd(x.value)})` : ""}</div>`).join("")}</div>` : `<p class="note">Every line checked and received${i.checkedBy ? ` by ${esc(whoName(i.checkedBy))}` : ""}.</p>`;
+}
+
+/* ---- 6 expiry watch ---- */
+function monthsLeft(exp){ const m = /^(\d{4})-(\d{2})$/.exec(exp||""); if (!m) return null; const t = new Date(); return (+m[1] - t.getFullYear()) * 12 + (+m[2] - (t.getMonth()+1)); }
+function expiringItems(months){ return allItems().filter(x => { const m = monthsLeft(x.l.expiry); return m !== null && m <= months; }).sort((a,b) => a.l.expiry.localeCompare(b.l.expiry)); }
+function expiryView(){
+  const list = expiringItems(S.expMonths);
+  return `<div class="chips" role="group" aria-label="Expiring within">${[[0,"Expired"],[3,"3 months"],[6,"6 months"],[12,"12 months"]].map(([k,l]) => `<button type="button" data-expm="${k}" aria-pressed="${S.expMonths===k}">${l} · ${expiringItems(k).length}</button>`).join("")}</div>
+  <div class="list">${list.length ? list.map(x => { const m = monthsLeft(x.l.expiry), c = calc(x.inv), canRet = c.returnBy && c.returnBy >= today();
+    return `<div class="inv"><button type="button" class="row" data-open="${esc(x.inv.id)}"><span class="main"><span class="t">${esc(x.name || x.l.desc)} ${esc(x.strength||"")} ${x.fridge ? `<span class="pill acc">براد</span>` : ""}</span><span class="s">${esc(x.supplier)} · invoice ${esc(x.inv.invoiceNo)} · qty ${n0(x.l.qty) + n0(x.l.bonus)}${x.l.batch ? ` · batch ${esc(x.l.batch)}` : ""} · ${canRet ? `return by ${esc(c.returnBy)}` : "return window closed"}</span></span><span class="end"><span class="num">${esc(x.l.expiry)}</span><span class="pill ${m < 0 ? "bad" : m <= 3 ? "warn" : ""}">${m < 0 ? "Expired" : m === 0 ? "This month" : `${m} months`}</span></span></button>
+    ${S.readOnly ? "" : `<div class="pd"><button type="button" data-retline="${esc(x.inv.id)}:${x.k}">Return to supplier</button></div>`}</div>`; }).join("") : `<div class="empty">No items expiring in this period. Expiry dates come from the invoice lines.</div>`}</div>`;
+}
+
+/* ---- 7 price changes ---- */
+function prodKey(l){ const a = attrs(l); return [a.name, a.strength, a.form, a.pack].map(v => String(v ?? "").toLowerCase().replace(/\s+/g,"")).join("|"); }
+function unitPrice(l){ return n0(l.qty) ? lineNet(l) / n0(l.qty) : null; }
+function priceChanges(){
+  const seen = new Map(), out = [];
+  const lines = []; for (const i of S.invoices) (i.lines||[]).forEach((l,k) => { const u = unitPrice(l); if (isNum(u) && u > 0) lines.push({i, l, k, u, key:prodKey(l)}); });
+  lines.sort((a,b) => (a.i.date||"").localeCompare(b.i.date||"") || (a.i.pid||"").localeCompare(b.i.pid||""));
+  for (const x of lines){ const prev = seen.get(x.key);
+    if (prev && Math.abs(x.u - prev.u) > 1) out.push({inv:x.i, l:x.l, k:x.k, now:x.u, before:prev.u, prevInv:prev.i, pct:(x.u - prev.u) / prev.u});
+    seen.set(x.key, x); }
+  return out.reverse();
+}
+function lowestPrices(){
+  const best = new Map();
+  for (const i of S.invoices) for (const l of (i.lines||[])){ const u = unitPrice(l); if (!isNum(u) || u <= 0) continue; const k = prodKey(l), b = best.get(k); if (!b || u < b.u) best.set(k, {u, sup:supName(i.supplierId)}); }
+  return best;
+}
+function pricesView(){
+  const list = priceChanges();
+  return `<div class="list">${list.length ? list.map(x => `<button type="button" class="row" data-open="${esc(x.inv.id)}"><span class="main"><span class="t">${esc(attrs(x.l).name || x.l.desc)} ${esc(attrs(x.l).strength||"")}</span><span class="s">${esc(supName(x.inv.supplierId))} ${esc(x.inv.invoiceNo)} (${esc(x.inv.date)}) vs ${esc(supName(x.prevInv.supplierId))} ${esc(x.prevInv.invoiceNo)} (${esc(x.prevInv.date)})</span></span><span class="end"><span class="num">${Math.round(x.before).toLocaleString("en-US")} → ${Math.round(x.now).toLocaleString("en-US")}</span><span class="pill ${x.pct > 0 ? "bad" : "good"}">${x.pct > 0 ? "▲" : "▼"} ${pct(Math.abs(x.pct))}</span></span></button>`).join("") : `<div class="empty">No price changes yet. Once the same product appears on a second invoice, any change in its price after discount shows here.</div>`}</div>
+  <p class="note">Compares the price per paid unit after line discounts. Free bonus units are not included.</p>`;
+}
+function priceNotes(i){
+  const ch = priceChanges().filter(x => x.inv.id === i.id), best = lowestPrices();
+  const cheaper = (i.lines||[]).map(l => { const b = best.get(prodKey(l)), u = unitPrice(l); return b && isNum(u) && b.u < u - 1 ? {l, b, u} : null; }).filter(Boolean);
+  if (!ch.length && !cheaper.length) return "";
+  return `<div class="sum"><b>Price check</b>${ch.map(x => `<div class="note">• ${esc(attrs(x.l).name || x.l.desc)}: ${Math.round(x.before).toLocaleString("en-US")} → ${Math.round(x.now).toLocaleString("en-US")} (<span style="color:var(--${x.pct > 0 ? "bad" : "good"})">${x.pct > 0 ? "+" : "−"}${pct(Math.abs(x.pct))}</span>) since invoice ${esc(x.prevInv.invoiceNo)}</div>`).join("")}${cheaper.filter(c => !ch.some(x => x.l === c.l)).map(c => `<div class="note">• ${esc(attrs(c.l).name || c.l.desc)}: cheapest seen ${Math.round(c.b.u).toLocaleString("en-US")} from ${esc(c.b.sup)}</div>`).join("")}</div>`;
+}
+
+/* ---- 8 monthly report ---- */
+function monthStats(ym){
+  const inM = d => (d||"").slice(0,7) === ym, end = ym + "-31";
+  const invs = S.invoices.filter(i => inM(i.date));
+  const st = {count:invs.length, purchases:0, gross:0, invDisc:0, lineDisc:0, bonus:0, paid:0, payDisc:0, credits:0, cold:0};
+  for (const i of invs){ const c = calc(i); st.purchases += c.dueAmt; st.gross += c.gross; st.invDisc += c.invDisc; st.lineDisc += c.lineDisc; st.bonus += c.bonusUnits; st.cold += c.cold; }
+  for (const p of S.payments.filter(p => p.verified && inM(p.date))){ st.paid += n0(p.amount); st.payDisc += n0(p.discount); }
+  st.credits = S.credits.filter(x => x.verified && inM(x.date)).reduce((a,x) => a + n0(x.amount), 0);
+  st.saved = st.lineDisc + st.invDisc + st.payDisc;
+  st.bySup = S.suppliers.map(s => {
+    const owed = (s.openingVerified && !s.openingExcluded ? n0(s.openingBalance) : 0)
+      + S.invoices.filter(i => i.supplierId === s.id && i.date <= end).reduce((a,i) => a + calc(i).dueAmt, 0)
+      - S.payments.filter(p => p.supplierId === s.id && p.verified && p.date <= end).reduce((a,p) => a + n0(p.amount) + n0(p.discount), 0)
+      - S.credits.filter(x => x.supplierId === s.id && x.verified && x.date <= end).reduce((a,x) => a + n0(x.amount), 0);
+    const bought = invs.filter(i => i.supplierId === s.id).reduce((a,i) => a + calc(i).dueAmt, 0);
+    return {s, owed, bought}; });
+  return st;
+}
+function monthView(){
+  const st = monthStats(S.month);
+  return `<label>Month<input type="month" id="repMonth" value="${esc(S.month)}" max="${today().slice(0,7)}"></label>
+  <section class="kpis">
+    <div class="kpi lead"><span class="l">Purchases (after discount)</span><span class="v num">${iqd(st.purchases)}</span><span class="l">${st.count} invoices</span></div>
+    <div class="kpi"><span class="l">Discounts gained</span><span class="v num" style="color:var(--good)">${iqd(st.saved)}</span><span class="l num">line ${iqd(st.lineDisc)} · invoice ${iqd(st.invDisc)} · payment ${iqd(st.payDisc)}</span></div>
+    <div class="kpi"><span class="l">Free bonus units</span><span class="v num">${st.bonus}</span></div>
+    <div class="kpi"><span class="l">Paid to suppliers</span><span class="v num">${iqd(st.paid)}</span><span class="l num">after discount (cash) · before discount ${iqd(st.paid + st.payDisc)}</span></div>
+    <div class="kpi"><span class="l">Returns and credits</span><span class="v num">${iqd(st.credits)}</span></div>
+  </section>
+  <div class="tablewrap"><table><thead><tr><th>Supplier</th><th class="n">Bought this month</th><th class="n">Owed at month end</th></tr></thead><tbody>
+  ${st.bySup.map(x => `<tr><td>${esc(x.s.name)}${x.s.openingVerified || !isNum(x.s.openingBalance) ? "" : ` <span class="pill warn">opening not verified</span>`}</td><td class="n num">${iqd(x.bought)}</td><td class="n num">${iqd(x.owed)}</td></tr>`).join("")}
+  </tbody></table></div>
+  <button type="button" data-act="monthxlsx" ${S.dl ? "" : "disabled"}>Download this month (.xlsx)</button>`;
+}
+async function exportMonth(btn){
+  if (!S.dl || !window.XLSX){ toast("Excel export isn't available here."); return; }
+  btn.disabled = true;
+  try {
+    const st = monthStats(S.month), wb = XLSX.utils.book_new();
+    const sheet = (name, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{Note:"No records"}]), name);
+    sheet("Summary", [["Month", S.month], ["Invoices", st.count], ["Purchases before discount (IQD)", Math.round(st.gross)], ["Line discounts (IQD)", Math.round(st.lineDisc)], ["Invoice discounts (IQD)", Math.round(st.invDisc)], ["Payment discounts (IQD)", Math.round(st.payDisc)], ["Purchases after discount (IQD)", Math.round(st.purchases)], ["Free bonus units", st.bonus], ["Paid before discount (IQD)", Math.round(st.paid + st.payDisc)], ["Paid after discount - cash (IQD)", Math.round(st.paid)], ["Returns and credits (IQD)", Math.round(st.credits)]].map(([k,v]) => ({Item:k, Value:v})));
+    sheet("By Supplier", st.bySup.map(x => ({"Supplier":x.s.name, "Bought This Month (IQD)":Math.round(x.bought), "Owed at Month End (IQD)":Math.round(x.owed), "Opening Verified":x.s.openingVerified ? "Yes" : "No"})));
+    sheet("Invoices", S.invoices.filter(i => (i.date||"").startsWith(S.month)).map(i => { const c = calc(i); return {"Supplier":supName(i.supplierId), "Invoice No.":i.invoiceNo, "Date":i.date, "Amount Due (IQD)":Math.round(c.dueAmt), "Discount (IQD)":Math.round(c.discount), "Outstanding (IQD)":Math.round(c.outstanding), "Status":i.status}; }));
+    sheet("Payments", S.payments.filter(p => (p.date||"").startsWith(S.month)).map(p => ({"Supplier":supName(p.supplierId), "Date":p.date, "Amount (IQD)":p.amount, "Discount (IQD)":n0(p.discount), "Verified":p.verified ? "Yes" : "No"})));
+    await S.dl.save({filename:`Raihana_Monthly_Report_${S.month}.xlsx`, data:new Blob([XLSX.write(wb, {bookType:"xlsx", type:"array"})])});
+    toast("Monthly report saved.");
+  } catch(e){ toast(e?.code === "declined" ? "Download cancelled." : "Export failed. Try again."); }
+  finally { btn.disabled = false; }
+}
+
+/* ---- Reports tab ---- */
+const REPORTS = [["pay","Pay this week"],["expiry","Expiry"],["prices","Prices"],["month","Monthly"],["statement","Statement check"]];
+function reportsView(){
+  const body = {pay:payView, expiry:expiryView, prices:pricesView, month:monthView, statement:statementList}[S.rep] || payView;
+  return `<section class="sec"><div class="sechead"><h2>Reports</h2></div>
+  <div class="chips" role="tablist" aria-label="Report">${REPORTS.map(([k,l]) => `<button type="button" data-rep="${k}" aria-pressed="${S.rep===k}">${l}</button>`).join("")}</div>
+  ${body()}</section>`;
+}
+function statementList(){
+  return `<p class="note">Compare what a supplier says you owe with your records. Pick a supplier.</p><div class="list">${S.suppliers.map(s => { const last = (s.statements||[]).slice(-1)[0];
+    return `<button type="button" class="row" data-stmt="${esc(s.id)}"><span class="main"><span class="t">${esc(s.name)}</span><span class="s">${last ? `Last check ${esc(last.date)}: ${Math.abs(last.diff) <= TOL ? "matched" : "difference " + iqd(last.diff)}` : "Never checked"}${s.openingVerified || !isNum(s.openingBalance) ? "" : " · opening balance not verified"}</span></span><span class="end">Check ›</span></button>`; }).join("") || `<div class="empty">No suppliers yet.</div>`}</div>`;
+}
+
+/* ---- export: extra sheets ---- */
+function extraSheets(add){
+  add("Returns and Credits", (S.allCredits||[]).map(x => ({"ID":x.id, "Supplier":supName(x.supplierId), "Invoice No.":S.invoices.find(i => i.id === x.invoiceId)?.invoiceNo || "", "Date":x.date, "Type":x.type, "Reason":x.reason, "Amount (IQD)":x.amount, "Credit Note No.":x.ref||"", "Confirmed":x.verified ? "Yes" : "No", "Cancelled":x.voided ? "Yes (not counted)" : "", "Items":x.items||"", "Recorded By":whoName(x.createdBy)})));
+  const rec = []; for (const i of S.invoices) if (i.receivedLines) (i.lines||[]).forEach((l,k) => { const r = i.receivedLines[k]; if (r) rec.push({"Supplier":supName(i.supplierId), "Invoice No.":i.invoiceNo, "Product":l.desc, "Expected (paid + bonus)":n0(l.qty) + n0(l.bonus), "Received":r.qty, "Problem":r.issue, "Checked By":whoName(i.checkedBy)}); });
+  add("Receiving", rec);
+  add("Price Changes", priceChanges().map(x => ({"Product":x.l.desc, "Supplier":supName(x.inv.supplierId), "Invoice No.":x.inv.invoiceNo, "Date":x.inv.date, "Previous Unit Price (IQD)":Math.round(x.before), "New Unit Price (IQD)":Math.round(x.now), "Change %":Math.round(x.pct * 1000) / 10, "Previous Invoice":x.prevInv.invoiceNo})));
+  add("Expiring Items", expiringItems(12).map(x => ({"Product":x.l.desc, "Expiry":x.l.expiry, "Months Left":monthsLeft(x.l.expiry), "Quantity":n0(x.l.qty) + n0(x.l.bonus), "Batch":x.l.batch||"", "Supplier":x.supplier, "Invoice No.":x.inv.invoiceNo, "Return By":calc(x.inv).returnBy||""})));
+  const ch = []; for (const i of S.invoices) (i.history||[]).forEach(h => ch.push({"Record":"Invoice " + i.invoiceNo, "When":h.at.slice(0,16).replace("T"," "), "Who":whoName(h.by), "Reason":h.reason, "Changes":h.changes.filter(c => c.field !== "Line details").map(c => `${c.field}: ${c.from} → ${c.to}`).join("; ")}));
+  for (const p of (S.allPayments||[])) (p.history||[]).forEach(h => ch.push({"Record":"Payment " + p.id, "When":h.at.slice(0,16).replace("T"," "), "Who":whoName(h.by), "Reason":h.reason, "Changes":h.changes.map(c => `${c.field}: ${c.from} → ${c.to}`).join("; ")}));
+  add("Change History", ch);
+}
+
+/* ---- events for the new features ---- */
+document.addEventListener("click", ev => {
+  const t = ev.target.closest("button"); if (!t) return;
+  if (t.id === "langBtn"){ setLang(S.lang === "ar" ? "en" : "ar"); return; }
+  if (t.dataset.goreport){ S.tab = "reports"; S.rep = t.dataset.goreport; lsSet("rp.rep", S.rep); render(); window.scrollTo(0,0); return; }
+  if (t.dataset.rep){ S.rep = t.dataset.rep; lsSet("rp.rep", S.rep); render(); return; }
+  if (t.dataset.payscope){ S.payScope = t.dataset.payscope; render(); return; }
+  if (t.dataset.paysort){ S.paySort = t.dataset.paysort; render(); return; }
+  if (t.dataset.expm !== undefined){ S.expMonths = +t.dataset.expm; render(); return; }
+  if (t.dataset.act === "monthxlsx") return exportMonth(t);
+  if (t.dataset.newcredit !== undefined){ const inv = S.invoices.find(i => i.id === t.dataset.newcredit); return creditForm(inv ? {supplierId:inv.supplierId, invoiceId:inv.id} : {}); }
+  if (t.dataset.credit) return creditDetail(t.dataset.credit);
+  if (t.dataset.crver){ const x = S.allCredits.find(c => c.id === t.dataset.crver); write("credits/" + x.id, {verified:!x.verified}, true).then(() => { toast("Updated."); creditDetail(x.id); }).catch(e => $("#crDetErr").textContent = e.message); return; }
+  if (t.dataset.crvoid){ if (t.dataset.armed !== "1"){ t.dataset.armed = "1"; t.textContent = "Tap again to cancel it"; return; }
+    write("credits/" + t.dataset.crvoid, {voided:true, voidedAt:new Date().toISOString()}, true).then(() => { closeSheet(); toast("Return cancelled. It stays in the records."); }).catch(e => $("#crDetErr").textContent = e.message); return; }
+  if (t.dataset.retline){ const [id, k] = t.dataset.retline.split(":"); const i = S.invoices.find(x => x.id === id), l = i?.lines?.[+k]; if (!i) return;
+    const qty = n0(l?.qty) + n0(l?.bonus), unit = l && n0(l.qty) ? lineNet(l) * invFactor(i) / n0(l.qty) : 0;
+    return creditForm({supplierId:i.supplierId, invoiceId:i.id, type:"Return of goods", reason:"Expired or short expiry", pick:{[+k]:Math.max(0, qty - returnedQty(i.id, +k))}, items:l ? `${l.desc} × ${qty}${l.batch ? ` (batch ${l.batch})` : ""}, expiry ${l.expiry}` : "", source:"expiry"}); }
+  if (t.dataset.recvlines) return recvSheet(t.dataset.recvlines);
+  if (t.dataset.cqp !== undefined) return crSetQty(t.dataset.cqp, n0(S.crPick[t.dataset.cqp]) + 1);
+  if (t.dataset.cqm !== undefined) return crSetQty(t.dataset.cqm, n0(S.crPick[t.dataset.cqm]) - 1);
+  if (t.dataset.stmt) return statementSheet(t.dataset.stmt);
+  if (t.dataset.stfill){ const i = S.invoices.find(x => x.id === t.dataset.stfill); const amt = +t.dataset.amt; $("#stAmt").value = amt; $("#stDate").value = i.date; S.stmt.amount = amt; S.stmt.date = i.date; return stmtRefresh(); }
+  if (t.dataset.stverify){ const s = supplier(t.dataset.stverify); write("suppliers/" + s.id, {openingVerified:true, openingDate:s.openingDate || S.stmt.date}, true).then(() => { toast("Opening balance verified. It now counts in what you owe."); stmtRefresh(); }).catch(e => toast(e.message)); return; }
+  if (t.dataset.stsave){ const s = supplier(S.stmt.sid); write("suppliers/" + s.id, {statements:[...(s.statements||[]), {date:S.stmt.date, theirs:S.stmt.amount, mine:Math.round(S.stmt.mine), diff:Math.round(S.stmt.diff), at:new Date().toISOString(), by:S.meId}]}, true).then(() => { toast("Check saved."); setTimeout(stmtRefresh, 300); }).catch(e => toast(e.message)); return; }
+});
+document.addEventListener("change", ev => {
+  const t = ev.target;
+  if (t.dataset?.plan){ S.plan[t.dataset.plan] = t.checked; lsSet("rp.plan", S.plan); render(); return; }
+  if (t.dataset?.stk){ t.checked ? S.stmt.off.delete(t.dataset.stk) : S.stmt.off.add(t.dataset.stk); stmtRefresh(); return; }
+  if (t.id === "repMonth" && t.value){ S.month = t.value; render(); return; }
+  if (t.id === "cSup"){ const sid = t.value; $("#cInv").innerHTML = `<option value="">Not linked to one invoice</option>` + S.invoices.filter(i => i.supplierId === sid).map(i => `<option value="${esc(i.id)}">${esc(i.invoiceNo)} · ${esc(i.date)}</option>`).join(""); S.crPick = {}; crPicker(); return; }
+  if (t.id === "cInv"){ S.crPick = {}; S.crQ = ""; crPicker(); crPickApply(); return; }
+  if (t.dataset?.cq !== undefined){ crSetQty(t.dataset.cq, parseNum(t.value)); return; }
+  if (t.closest?.("#rcForm")) rcSum();
+});
+document.addEventListener("input", ev => {
+  const t = ev.target;
+  if (t.id === "stAmt"){ S.stmt.amount = parseNum(t.value); stmtRefresh(); }
+  if (t.id === "cAmt") S.crAmtTouched = t.value.trim() !== "";
+  if (t.id === "cQ"){ S.crQ = t.value; crPicker(); const q = $("#cQ"); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  if (t.id === "stDate" && t.value){ S.stmt.date = t.value; stmtRefresh(); }
+  if (t.closest?.("#rcForm")) rcSum();
+});
+document.addEventListener("submit", ev => {
+  if (ev.target.id === "crForm") return saveCredit(ev);
+  if (ev.target.id === "rcForm") return saveRecv(ev);
+});
+
+/* ---- 10 Arabic interface: translate visible labels in place; numbers stay as they are ---- */
+const AR = {
+"Home":"الرئيسية","Invoices":"الفواتير","Items":"الأصناف","Payments":"المدفوعات","Suppliers":"الموردون","Reports":"التقارير",
+"Supplier invoices, payments and balances · IQD":"فواتير الموردين والمدفوعات والأرصدة · دينار","Scan invoice":"مسح فاتورة","+ Invoice":"+ فاتورة","Close":"إغلاق",
+"Owed to suppliers (approved invoices, verified balances)":"المستحق للموردين (فواتير معتمدة وأرصدة مؤكدة)","Debt · unpaid invoices":"دين · فواتير غير مدفوعة","Paid invoices":"فواتير مدفوعة",
+"tap to see":"اضغط للعرض","Awaiting approval":"بانتظار الموافقة","Approved, not in MyPharma":"معتمدة، غير مدخلة في MyPharma","Overdue":"متأخرة","Due in 7 days":"مستحقة خلال 7 أيام",
+"Needs attention":"تحتاج انتباه","Nothing needs attention.":"لا شيء يحتاج انتباه.","Balance by supplier":"الرصيد حسب المورد","Latest invoices":"أحدث الفواتير","All":"الكل","Export":"تصدير",
+"Excel workbook":"ملف إكسل","Download .xlsx":"تنزيل .xlsx","Back up now":"احفظ نسخة الآن","To pay this week":"للدفع هذا الأسبوع","Expiring in 3 months":"تنتهي خلال 3 أشهر",
+"Price increases (60 days)":"زيادات الأسعار (60 يوم)","This month's purchases":"مشتريات هذا الشهر","tap to plan":"اضغط للتخطيط","tap for report":"اضغط للتقرير","items · tap to see":"أصناف · اضغط للعرض",
+"Debt":"دين","Paid":"مدفوع","Late":"متأخر","✓ Paid":"✓ مدفوع","● Debt":"● دين","Cash":"نقد","Credit":"آجل","Unpaid":"غير مدفوع","Partly paid":"مدفوع جزئياً",
+"Awaiting Approval":"بانتظار الموافقة","Validation Required":"تحتاج تدقيق","Approved for Posting":"معتمدة للإدخال","In MyPharma":"في MyPharma","Reconciled":"مطابقة","On Hold":"معلقة",
+"Items on invoices":"الأصناف في الفواتير","Sort by":"ترتيب حسب","Search":"بحث","Name":"الاسم","Dose":"الجرعة","Dosage form":"الشكل الدوائي","Pack":"العبوة","Pack size":"حجم العبوة","Blisters":"الأشرطة",
+"Refrigerated":"براد","Refrigerated first":"البراد أولاً","Company":"الشركة","Expiry (soonest)":"الانتهاء (الأقرب)","Unit cost":"كلفة الوحدة","Supplier":"المورد","Invoice date (newest)":"تاريخ الفاتورة (الأحدث)",
+"Paid + bonus":"مدفوع + بونص","Expiry":"الانتهاء","Batch":"الوجبة","Supplier · invoice":"المورد · الفاتورة","As printed":"كما مطبوع","Yes":"نعم","No":"لا","Not provided":"غير مذكور",
+"+ Payment":"+ دفعة","Verified":"مؤكد","Unverified":"غير مؤكد","+ Supplier":"+ مورد","Returns and credit notes":"المرتجعات وإشعارات الدائن","+ Return / credit":"+ مرتجع / إشعار",
+"Internal ID":"الرقم الداخلي","Invoice date":"تاريخ الفاتورة","Printed total":"المجموع المطبوع","Total before discount":"المجموع قبل الخصم","Line discounts":"خصومات الأسطر","Invoice discount":"خصم الفاتورة",
+"Total after discount":"المجموع بعد الخصم","Difference from printed":"الفرق عن المطبوع","Amount due (after discount)":"المبلغ المستحق (بعد الخصم)","Paid and discounts":"المدفوع والخصومات","Outstanding":"المتبقي",
+"Due date":"تاريخ الاستحقاق","Return window ends":"آخر موعد للإرجاع","Discount if paid today":"الخصم إذا دفعت اليوم","MyPharma number":"رقم MyPharma","Not entered":"غير مدخل","Original invoice photo":"صورة الفاتورة الأصلية",
+"Product":"المادة","Bonus":"بونص","Price":"السعر","Amount":"المبلغ","Discount":"الخصم","After discount":"بعد الخصم","Printed value":"القيمة المطبوعة",
+"Receiving":"الاستلام","Check each line":"افحص كل سطر","All received as invoiced":"تم استلام الكل","Return or credit note":"مرتجع أو إشعار دائن","Approval and MyPharma":"الموافقة و MyPharma",
+"Approved by":"وافق عليها","MyPharma invoice number":"رقم الفاتورة في MyPharma","Approve":"موافقة","Save MyPharma number":"حفظ رقم MyPharma","Checked against MyPharma":"تمت المطابقة مع MyPharma",
+"Put on hold":"تعليق","Release hold":"إلغاء التعليق","Edit":"تعديل","Record payment":"تسجيل دفعة","Payments on this invoice":"المدفوعات على هذه الفاتورة","Edit ›":"تعديل ›",
+"Edit invoice":"تعديل الفاتورة","Add invoice":"إضافة فاتورة","Check scanned invoice":"راجع الفاتورة الممسوحة","Save invoice":"حفظ الفاتورة","Save changes":"حفظ التعديلات","+ Add line":"+ إضافة سطر","Remove":"حذف",
+"Notes":"ملاحظات","Payment":"الدفع","Credit (آجل)":"آجل","Cash (نقد)":"نقد","Supplier invoice number":"رقم فاتورة المورد","Printed final total":"المجموع النهائي المطبوع","Due date (if printed)":"تاريخ الاستحقاق (إن وجد)",
+"Paid qty":"الكمية المدفوعة","Unit price":"سعر الوحدة","Printed value (IQD)":"القيمة المطبوعة (دينار)","packs":"علب","Reason for change (required)":"سبب التعديل (مطلوب)",
+"Record payment ":"تسجيل دفعة","Pays invoice":"يسدد الفاتورة","Not allocated yet":"غير مخصصة بعد","Date paid":"تاريخ الدفع","Amount paid":"المبلغ المدفوع","Discount taken":"الخصم المأخوذ","Method":"طريقة الدفع",
+"Bank transfer":"تحويل بنكي","Cheque":"صك","Mobile wallet":"محفظة إلكترونية","Other":"أخرى","Stamped receipt number":"رقم الوصل المختوم","I have the stamped receipt (verified)":"لدي الوصل المختوم (مؤكد)",
+"Confirm paid":"تأكيد الدفع","Save payment":"حفظ الدفعة","Amount due on invoice":"المستحق على الفاتورة","To pay":"المطلوب دفعه","After this payment":"بعد هذه الدفعة","Paid in full":"مدفوع بالكامل",
+"Still owed after this payment":"يبقى بعد هذه الدفعة","More than owed by":"أكثر من المستحق بـ","Edit payment":"تعديل الدفعة","Mark verified (receipt in hand)":"تأكيد (الوصل موجود)","Mark unverified":"إلغاء التأكيد",
+"Balance owed":"الرصيد المستحق","Opening balance":"الرصيد الافتتاحي","Approved invoices":"الفواتير المعتمدة","Payments and discounts":"المدفوعات والخصومات","Awaiting approval (not counted)":"بانتظار الموافقة (غير محسوبة)",
+"Name (English)":"الاسم (إنكليزي)","Name (Arabic)":"الاسم (عربي)","Credit days (blank if unknown)":"أيام الآجل (فارغ إذا غير معروف)","Return window days":"أيام الإرجاع","Opening balance (IQD)":"الرصيد الافتتاحي (دينار)",
+"Opening balance verified (from MyPharma or statement)":"الرصيد الافتتاحي مؤكد (من MyPharma أو كشف الحساب)","Opening balance as of":"الرصيد الافتتاحي بتاريخ","Early-payment discounts":"خصومات الدفع المبكر",
+"Paid within (days)":"الدفع خلال (أيام)","Discount %":"نسبة الخصم %","+ Add tier":"+ إضافة شريحة","Save supplier":"حفظ المورد","Add supplier":"إضافة مورد",
+"Pay this week":"الدفع هذا الأسبوع","Prices":"الأسعار","Monthly":"شهري","Statement check":"مطابقة كشف الحساب","Due this week":"مستحق هذا الأسبوع","All unpaid":"كل غير المدفوع","Soonest first":"الأقرب أولاً",
+"Biggest discount first":"الخصم الأكبر أولاً","Cash needed for ticked invoices":"النقد المطلوب للفواتير المحددة","Early-payment discounts you keep":"خصومات الدفع المبكر التي توفرها","Pay now":"ادفع الآن",
+"Expired":"منتهي","3 months":"3 أشهر","6 months":"6 أشهر","12 months":"12 شهر","Return to supplier":"إرجاع للمورد","This month":"هذا الشهر",
+"Month":"الشهر","Purchases (after discount)":"المشتريات (بعد الخصم)","Discounts gained":"الخصومات المكتسبة","Free bonus units":"وحدات البونص المجانية","Paid to suppliers":"المدفوع للموردين","Returns and credits":"المرتجعات والإشعارات",
+"Bought this month":"المشتريات هذا الشهر","Owed at month end":"المستحق نهاية الشهر","Download this month (.xlsx)":"تنزيل هذا الشهر (.xlsx)","Check ›":"مطابقة ›","Never checked":"لم تتم المطابقة",
+"Supplier says you owe (IQD)":"المورد يقول إنك مدين بـ (دينار)","As of":"بتاريخ","Your records":"سجلاتك","Supplier's statement":"كشف المورد","Difference":"الفرق","Matches ✓":"مطابق ✓","Save this check":"حفظ هذه المطابقة",
+"Against invoice":"على الفاتورة","Not linked to one invoice":"غير مرتبط بفاتورة","Type":"النوع","Reason":"السبب","Date":"التاريخ","Amount (IQD)":"المبلغ (دينار)","Supplier credit note number":"رقم إشعار المورد",
+"Supplier confirmed (credit note in hand)":"المورد أكد (الإشعار موجود)","Items returned (one per line: name × quantity)":"المواد المرتجعة (سطر لكل مادة: الاسم × الكمية)","Save":"حفظ",
+"Return of goods":"إرجاع بضاعة","Credit note":"إشعار دائن","Price difference":"فرق سعر","Expired or short expiry":"منتهي أو قريب الانتهاء","Damaged":"تالف","Shortage":"نقص","Wrong item":"مادة خاطئة","Price correction":"تصحيح سعر",
+"Confirmed":"مؤكد","Waiting for supplier":"بانتظار المورد","Supplier confirmed it":"المورد أكده","Mark not confirmed":"إلغاء التأكيد","Cancel this return":"إلغاء هذا المرتجع",
+"Received":"المستلم","Problem":"المشكلة","OK":"سليم","Short":"ناقص","Short expiry":"قريب الانتهاء","Not received":"لم يستلم","Save receiving":"حفظ الاستلام","Everything received":"تم استلام كل شيء",
+"Lines with a problem":"أسطر فيها مشكلة","Units missing or not usable":"وحدات ناقصة أو غير صالحة","Value to claim from supplier":"المبلغ المطلوب من المورد",
+"Saved.":"تم الحفظ.","Payment saved.":"تم حفظ الدفعة.","Payment updated.":"تم تعديل الدفعة.","Excel file saved.":"تم حفظ ملف الإكسل.","Already paid.":"مدفوعة مسبقاً.","Download cancelled.":"تم إلغاء التنزيل.",
+"Late since":"متأخرة منذ","Change history":"سجل التعديلات","Cancelled payments":"دفعات ملغاة","Unpaid past the limit":"غير مدفوعة بعد المهلة","Mark paid":"تسجيل كمدفوع","Already paid":"مدفوعة مسبقاً",
+"Not checked yet":"لم يفحص بعد","Shortage or damage":"نقص أو تلف","Price check":"فحص السعر","Possible duplicate: another invoice from this supplier has the same number.":"احتمال تكرار: فاتورة أخرى من نفس المورد بنفس الرقم.",
+"Name, dose, form, supplier":"الاسم، الجرعة، الشكل، المورد","Refrigerated only":"البراد فقط","Supplier · invoice ":"المورد · الفاتورة",
+"Paid and owed by supplier":"المدفوع والمستحق لكل مورد","Total paid":"مجموع المدفوع","Discounts":"الخصومات","Returns":"المرتجعات","You owe":"عليك","Owes you":"لك عنده","Total":"المجموع","Search items":"ابحث عن مادة","Value of chosen items":"قيمة المواد المختارة","Less":"أقل","More":"أكثر","↩ Return goods to a supplier":"↩ إرجاع بضاعة للمورد","↩ Return goods":"↩ إرجاع بضاعة","↩ Return goods from this invoice":"↩ إرجاع بضاعة من هذه الفاتورة","Paid before discount":"المدفوع قبل الخصم","Paid after discount (cash)":"المدفوع بعد الخصم (نقداً)","All suppliers: paid before discount":"كل الموردين: المدفوع قبل الخصم","All suppliers: paid after discount (cash)":"كل الموردين: المدفوع بعد الخصم (نقداً)","Leave the opening balance out of totals until I enter the older invoices":"استبعد الرصيد الافتتاحي من المجاميع حتى أدخل الفواتير القديمة","All suppliers: paid":"كل الموردين: المدفوع","Owe you":"لك عندهم","Hide":"إخفاء","Remaining":"المتبقي","Due after discount":"المستحق بعد الخصم","Invoice discounts":"خصومات الفاتورة","Payment discount":"خصم الدفع","Supplier details and payments":"تفاصيل المورد والمدفوعات","No invoices here.":"لا توجد فواتير.","Total paid (cash)":"مجموع المدفوع (نقداً)","Supplier owes you":"المورد مدين لك","opening not verified":"الرصيد الافتتاحي غير مؤكد","Tablet":"أقراص","Capsule":"كبسول","Ampoule":"أمبول","Vial":"فيال","Pen":"قلم","Prefilled syringe":"حقنة جاهزة","Eye drops":"قطرة عين","Drops":"قطرات","Gel":"جل","Cream":"كريم","Ointment":"مرهم","Syrup":"شراب","Suspension":"معلق","Sachet":"أكياس","Spray":"بخاخ","Suppository":"تحاميل","Pessary":"تحاميل مهبلية","Vaginal capsule":"كبسول مهبلي","Inhaler":"بخاخ استنشاق","Needle":"إبر","Paid before discount = what the payments settled. Paid after discount = the cash you actually handed over. Discounts = early-payment discounts taken. Returns = confirmed returns and credit notes. \"You owe\" = every unpaid invoice after discount, minus payments and returns. It goes to zero by itself when everything is paid. \"Owes you\" = you paid or returned more than you owe them.":"المدفوع قبل الخصم = ما سددته الدفعات. المدفوع بعد الخصم = النقد الذي سلمته فعلاً. الخصومات = خصومات الدفع المبكر. المرتجعات = المرتجعات وإشعارات الدائن المؤكدة. \"عليك\" = كل فاتورة غير مدفوعة بعد الخصم، ناقص المدفوعات والمرتجعات، ويصبح صفراً تلقائياً عند دفع كل شيء. \"لك عنده\" = دفعت أو أرجعت أكثر مما عليك.","Credit terms not set":"أيام الآجل غير محددة","Return window not set":"مدة الإرجاع غير محددة","No discount terms":"لا شروط خصم","Overpaid (supplier owes you)":"دفعت أكثر (المورد مدين لك)","One row per tier. Cash = 0 days. The highest discount whose days cover the time since the invoice applies.":"سطر لكل شريحة. النقد = 0 يوم. يطبق أعلى خصم تغطي أيامه المدة منذ تاريخ الفاتورة.","A return or credit note lowers what you owe. It counts once the supplier confirms it (credit note in hand).":"المرتجع أو إشعار الدائن يقلل ما عليك. يحتسب عندما يؤكده المورد (إشعار الدائن بيدك).","Items returned (filled from your choices; you can add notes)":"المواد المرتجعة (تملأ من اختياراتك، ويمكنك إضافة ملاحظات)","Count what arrived. Refrigerated (براد) lines are listed first. Change only the lines that differ.":"عدّ ما وصل. مواد البراد تظهر أولاً. غيّر فقط الأسطر المختلفة.","New supplier name":"اسم المورد الجديد","Invoice discount (if printed)":"خصم الفاتورة (إن وجد)","Supplier's printed previous debt":"الدين السابق المطبوع من المورد","A line with a quantity but no value is bonus for the priced line of the same product: put its quantity in Bonus qty on that line.":"السطر الذي فيه كمية بدون قيمة هو بونص للسطر المسعّر لنفس المادة: ضع كميته في خانة البونص لذلك السطر.","Product as printed":"المادة كما مطبوعة","Expiry (YYYY-MM)":"الانتهاء (سنة-شهر)","Pack size (units)":"حجم العلبة (وحدات)","Refrigerated (براد)":"براد","Lines":"الأسطر","Total discount":"مجموع الخصم","Pay-by date: the supplier's credit days if set, otherwise 1 week for cash and 1 month for credit. Your ticks are kept on this phone.":"تاريخ الدفع: أيام الآجل للمورد إن وجدت، وإلا أسبوع للنقد وشهر للآجل. اختياراتك محفوظة على هذا الهاتف.","Compares the price per paid unit after line discounts. Free bonus units are not included.":"يقارن سعر الوحدة المدفوعة بعد خصم السطر. لا تدخل وحدات البونص المجانية.","Type the total debt printed on the supplier's statement or latest invoice. The app compares it with your records up to that date. Untick anything that is not on their statement to find the difference.":"اكتب مجموع الدين المطبوع في كشف المورد أو آخر فاتورة. يقارنه التطبيق بسجلاتك حتى ذلك التاريخ. ألغِ تحديد أي شيء غير موجود في كشفهم لتجد الفرق.","Not verified yet":"غير مؤكد بعد","Paying today would earn about":"الدفع اليوم يوفر تقريباً","in early-payment discounts.":"خصومات دفع مبكر.","Name, dose, dosage form, pack and blisters are read from the printed description. Correct any of them by editing the invoice line.":"الاسم والجرعة والشكل الدوائي والعلبة والشرائط تقرأ من الوصف المطبوع. صحح أياً منها بتعديل سطر الفاتورة.","Discounts · returns":"الخصومات · المرتجعات","not approved yet":"غير معتمدة بعد","not approved":"غير معتمدة","Owed to suppliers (unpaid invoices after discount)":"المستحق للموردين (فواتير غير مدفوعة بعد الخصم)","Invoices (after discount)":"الفواتير (بعد الخصم)","Of which not approved yet":"منها غير معتمد بعد","Discount item by item":"الخصم مادة مادة","Item":"المادة","Net":"الصافي","Net price per paid unit":"السعر الصافي للوحدة المدفوعة","Cost per unit with bonus":"كلفة الوحدة مع البونص","Returns credited":"المرتجعات المخصومة","Total paid before discount":"مجموع المدفوع قبل الخصم","Total paid after discount (cash)":"مجموع المدفوع بعد الخصم (نقداً)"
+};
+const AR_RX = [
+  [/^Credit (\d+) days$/, "آجل $1 يوم"], [/^Returns (\d+) days$/, "إرجاع $1 يوم"], [/^([\d.]+%) ≤(\d+)d$/, "$1 خلال $2 يوم"],
+  [/^Invoice (\S+) \(not approved\)$/, "فاتورة $1 (غير معتمدة)"], [/^Invoice (\S+)$/, "فاتورة $1"], [/^invoice (\S+)$/, "فاتورة $1"], [/^Items from invoice (\S+)$/, "مواد الفاتورة $1"],
+  [/^(\d+) chosen$/, "$1 مختارة"], [/^(\d+) invoices$/, "$1 فواتير"], [/^Unpaid · (\d+)$/, "غير مدفوعة · $1"], [/^(\d+) lines?$/, "$1 أسطر"], [/^(\d+) bonus$/, "$1 بونص"],
+  [/^([\d.]+%) discount until (.+)$/, "خصم $1 حتى $2"], [/^· oldest (\d+) days\. Tap to see\.$/, "· أقدمها $1 يوم. اضغط للعرض."],
+  [/^Invoices, invoice lines, payments, suppliers and balances as of (.+)$/, "الفواتير وأسطرها والمدفوعات والموردون والأرصدة حتى $1"],
+  [/^Suggested early-payment discount \(([\d.]+%)\) uses this supplier's [\d.]+% tier for paying within (\d+) days?\. Change it if the supplier gave a different amount\.$/, "الخصم المقترح للدفع المبكر ($1) حسب شريحة هذا المورد للدفع خلال $2 يوم. غيّره إذا أعطاك المورد مبلغاً مختلفاً."],
+  [/^(\d+) invoices? · tap to see$/, "$1 فاتورة · اضغط للعرض"], [/^(\d+) invoices? · tap to plan$/, "$1 فاتورة · اضغط للتخطيط"],
+  [/^Refrigerated only · (\d+)$/, "البراد فقط · $1"], [/^All · (\d+)$/, "الكل · $1"], [/^Debt · (\d+)$/, "دين · $1"], [/^Late · (\d+)$/, "متأخر · $1"], [/^Paid · (\d+)$/, "مدفوع · $1"],
+  [/^Expired · (\d+)$/, "منتهي · $1"], [/^(\d+) months · (\d+)$/, "$1 أشهر · $2"], [/^(\d+) months$/, "$1 أشهر"], [/^(\d+) days unpaid$/, "$1 يوم بدون دفع"], [/^Line (\d+)$/, "السطر $1"],
+  [/^⚠ (\d+) invoices? unpaid past the limit$/, "⚠ $1 فاتورة غير مدفوعة بعد المهلة"], [/^\(cash 1 week, credit 1 month\)/, "(النقد أسبوع، الآجل شهر)"], [/^Last backup: (.+)\.$/, "آخر نسخة احتياطية: $1."],
+  [/^Backup$/, "نسخة احتياطية"], [/^You have never downloaded a backup\.$/, "لم تحفظ نسخة احتياطية بعد."], [/^Tap to see\.$/, "اضغط للعرض."],
+  [/^Receiving: (\w+)$/, (m, a) => "الاستلام: " + ({pending:"لم يفحص", complete:"مكتمل", discrepancy:"فيه مشكلة"}[a] || a)], [/^Pay by (.+)$/, "ادفع قبل $1"], [/^Late since (.+)$/, "متأخرة منذ $1"], [/^(\d+) of (\d+) invoices ticked$/, "$1 من $2 فواتير محددة"]
+];
+const trOne = k => { if (AR[k]) return AR[k]; for (const [rx, to] of AR_RX){ if (rx.test(k)) return k.replace(rx, to); } return null; };
+// whole text first; otherwise translate each " · " part (dates, numbers and names stay as they are)
+const trText = s => { const k = s.trim(); if (!k) return null; const w = trOne(k); if (w !== null) return s.replace(k, w);
+  if (k.startsWith("· ")){ const t = trOne(k.slice(2).trim()); if (t !== null) return s.replace(k, "· " + t); }
+  if (!k.includes(" · ")) return null; let hit = false;
+  const out = k.split(" · ").map(x => { const lead = x.startsWith("· ") ? "· " : "", y = x.replace(/^· /, "").trim(), t = y && trOne(y); if (t !== null && t !== undefined && y){ hit = true; return lead + t; } return x; }).join(" · ");
+  return hit ? s.replace(k, out) : null; };
+function translate(root){
+  if (S.lang !== "ar" || !root) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n => n.parentElement && !n.parentElement.closest("script,style,textarea,.num,[data-keep]") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT});
+  const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
+  for (const n of nodes){ const t = trText(n.nodeValue); if (t !== null && t !== n.nodeValue) n.nodeValue = t; }
+  const els = root.querySelectorAll ? root.querySelectorAll("[placeholder],[aria-label]") : [];
+  for (const el of els) for (const a of ["placeholder","aria-label"]){ const v = el.getAttribute(a); const t = v && trText(v); if (t && t !== v) el.setAttribute(a, t); }
+}
+const trObs = new MutationObserver(ms => { if (S.lang !== "ar") return; for (const m of ms) m.addedNodes.forEach(n => n.nodeType === 1 ? translate(n) : n.nodeType === 3 && n.parentElement && translate(n.parentElement)); });
+function setLang(l){
+  S.lang = l; lsSet("rp.lang", l);
+  document.documentElement.lang = l === "ar" ? "ar" : "en"; document.documentElement.dir = l === "ar" ? "rtl" : "ltr";
+  $("#langBtn").textContent = l === "ar" ? "English" : "عربي";
+  closeSheet(); render();
+  // going back to English reloads, because translated labels were changed in place
+  if (l === "ar") translate(document.body); else location.reload();
+}
+trObs.observe(document.body, {childList:true, subtree:true});
+function afterRender(){ if (S.lang === "ar") translate(document.body); }
+if (S.lang === "ar"){ document.documentElement.lang = "ar"; document.documentElement.dir = "rtl"; $("#langBtn").textContent = "English"; translate(document.body); }
+render();
+</script>
+<script>
+// motion: enter animations on tab change, count-up totals, ripple, tick on success toasts (no data changes)
+(function(){
+  const calm = () => window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fmt = n => Math.round(n).toLocaleString("en-US");
+  function countUp(root){
+    if (calm()) return;
+    root.querySelectorAll(".kpi .v.num, .sum .r.big .num").forEach(el => {
+      const m = /^(−?)([\d,]+)(.*)$/.exec(el.textContent.trim()); if (!m) return;
+      const to = +m[2].replace(/,/g, ""); if (!to || to < 10) return;
+      const t0 = performance.now(), dur = 600;
+      const step = t => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+        el.textContent = m[1] + fmt(to * e) + m[3]; if (k < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    });
+  }
+  function stagger(root, sel){ root.querySelectorAll(sel).forEach((el, k) => el.style.setProperty("--i", Math.min(k, 12))); }
+  let lastKey = null;
+  const baseRender = window.render;
+  window.render = render = function(){
+    const r = baseRender.apply(this, arguments);
+    const key = S.ready ? [S.tab, S.filter, S.rep, S.supOpen].join("|") : null;
+    if (key && key !== lastKey){
+      const v = document.getElementById("view");
+      v.classList.remove("enter"); void v.offsetWidth; v.classList.add("enter");
+      stagger(v, ".kpi"); v.querySelectorAll(".list").forEach(l => stagger(l, ":scope > *"));
+      countUp(v); lastKey = key;
+    }
+    return r;
+  };
+  const baseOpen = window.openSheet;
+  window.openSheet = openSheet = function(){
+    const r = baseOpen.apply(this, arguments);
+    const pb = document.getElementById("sheetBody"); stagger(pb, ":scope > *"); countUp(pb);
+    return r;
+  };
+  const baseToast = window.toast;
+  window.toast = toast = function(msg){
+    baseToast.apply(this, arguments);
+    const t = document.getElementById("toast");
+    if (/saved|approved|paid|updated|recorded|done|تم/i.test(msg) && !/cancel|fail|error|not /i.test(msg)){
+      t.innerHTML = `<span class="tick" aria-hidden="true">✓</span>`; t.append(document.createTextNode(msg));
+    }
+    t.style.animation = "none"; void t.offsetWidth; t.style.animation = "";
+  };
+  document.addEventListener("pointerdown", e => {
+    if (calm()) return;
+    const b = e.target.closest("button.primary, .kpi.tap, nav.tabs button, .pd button, button.row"); if (!b || b.disabled) return;
+    if (getComputedStyle(b).position === "static") b.style.position = "relative";
+    b.style.overflow = "hidden";
+    const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height), s = document.createElement("span");
+    s.className = "ripple"; s.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX - r.left - d/2}px;top:${e.clientY - r.top - d/2}px`;
+    b.appendChild(s); setTimeout(() => s.remove(), 550);
+  }, {passive:true});
+})();
+</script>

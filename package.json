@@ -1,0 +1,14 @@
+{
+  "name": "raihana-erp",
+  "private": true,
+  "description": "Raihana Pharmacy ERP: build and test tools (the app itself has no build dependencies)",
+  "scripts": {
+    "build": "python3 src/build.py",
+    "site": "python3 src/build.py --site",
+    "test": "sh tests/run-all.sh"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1",
+    "xlsx": "0.18.5"
+  }
+}

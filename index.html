@@ -202,6 +202,7 @@ input,select{min-height:44px}
 table.prt tr.chg td{background:color-mix(in srgb,var(--accent2) 10%,transparent)}table.prt input{min-height:40px}
 @media (max-width:640px){table.prt{min-width:0}table.prt thead{display:none}table.prt tr{display:grid;grid-template-columns:36px repeat(2,minmax(0,1fr));gap:4px 10px;padding:10px 12px;border-top:1px solid var(--line)}table.prt td{border:0;padding:0;text-align:start}table.prt td.ck{grid-row:span 3;padding-top:2px}table.prt td.nm{grid-column:2/-1}table.prt td[data-l]::before{content:attr(data-l);display:block;font-size:11.5px;color:var(--muted);font-family:var(--sans)}table.prt td input{width:100%!important;text-align:start!important}}
 .sticky-save{position:sticky;bottom:calc(64px + env(safe-area-inset-bottom,0px));z-index:4;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:10px 14px;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+#ownerPin{position:fixed;inset:0;z-index:60;background:rgba(10,20,30,.55);display:flex;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top,0px)) 16px max(16px,env(safe-area-inset-bottom,0px));overflow:auto}
 #lockScreen{position:fixed;inset:0;z-index:50;background:linear-gradient(160deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top,0px)) 16px max(16px,env(safe-area-inset-bottom,0px));overflow:auto}
 .lockin{background:var(--surface);color:var(--fg);border-radius:18px;padding:20px;width:100%;max-width:380px;display:grid;gap:14px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 .lockhead{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}.lockhead .ar{color:var(--accent2)}.lockhead .num{width:100%;color:var(--muted);font-size:13px}
@@ -854,7 +855,7 @@ function invoiceDetail(id){
 
 function lineEditor(l, k){
   const a = l.desc ? attrs(l) : {name:l.name, strength:l.strength, form:l.form, pack:l.pack, blisters:l.blisters, fridge:!!l.cold};
-  return `<div class="lineedit" data-line="${k}" data-no="${esc(l.no||"")}">
+  return `<div class="lineedit" data-line="${k}" data-lid="${esc(l.lid ?? "")}" data-pid="${esc(l.pid ?? "")}" data-no="${esc(l.no||"")}">
     <div class="lh"><span>Line ${k+1}</span><button type="button" data-delline="${k}">Remove</button></div>
     <label>Product as printed<input data-f="desc" value="${esc(l.desc||"")}"></label>
     ${l.note ? `<div class="note" data-f-note>${esc(l.note)}</div>` : ""}
@@ -893,6 +894,7 @@ function historyHtml(h){
 function invoiceForm(id, pre){
   const i = id ? structuredClone(S.invoices.find(x => x.id === id)) : pre ? pre : {supplierId:S.suppliers[0]?.id || "__new", date:today(), type:"credit", lines:[{}]};
   if (!i.lines || !i.lines.length) i.lines = [{}];
+  if (id) i.lines.forEach((l, k) => { if (l.lid == null) l.lid = String(k); });
   S.draft = i;
   const ex = i.extraction;
   openSheet(id ? "Edit invoice" : pre ? "Check scanned invoice" : "Add invoice", `
@@ -927,7 +929,7 @@ function readLines(){
   return [...document.querySelectorAll("#lines .lineedit")].map(el => {
     const g = f => el.querySelector(`[data-f="${f}"]`); const nt = el.querySelector("[data-f-note]");
     const qty = parseNum(g("qty").value), bMode = g("bonusMode").value, bIn = parseNum(g("bonusIn").value), dMode = g("discMode").value, dIn = parseNum(g("discIn").value);
-    return {no: el.dataset.no || undefined, note: nt ? nt.textContent : undefined, desc:g("desc").value.trim(), qty, bonus:bonusFrom(qty, bIn, bMode), bonusPct: bMode === "%" ? bIn : null,
+    return {lid: el.dataset.lid || undefined, pid: el.dataset.pid || undefined, no: el.dataset.no || undefined, note: nt ? nt.textContent : undefined, desc:g("desc").value.trim(), qty, bonus:bonusFrom(qty, bIn, bMode), bonusPct: bMode === "%" ? bIn : null,
       discPct: dMode === "%" ? dIn : null, discAmt: dMode === "IQD" ? dIn : null, price:parseNum(g("price").value), value:parseNum(g("value").value), batch:g("batch").value.trim(), expiry:g("expiry").value.trim(), cold:g("cold").checked,
       name:g("name").value.trim() || null, strength:g("strength").value.trim() || null, form:g("form").value.trim() || null, pack:parseNum(g("pack").value), blisters:parseNum(g("blisters").value)};
   });
@@ -1102,6 +1104,14 @@ async function saveInvoice(e){
   delete inv.newSupplierName; delete inv.newSupplierAr;
   const old = inv.id ? S.invoices.find(x => x.id === inv.id) : null;
   if (!inv.id){ inv.pid = nextPid(); inv.id = inv.pid; inv.createdAt = new Date().toISOString(); inv.createdBy = S.meId; inv.receiving = "pending"; }
+  { // new lines get the next id, never one used before on this invoice; receiving checks follow their line
+    const lidOf = (l, j) => String(l.lid ?? j), nums = [...(old?.lines || []).map(lidOf), ...inv.lines.filter(l => l.lid != null).map(l => l.lid)].map(Number).filter(Number.isFinite);
+    let seq = Math.max(n0(old?.lidSeq), nums.length ? Math.max(...nums) + 1 : 0);
+    inv.lines.forEach(l => { if (l.lid == null) l.lid = String(seq++); }); inv.lidSeq = seq;
+    window.ERP_KEEP_PRODUCT?.(old, inv);
+    if (old?.receivedLines){ const pos = {}; (old.lines || []).forEach((l, j) => pos[lidOf(l, j)] = j); const rl = {};
+      inv.lines.forEach((l, k) => { const r = old.receivedLines[pos[l.lid]]; if (r) rl[k] = r; }); inv.receivedLines = rl; }
+  }
   if (old && needsReason(old)){
     const reason = $("#fReason")?.value.trim(), changes = diffFields(old, inv, INV_FIELDS);
     if (changes.length && !reason){ S.saving = false; err.textContent = "Write the reason for the change."; return; }
@@ -1423,7 +1433,8 @@ function creditForm(pre){
   if (p.pick) crPickApply();
 }
 // how many units of line k of an invoice were already returned on earlier (not cancelled) returns
-function returnedQty(invId, k){ return S.credits.filter(x => x.invoiceId === invId && x.lines).reduce((a,x) => a + n0(x.lines.find(y => y.k === k)?.qty), 0); }
+function returnedQty(invId, k){ const l = S.invoices.find(i => i.id === invId)?.lines?.[k], lid = String(l?.lid ?? k);
+  return S.credits.filter(x => x.invoiceId === invId && x.lines).reduce((a,x) => a + n0(x.lines.find(y => String(y.lid ?? y.k) === lid)?.qty), 0); }
 // credit value per unit: the line's cost after discount spread over paid + bonus units
 function retUnit(l, inv){ inv = inv || S.invoices.find(i => (i.lines||[]).includes(l)); const u = n0(l.qty) + n0(l.bonus); return u ? lineNet(l) * (inv ? invFactor(inv) : 1) / u : 0; }
 function crPicker(){
@@ -1459,7 +1470,7 @@ async function saveCredit(e){
   if (S.saving) return; S.saving = true;
   const id = "CR-" + Date.now().toString(36).toUpperCase();
   const c = {id, supplierId:$("#cSup").value, invoiceId:$("#cInv").value || null, type:$("#cType").value, reason:$("#cReason").value, date:$("#cDate").value || today(), amount:amt, ref:$("#cRef").value.trim(), verified:$("#cVer").checked, items:$("#cItems").value.trim(), notes:$("#cNotes").value.trim(), source:S.creditDraft?.source || null, createdAt:new Date().toISOString(), createdBy:S.meId,
-    lines:Object.entries(S.crPick||{}).filter(([,v]) => v > 0).map(([k,v]) => { const l = S.invoices.find(i => i.id === $("#cInv").value)?.lines?.[+k]; return {k:+k, desc:l?.desc || "", qty:v, unit:l ? Math.round(retUnit(l)) : 0}; })};
+    lines:Object.entries(S.crPick||{}).filter(([,v]) => v > 0).map(([k,v]) => { const l = S.invoices.find(i => i.id === $("#cInv").value)?.lines?.[+k]; return {k:+k, lid:String(l?.lid ?? +k), desc:l?.desc || "", qty:v, unit:l ? Math.round(retUnit(l)) : 0}; })};
   try { await write("credits/" + id, c); S.saving = false; closeSheet(); toast(c.verified ? "Saved. What you owe went down." : "Saved. It counts once you mark it confirmed."); }
   catch(x){ S.saving = false; err.textContent = x.message; }
 }
@@ -1892,7 +1903,11 @@ const UNUSABLE = ["Damaged","Wrong item","Short expiry"];
 const EXP_CATS = ["Rent","Salaries","Electricity","Generator","Internet and phone","Transport","Cleaning","Other"];
 const ALERT_DAYS = () => isNum(E.cfg.alertDays) ? E.cfg.alertDays : 7;
 const hkey = s => { let h = 5381; for (const ch of s) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return "P" + h.toString(36); };
-const pidOf = l => hkey(prodKey(l));
+// a product is named by its line text, unless the line remembers the product it was first saved as (see ERP_KEEP_PRODUCT)
+const pidOf = l => l.pid || hkey(prodKey(l));
+// audit F-05: correcting a line's name, dose or pack keeps it the same product, so its prices, stock and sales stay together
+window.ERP_KEEP_PRODUCT = (old, inv) => { if (!old) return; const was = {}; (old.lines || []).forEach((l, j) => was[String(l.lid ?? j)] = pidOf(l));
+  inv.lines.forEach(l => { const w = was[l.lid]; if (w && !l.pid && w !== hkey(prodKey(l))) l.pid = w; }); };
 const nowIso = () => new Date().toISOString();
 const pad2 = n => String(n).padStart(2, "0");
 const hm = iso => { if (!iso) return ""; const d = new Date(iso); return isNaN(d) ? "" : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
@@ -1976,9 +1991,18 @@ function buildUsed(){
 const usedBoxes = (used, key, p) => { const x = used[key]; return x ? x.b + x.raw / p.legacyPer : 0; };
 // cost of one sellable unit from this invoice line: net cost after every discount, spread over paid + bonus
 function subCost(inv, k, p){ const r = itemDiscounts(inv).rows[k]; return r && isNum(r.perUnit) ? r.perUnit / p.sub : null; }
+// a batch is one invoice line, named by its permanent line id (old lines: their position)
+const lineKey = (inv, k) => inv.id + ":" + (inv.lines?.[k]?.lid ?? k);
+function lineInUse(invId, lid){
+  const key = invId + ":" + lid;
+  if (E.sales.some(s => !s.voided && (s.lines || []).some(ln => (ln.alloc || []).some(a => a.key === key)))) return "it has sales";
+  if (E.moves.some(m => !m.voided && m.key === key)) return "it has stock changes";
+  if (S.credits.some(x => x.invoiceId === invId && (x.lines || []).some(y => String(y.lid ?? y.k) === lid))) return "it has a return to the supplier";
+  return "";
+}
 function batchesOf(p, used){
   return p.lines.map(({inv, k, l}) => {
-    const key = inv.id + ":" + k, rl = inv.receivedLines?.[k];
+    const key = lineKey(inv, k), rl = inv.receivedLines?.[k];
     let boxes = n0(l.qty) + n0(l.bonus);
     if (rl && isNum(rl.qty)) boxes = UNUSABLE.includes(rl.issue) ? 0 : rl.qty;
     const outB = n0(returnedQty(inv.id, k)) + usedBoxes(used, key, p), inn = r6(boxes * p.sub);
@@ -2037,13 +2061,21 @@ function custBalance(cid){
   const paid = E.custpays.filter(x => !x.voided && x.customerId === cid).reduce((a,x) => a + n0(x.amount), 0);
   return {debt, paid, bal: debt - paid};
 }
-function dayCash(d){
-  const sales = E.sales.filter(s => !s.voided && s.date === d && s.method === "cash").reduce((a,s) => a + n0(s.total), 0);
-  const cin = E.custpays.filter(x => !x.voided && x.date === d).reduce((a,x) => a + n0(x.amount), 0);
-  const sup = S.payments.filter(p => p.verified && p.date === d && /cash/i.test(p.method || "")).reduce((a,p) => a + n0(p.amount), 0);
-  const exp = E.expenses.filter(x => !x.voided && x.date === d && x.fromCash !== false).reduce((a,x) => a + n0(x.amount), 0);
-  const debtSales = E.sales.filter(s => !s.voided && s.date === d && s.method === "debt").reduce((a,s) => a + n0(s.total), 0);
+function cashParts(d, keep){
+  const sum = (arr, f) => arr.reduce((a, x) => a + n0(f(x)), 0);
+  const sales = sum(E.sales.filter(s => keep(s) && s.date === d && s.method === "cash"), s => s.total);
+  const cin = sum(E.custpays.filter(x => keep(x) && x.date === d), x => x.amount);
+  const sup = sum(S.payments.filter(p => p.verified && p.date === d && /cash/i.test(p.method || "")), p => p.amount);
+  const exp = sum(E.expenses.filter(x => keep(x) && x.date === d && x.fromCash !== false), x => x.amount);
+  const debtSales = sum(E.sales.filter(s => keep(s) && s.date === d && s.method === "debt"), s => s.total);
   return {sales, cin, sup, exp, debtSales, expected: sales + cin - sup - exp};
+}
+const closeOf = d => E.closes.find(x => x.id === d) || null;
+// a closed day shows what it was closed with; sales, payments and cancels made after closing are shown apart ("after")
+function dayCash(d){
+  const now = cashParts(d, x => !x.voided), cut = closeOf(d)?.at; if (!cut) return {...now, after:0};
+  const atClose = cashParts(d, x => (x.at || "") <= cut && (!x.voided || (x.voidedAt || "") > cut));
+  return {...atClose, closed:true, after: now.expected - atClose.expected, now};
 }
 function monthMoney(m){
   const ss = E.sales.filter(s => !s.voided && ym(s.date) === m);
@@ -2266,7 +2298,8 @@ function moneyView(){
   const d = today(), dc = dayCash(d), cl = E.closes.find(x => x.id === d), mm = monthMoney(S.moneyM);
   const exps = E.expenses.filter(x => !x.voided && ym(x.date) === S.moneyM).sort((a,b) => (b.date || "").localeCompare(a.date || ""));
   return `<section class="sec"><div class="sechead"><h2>Cash box today · ${esc(d)}</h2></div>
-    <div class="sum"><div class="r"><span>Cash sales</span><span class="num">${iqd(dc.sales)}</span></div><div class="r"><span>Customers paid debt</span><span class="num">+${iqd(dc.cin)}</span></div><div class="r"><span>Paid to suppliers in cash</span><span class="num">−${iqd(dc.sup)}</span></div><div class="r"><span>Expenses from the box</span><span class="num">−${iqd(dc.exp)}</span></div><div class="r big"><span>Cash that should be in the box</span><span class="num">${iqd(dc.expected)}</span></div><div class="r"><span>Sold on debt today (not in the box)</span><span class="num">${iqd(dc.debtSales)}</span></div></div>
+    <div class="sum"><div class="r"><span>Cash sales</span><span class="num">${iqd(dc.sales)}</span></div><div class="r"><span>Customers paid debt</span><span class="num">+${iqd(dc.cin)}</span></div><div class="r"><span>Paid to suppliers in cash</span><span class="num">−${iqd(dc.sup)}</span></div><div class="r"><span>Expenses from the box</span><span class="num">−${iqd(dc.exp)}</span></div><div class="r big"><span>Cash that should be in the box</span><span class="num">${iqd(dc.expected)}</span></div><div class="r"><span>Sold on debt today (not in the box)</span><span class="num">${iqd(dc.debtSales)}</span></div>
+    ${dc.closed && dc.after ? `<div class="r"><span>Changes after closing (new sales, payments, cancels)</span><span class="num" style="color:var(--warn)">${dc.after > 0 ? "+" : "−"}${iqd(Math.abs(dc.after))}</span></div>` : ""}</div>
     <form id="closeForm" class="sum" style="gap:10px"><b>Close the day</b><label>Cash counted in the box (IQD)<input id="clAmt" class="num" inputmode="numeric" value="${cl ? esc(cl.counted) : ""}" required></label>${cl ? `<p class="note">Closed${cl.lastBy ? " by " + esc(whoName(cl.lastBy)) : ""}: difference <b class="num" style="color:var(--${Math.abs(cl.diff) <= TOL ? "good" : "bad"})">${iqd(cl.diff)}</b></p>` : ""}<label>Note<input id="clNote" value="${esc(cl?.note || "")}"></label><button type="submit">${cl ? "Update day close" : "Save day close"}</button></form></section>
   <section class="sec"><div class="sechead"><h2>Profit by month</h2><input id="moneyM" type="month" value="${esc(S.moneyM)}" style="width:auto"></div>
     <div class="sum"><div class="r"><span>Sales (${mm.count})</span><span class="num">${iqd(mm.sales)}</span></div><div class="r"><span>Cost of what was sold</span><span class="num">−${iqd(mm.cost)}</span></div><div class="r big"><span>Gross profit</span><span class="num">${iqd(mm.gross)}</span></div><div class="r"><span>Expenses</span><span class="num">−${iqd(mm.expenses)}</span></div><div class="r"><span>${mm.writeoff < 0 ? "Extra stock found at counts" : "Expired, damaged or lost stock (less any found)"}</span><span class="num">${mm.writeoff < 0 ? "+" : "−"}${iqd(Math.abs(mm.writeoff))}</span></div><div class="r big"><span>Net profit</span><span class="num" style="color:var(--${mm.net >= 0 ? "good" : "bad"})">${iqd(mm.net)}</span></div><div class="r"><span>Bought from suppliers this month</span><span class="num">${iqd(mm.purchases)}</span></div></div>
@@ -2279,7 +2312,9 @@ function settingsView(){
   const sy = window.ERP_SYNC, c = sy?.cfg();
   return `<section class="sec"><h2>Settings</h2>
     <form id="cfgForm" class="sum" style="gap:10px"><div class="grid2 stack"><label>Pharmacy name on receipts<input id="cfgName" value="${esc(E.cfg.name || "صيدلية ريحانة · Raihana Pharmacy")}"></label><label>Phone on receipts<input id="cfgPhone" value="${esc(E.cfg.phone || "")}"></label></div>
-      <label>Warn about chronic pickups this many days ahead<input id="sDays" class="num" inputmode="numeric" value="${ALERT_DAYS()}"></label><button type="submit">Save settings</button></form></section>
+      <label>Warn about chronic pickups this many days ahead<input id="sDays" class="num" inputmode="numeric" value="${ALERT_DAYS()}"></label>
+      <label>Discount staff may give without your PIN (% of the receipt)<input id="sDisc" class="num" inputmode="decimal" value="${esc(n0(E.cfg.staffDiscPct))}"></label>
+      <p class="note">Staff also need your PIN to sell below the set price, sell more than the stock shows, cancel a sale or payment or expense, write off or add stock, and save a stocktake.</p><button type="submit">Save settings</button></form></section>
   <section class="sec"><h2>Where your data is</h2><div class="sum">
     ${window.ERP_MODE === "claude" ? `<p>You are using the claude.ai version. Data is saved online in your Claude account and shared on every device where you open this link. It needs internet. Photo scan works here.</p>` :
     `<p>Installed app. Data is saved on this device first, so it works with no internet.</p>
@@ -2290,7 +2325,7 @@ function settingsView(){
   </div></section>
   <section class="sec"><h2>Backup</h2><div class="sum"><p>Full backup of everything (invoices, payments, stock changes, sales, customers, chronic cards, expenses) as one file. Keep it on another device or in Google Drive.</p>
     <div class="actions"><button type="button" class="primary" data-xbackup="1" ${S.dl ? "" : "disabled"}>Download full backup</button><button type="button" data-act="export" ${S.dl ? "" : "disabled"}>Download Excel</button></div>
-    ${S.readOnly ? "" : `<label>Restore from a backup file<input type="file" id="restoreIn" accept="application/json,.json"></label><p class="note">Restoring adds and replaces records with the ones in the file. Nothing is deleted.</p>`}</div></section>
+    ${S.readOnly ? "" : `<label>Restore from a backup file<input type="file" id="restoreIn" accept="application/json,.json"></label><p class="note">You see what will change before anything is saved. Nothing is deleted, and nothing you changed or cancelled after the backup is undone.</p>`}</div></section>
   <section class="sec"><h2>Install on phone or computer</h2><div class="sum"><p><b>iPhone:</b> open the app link in Safari, tap Share, then Add to Home Screen.</p><p><b>Android:</b> open the link in Chrome, tap the menu, then Install app.</p><p><b>Computer:</b> open the link in Chrome or Edge and click the install icon in the address bar.</p></div></section>`;
 }
 
@@ -2324,6 +2359,7 @@ async function ctSave(btn){
   const entries = Object.entries(S.count?.counts || {}); if (!entries.length){ $("#ctErr").textContent = "Count at least one item."; return; }
   btn.disabled = true;
   try {
+    const by = await ownerOK([`Save stocktaking and correct stock (${entries.length} items counted)`]); if (!by){ $("#ctErr").textContent = NEED_OWNER; return; }
     const cat = catalog(), used = usedMap(true), lines = []; let valueDiff = 0;
     for (const [pid, counted] of entries){ const p = cat.find(x => x.id === pid); if (!p) continue;
       const st = stockOf(p, used), sys = st.good, diff = counted - sys; lines.push({pid, name:pname(p), system:sys, counted, diff});
@@ -2335,7 +2371,7 @@ async function ctSave(btn){
       } else { const mid = newId("MV"), cost = st.next?.cost ?? st.bs[st.bs.length - 1]?.cost ?? null;
         await write("moves/" + mid, {id:mid, pid, key:"adj:" + pid, q:-diff, per:p.sub, reason:"Count correction (more found)", note:"Stocktaking", date:today(), at:nowIso(), cost: isNum(cost) ? cost : null}); valueDiff += diff * n0(cost); }
     }
-    const cid = newId("ST"); await write("counts/" + cid, {id:cid, date:today(), at:nowIso(), started:S.count.started, lines, valueDiff:Math.round(valueDiff)});
+    const cid = newId("ST"); await write("counts/" + cid, {id:cid, date:today(), at:nowIso(), started:S.count.started, lines, valueDiff:Math.round(valueDiff), approvedBy:by});
     S.count = null; lsSet("erp.count", null); closeSheet(); toast(`Stocktaking saved. ${lines.filter(l => l.diff).length} items corrected.`);
   } catch(x){ $("#ctErr").textContent = x.message; } finally { btn.disabled = false; }
 }
@@ -2398,6 +2434,7 @@ function prSet(pid, k, v){
   if (same) delete S.pr.edits[pid]; else S.pr.edits[pid] = e; prSave();
 }
 async function prSaveAll(btn, edits, source){
+  if (!canUse("pricing")) throw new Error("The owner has not given you this screen.");
   const cat = catalog(), ids = Object.keys(edits); if (!ids.length) return 0; btn && (btn.disabled = true);
   let n = 0;
   try {
@@ -2466,6 +2503,9 @@ const PERM_SCREENS = [["newinv","New purchase invoice"],["home","Home"],["sell",
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
 const canUse = k => isOwner() || (k !== "staff" && myPerms().includes(k));
+// PINs are stored as a slow PBKDF2 hash ("p2$..."); older quick SHA-256 hashes still work and are upgraded at the next good login
+async function pinHash2(id, pin){ const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
+  const b = await crypto.subtle.deriveBits({name:"PBKDF2", hash:"SHA-256", salt:new TextEncoder().encode("raihana|" + id), iterations:150000}, k, 256); return "p2$" + Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, "0")).join(""); }
 async function pinHash(id, pin){ const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("raihana|" + id + "|" + pin)); return Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, "0")).join(""); }
 const activeStaff = () => E.staff.filter(x => !x.deleted && x.active !== false);
 const hasOwner = () => activeStaff().some(x => x.role === "owner");
@@ -2502,7 +2542,7 @@ function drawLock(){
 async function tryLogin(){
   const st = activeStaff().find(x => x.id === S.lockSel), pin = S.lockPin || ""; if (!st) return;
   if (pin.length < 4){ S.lockErr = "PIN is 4 to 6 digits."; drawLock(); return; }
-  if (await pinHash(st.id, pin) !== st.pinHash){ S.lockErr = "Wrong PIN. Try again."; S.lockPin = ""; drawLock(); return; }
+  const ck = await pinCheck(st, pin); if (!ck.ok){ S.lockErr = pinErr(ck); S.lockPin = ""; drawLock(); return; }
   let sh = E.shifts.find(x => x.staffId === st.id && !x.end && !x.voided && x.device === DEVICE_ID);
   if (!sh){ sh = {id:newId("SH"), staffId:st.id, staffName:st.name, start:nowIso(), end:null, device:DEVICE_ID}; await write("shifts/" + sh.id, sh); }
   S.session = {staffId:st.id, shiftId:sh.id}; lsSet("erp.session", S.session); S.staff = st; S.lockSel = null; S.lockPin = ""; S.lockErr = "";
@@ -2545,6 +2585,17 @@ function staffSheet(id){
       <p class="err" id="fErr"></p><button type="submit" class="primary">Save</button></form>
     ${w ? `<div class="sec"><h2>Shifts in ${esc(S.staffM)}</h2><div class="list">${w.sh.length ? [...w.sh].reverse().map(sh => `<div class="row" style="cursor:default;flex-wrap:wrap"><span class="main"><span class="t num">${esc(localDT(sh.start).replace("T", " "))} → ${sh.end ? esc(hm(sh.end)) : "now"}</span><span class="s">${hrsTxt(shiftHours(sh))}${sh.fixedBy ? " · end time fixed by owner" : ""}</span></span><span class="end">${isOwner() ? `<label style="font-size:12px">End<input type="datetime-local" data-xshend="${esc(sh.id)}" value="${sh.end ? esc(localDT(sh.end)) : ""}" style="min-width:190px"></label>` : ""}</span></div>`).join("") : `<div class="empty">No shifts this month.</div>`}</div></div>` : ""}`);
 }
+document.addEventListener("click", ev => { const t = ev.target.closest("[data-hold],[data-approve]"); if (!t) return;
+  if (t.dataset.approve !== undefined){ if (!isOwner()){ ev.preventDefault(); ev.stopImmediatePropagation(); toast("Only the owner can approve invoices."); return; }
+    const by = $("#apBy"); if (by && S.staff?.name) by.value = S.staff.name; return; }
+  const inv = S.invoices.find(i => i.id === t.dataset.hold); if (!inv || inv.status === "On Hold") return;
+  const why = (inv.lines || []).map((l, k) => lineInUse(inv.id, String(l.lid ?? k))).find(Boolean);
+  if (why){ ev.preventDefault(); ev.stopImmediatePropagation(); toast(`This invoice can't be put on hold because a line ${why}.`); }
+}, true);
+document.addEventListener("click", ev => { const t = ev.target.closest("[data-delline]"), el = t?.closest(".lineedit"); if (!el || !S.draft?.id || !el.dataset.lid) return;
+  const why = lineInUse(S.draft.id, el.dataset.lid); if (!why) return;
+  ev.preventDefault(); ev.stopImmediatePropagation(); toast(`This line can't be removed because ${why}. Cancel those first, or correct the line instead.`);
+}, true);
 document.addEventListener("click", ev => { const t = ev.target.closest("[data-tab],[data-tab-go],[data-xgo],#addBtn,#scanBtn"); if (!t) return;
   const k = t.id === "addBtn" || t.id === "scanBtn" ? "newinv" : t.dataset.tab || t.dataset.tabGo || t.dataset.xgo;
   if (k && !canUse(k)){ ev.preventDefault(); ev.stopImmediatePropagation(); toast("The owner has not given you this screen."); }
@@ -2564,10 +2615,11 @@ document.addEventListener("keydown", ev => { if (!$("#lockScreen") || !S.lockSel
 document.addEventListener("change", async ev => { const t = ev.target;
   if (t.id === "staffM" && t.value){ S.staffM = t.value; render(); }
   if (t.id === "fRole"){ const fp = $("#fPerms"); if (fp) fp.hidden = t.value === "owner"; }
-  if (t.dataset.xshend && t.value){ const sh = E.shifts.find(x => x.id === t.dataset.xshend); const end = new Date(t.value).toISOString(); if (end <= sh.start){ toast("End must be after the start."); return; }
+  if (t.dataset.xshend && t.value){ if (!isOwner()){ toast("Only the owner can do this."); return; } const sh = E.shifts.find(x => x.id === t.dataset.xshend); const end = new Date(t.value).toISOString(); if (end <= sh.start){ toast("End must be after the start."); return; }
     try { await write("shifts/" + sh.id, {end, fixedBy:S.staff?.id || null}, true); toast("Shift end saved."); staffSheet(sh.staffId); } catch(e){ toast(e.message); } }
 });
 document.addEventListener("submit", async ev => { if (ev.target.id !== "staffForm") return; ev.preventDefault();
+  if (!isOwner()){ toast("Only the owner can do this."); return; }
   const f = ev.target, err = $("#fErr"), isNew = f.dataset.id === "__new", id = isNew ? newId("ST") : f.dataset.id, name = $("#fName").value.trim(), pin = $("#fPin").value.trim();
   if (!name){ err.textContent = "Enter the name."; return; }
   if ((isNew || pin) && !/^\d{4,6}$/.test(pin)){ err.textContent = "PIN must be 4 to 6 digits."; return; }
@@ -2576,7 +2628,7 @@ document.addEventListener("submit", async ev => { if (ev.target.id !== "staffFor
   if (role !== "owner" && !activeStaff().some(x => x.role === "owner" && x.id !== id)){ err.textContent = "Add yourself as the owner first, so you keep every screen. Choose Role: Owner."; return; }
   const rate = parseNum($("#fRate").value), exp = parseNum($("#fExp").value);
   const doc = {...old, id, name, role, phone:$("#fPhone").value.trim(), payType:$("#fPay").value, rate:isNum(rate) ? rate : null, expHours:isNum(exp) ? exp : null, prorate:$("#fPro").checked, active:$("#fActive").checked, perms:[...document.querySelectorAll("[data-fperm]")].filter(c => c.checked).map(c => c.dataset.fperm), createdAt:old.createdAt || nowIso()};
-  if (pin) doc.pinHash = await pinHash(id, pin);
+  if (pin) doc.pinHash = await pinHash2(id, pin);
   // adding the first owner: the person at the device is the owner, so switch to them (ending any other open shift here)
   const first = isNew && role === "owner" && !hasOwner(), prevShift = first && S.session?.shiftId;
   if (first) S.staff = doc;
@@ -2590,6 +2642,50 @@ function staffAfterData(){
   drawLock();
 }
 
+/* ---------- owner approval (audit F-02, F-04) ----------
+   Screens only decide what people see. Sensitive actions also check here when they save: a member of staff can do them
+   only if the owner types their PIN on the spot. Wrong PINs lock that person for a growing time on this device. */
+const PIN_TRIES = 5;
+async function pinCheck(st, pin){
+  const all = lsGet("erp.pinFail", {}), f = all[st.id] || {n:0, until:0};
+  if (f.n >= PIN_TRIES && Date.now() < f.until) return {ok:false, wait:f.until - Date.now()};
+  const v2 = String(st.pinHash || "").startsWith("p2$");
+  if ((v2 ? await pinHash2(st.id, pin) : await pinHash(st.id, pin)) === st.pinHash){ delete all[st.id]; lsSet("erp.pinFail", all);
+    if (!v2) write("staff/" + st.id, {pinHash:await pinHash2(st.id, pin)}, true).catch(() => {});
+    return {ok:true}; }
+  f.n++; if (f.n >= PIN_TRIES) f.until = Date.now() + 30000 * 2 ** (f.n - PIN_TRIES); all[st.id] = f; lsSet("erp.pinFail", all);
+  return {ok:false, left:Math.max(0, PIN_TRIES - f.n), wait:f.n >= PIN_TRIES ? f.until - Date.now() : 0};
+}
+const pinErr = r => r.wait ? `Too many wrong PINs. Try again in ${Math.ceil(r.wait / 1000)} seconds.` : `Wrong PIN. ${r.left} tries left.`;
+// resolves to the approving owner's id (the person themself when they are the owner), or null when cancelled
+function ownerOK(why){
+  if (isOwner()) return Promise.resolve(S.staff?.id || "owner");
+  const owners = activeStaff().filter(x => x.role === "owner" && x.pinHash);
+  if (!owners.length) return Promise.resolve(null);
+  return new Promise(done => {
+    const st = {sel: owners.length === 1 ? owners[0].id : null, pin:"", err:""};
+    const el = document.createElement("div"); el.id = "ownerPin"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); document.body.appendChild(el);
+    const finish = v => { el.remove(); document.removeEventListener("keydown", key, true); done(v); };
+    const draw = () => { const o = owners.find(x => x.id === st.sel);
+      el.innerHTML = `<div class="lockin"><b>Owner approval needed</b><ul class="note" style="margin:0;padding-inline-start:18px">${why.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
+        ${o ? `<p>${esc(o.name)}, enter your PIN to allow this.</p><div class="pindots">${[0,1,2,3,4,5].map(i => `<span class="${st.pin.length > i ? "on" : ""}"></span>`).join("")}</div><p class="err">${esc(st.err)}</p>
+          <div class="pinpad">${[1,2,3,4,5,6,7,8,9].map(n => `<button type="button" data-opin="${n}">${n}</button>`).join("")}<button type="button" data-opinback="1" aria-label="Back">←</button><button type="button" data-opin="0">0</button><button type="button" class="primary" data-opinok="1">OK</button></div>`
+        : `<div class="lockstaff">${owners.map(x => `<button type="button" data-osel="${esc(x.id)}"><b>${esc(x.name)}</b><span>Owner</span></button>`).join("")}</div>`}
+        <button type="button" data-ocancel="1">Cancel</button></div>`;
+      if (S.lang === "ar") translate(el); };
+    const ok = async () => { const o = owners.find(x => x.id === st.sel); if (!o) return;
+      if (st.pin.length < 4){ st.err = "PIN is 4 to 6 digits."; return draw(); }
+      const r = await pinCheck(o, st.pin); st.pin = ""; if (r.ok) return finish(o.id); st.err = pinErr(r); draw(); };
+    const press = d => { if (st.pin.length < 6) st.pin += d; st.err = ""; draw(); if (st.pin.length === 6) ok(); };
+    el.addEventListener("click", ev => { const b = ev.target.closest("button"); ev.stopPropagation(); if (!b) return; const d = b.dataset;
+      if (d.ocancel) return finish(null); if (d.osel){ st.sel = d.osel; return draw(); }
+      if (d.opin !== undefined) return press(d.opin); if (d.opinback){ st.pin = st.pin.slice(0, -1); return draw(); } if (d.opinok) ok(); });
+    const key = ev => { if (/^\d$/.test(ev.key) && st.sel) press(ev.key); else if (ev.key === "Backspace"){ st.pin = st.pin.slice(0, -1); draw(); } else if (ev.key === "Enter") ok(); else if (ev.key === "Escape") finish(null); else return; ev.preventDefault(); ev.stopPropagation(); };
+    document.addEventListener("keydown", key, true); draw();
+  });
+}
+const NEED_OWNER = "Not saved: this needs the owner's approval.";
+
 /* ---------- actions ---------- */
 function addToCart(pid){
   const p = catalog().find(x => x.id === pid); if (!p) return;
@@ -2598,7 +2694,10 @@ function addToCart(pid){
   S.sellQ = ""; saveCart(); render(); setTimeout(() => $("#sellQ")?.focus(), 0);
 }
 async function saveSale(e){
-  e.preventDefault();
+  e.preventDefault(); if (S.saving) return; S.saving = true;
+  try { await saveSaleNow(); } finally { S.saving = false; }
+}
+async function saveSaleNow(){
   const err = $("#xErr"), cat = catalog(), byId = Object.fromEntries(cat.map(p => [p.id, p])), used = usedMap(true);
   const lines = S.cart.map(c => ({c, p: byId[c.pid]})).filter(x => x.p && n0(x.c.qty) > 0);
   if (!lines.length){ err.textContent = "Add at least one item."; return; }
@@ -2606,25 +2705,27 @@ async function saveSale(e){
   const force = $("#xForce").checked, method = $("#xMethod").value;
   let customerId = method === "debt" ? S.cartMeta.customerId : null;
   if (method === "debt" && !customerId){ err.textContent = "Choose the customer for a debt sale."; return; }
-  if (customerId === "__new"){ const nm = ($("#xCName")?.value || "").trim(); if (!nm){ err.textContent = "Enter the customer's name."; return; }
-    customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:nm, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
-  const out = [];
+  const newName = customerId === "__new" ? ($("#xCName")?.value || "").trim() : ""; if (customerId === "__new" && !newName){ err.textContent = "Enter the customer's name."; return; }
+  const out = [], why = [];
   for (const {c, p} of lines){
     let need = r6(n0(c.qty) * unitPer(p, c.mode)); const alloc = [];
     for (const b of stockOf(p, used).bs){ if (need <= 0) break; if (b.expired || b.left <= 0) continue; const q = r6(Math.min(b.left, need)); alloc.push({key:b.key, batch:b.batch, expiry:b.expiry, q, per:p.sub, cost: isNum(b.cost) ? b.cost : null}); const ux = used[b.key] || (used[b.key] = {b:0, raw:0}); ux.b += q / p.sub; need = r6(need - q); }
     if (need > 0){ if (!force){ err.textContent = `${pname(p)}: not enough in stock. Tick "Sell even if stock shows less" to sell anyway.`; return; }
-      alloc.push({key:"adj:" + p.id, batch:"", expiry:"", q:need, per:p.sub, cost:subCostNow(p)}); }
+      alloc.push({key:"adj:" + p.id, batch:"", expiry:"", q:need, per:p.sub, cost:subCostNow(p)}); why.push(`Sell ${pname(p)} past the stock (${qtyText(p, need)} more than shown)`); }
+    const list = lvlPrice(p, c.mode); if (isNum(list) && wIQD(c.price) < list) why.push(`${pname(p)} at ${f0(c.price)} instead of ${f0(list)} IQD`);
     out.push({pid:p.id, name:pname(p), mode:c.mode, unit: unitName(p, c.mode), per:unitPer(p, c.mode), qty:n0(c.qty), price:wIQD(c.price), total:lineTot(c), alloc});
   }
   const {sub, disc} = cartTotals(lines.map(x => x.c), {disc:parseNum($("#xDisc").value)});
-  if (S.saving) return; S.saving = true;
-  const id = newId("SL"), d = today(), no = d.replace(/-/g,"").slice(2) + "-" + String(E.sales.filter(s => s.date === d).length + 1).padStart(3,"0");
-  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId};
+  const discMax = Math.floor(sub * n0(E.cfg.staffDiscPct) / 100); if (disc > discMax) why.push(`Discount ${f0(disc)} IQD (staff may give up to ${f0(discMax)})`);
+  let approvedBy = null; if (why.length && !isOwner()){ approvedBy = await ownerOK(why); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
+  if (customerId === "__new"){ customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
+  const id = newId("SL"), d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
+  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
   try {
     await write("sales/" + id, sale);
     if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) await write("chronic/" + ch.id, {given:{...(ch.given || {}), [ym(d)]:id}}, true); }
-    closeTab(S.tabAt); S.saving = false; render(); toast("Sale saved."); receiptSheet(id, sale);
-  } catch(x){ S.saving = false; err.textContent = x.message; }
+    closeTab(S.tabAt); render(); toast("Sale saved."); receiptSheet(id, sale);
+  } catch(x){ err.textContent = x.message; }
 }
 function receiptHtml(s){
   const cu = E.customers.find(c => c.id === s.customerId);
@@ -2640,6 +2741,7 @@ function receiptSheet(id, fresh){
   const s = fresh || E.sales.find(x => x.id === id); if (!s) return;
   openSheet("Receipt " + (s.no || ""), `${receiptHtml(s)}
     <div class="actions"><button type="button" class="primary" data-xprint="${esc(s.id)}">Print receipt</button>${s.voided ? `<span class="pill bad">Cancelled</span>` : S.readOnly ? "" : `<button type="button" class="danger" data-xsalevoid="${esc(s.id)}">Cancel sale (stock goes back)</button>`}</div>
+    ${s.voided && s.voidReason ? `<p class="note">Cancelled: ${esc(s.voidReason)}</p>` : ""}
     ${window.ERP_MODE === "claude" ? `<p class="note">Printing works in the installed app. On claude.ai you can show this screen to the customer.</p>` : ""}
     <div class="sec"><h2>Batches used</h2><div class="list">${(s.lines || []).map(l => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(l.name)}</span><span class="s">${(l.alloc || []).map(a => `${a.batch ? "batch " + esc(a.batch) : "no batch"}${a.expiry ? " exp " + esc(a.expiry) : ""} × ${a.q}`).join(", ")}</span></span></div>`).join("")}</div></div>`);
 }
@@ -2650,6 +2752,21 @@ function giveChronic(id){
   const cu = E.customers.find(x => x.id === c.customerId);
   S.cartMeta = {chronicId:c.id, customerId: cu ? cu.id : null}; saveCart(); closeSheet(); S.tab = "sell"; render(); window.scrollTo(0,0);
 }
+async function cancelSale(id){
+  const s = E.sales.find(x => x.id === id), reason = ($("#voidReason")?.value || "").trim(); if (!s) return;
+  if (!reason){ toast("Write the reason for cancelling."); $("#voidReason")?.focus(); return; }
+  const by = await ownerOK([`Cancel receipt ${s.no} (${iqd(s.total)})`]); if (!by){ toast(NEED_OWNER); return; }
+  try {
+    await write("sales/" + id, {voided:true, voidedAt:nowIso(), voidReason:reason, voidedBy:S.staff?.id || null, approvedBy:by}, true);
+    const ch = s.chronicId && E.chronic.find(c => c.id === s.chronicId), m = ch && Object.keys(ch.given || {}).find(k => ch.given[k] === id);
+    if (m){ const g = {...ch.given}; delete g[m]; await write("chronic/" + ch.id, {given:g}, true); }
+    closeSheet(); toast("Sale cancelled. Stock is back.");
+  } catch(e){ toast(e.message); }
+}
+async function cancelRecord(coll, id, what, after){
+  const by = await ownerOK([`Cancel ${what}`]); if (!by){ toast(NEED_OWNER); return; }
+  try { await write(coll + "/" + id, {voided:true, voidedAt:nowIso(), voidedBy:S.staff?.id || null, approvedBy:by}, true); after(); } catch(e){ toast(e.message); }
+}
 async function backupAll(btn){
   if (!S.dl){ toast("Download isn't available here."); return; } btn.disabled = true;
   try {
@@ -2658,12 +2775,42 @@ async function backupAll(btn){
     toast("Backup saved."); window.markBackup?.();
   } catch(e){ toast(e?.code === "declined" ? "Download cancelled." : "Backup failed. Try again."); } finally { btn.disabled = false; }
 }
+/* restore (audit F-03): shows what will change first, adds records that are missing, and replaces a record only when the
+   file's copy is newer. A record changed or cancelled on this device after the backup is always kept as it is. */
+const RESTORE_COLLS = ["suppliers","invoices","payments","credits","meta","products","sales","moves","customers","custpays","chronic","expenses","closes","counts","staff","shifts"];
+const recStamp = d => [d?.lastAt, d?.updatedAt, d?.voidedAt, d?.deletedAt, d?.staffAt, d?.at, d?.createdAt].filter(x => typeof x === "string").sort().pop() || "";
+function deviceColl(coll){
+  return ({suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits || S.credits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})),
+    products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts})[coll] || [];
+}
+function restorePlan(j){
+  const plan = {add:[], replace:[], keep:0, same:0};
+  for (const coll of RESTORE_COLLS){ const have = new Map(deviceColl(coll).map(d => [d.id, d]));
+    for (const doc of j.collections?.[coll] || []){ if (!doc || typeof doc.id !== "string" || !doc.id || doc.id.includes("/")) continue;
+      const cur = have.get(doc.id);
+      if (!cur){ plan.add.push([coll, doc]); continue; }
+      if (JSON.stringify(cur) === JSON.stringify(doc)){ plan.same++; continue; }
+      const gone = x => !!(x.voided || x.deleted);
+      if (gone(cur) && !gone(doc)) { plan.keep++; continue; }        // never bring back something cancelled here
+      if (recStamp(doc) > recStamp(cur)) plan.replace.push([coll, doc]); else plan.keep++; } }
+  return plan;
+}
 async function restoreFile(file){
-  try {
-    const j = JSON.parse(await file.text()); const cols = j.collections || {}; let n = 0;
-    for (const [coll, arr] of Object.entries(cols)) for (const doc of arr || []){ if (!doc || !doc.id) continue; const {id, ...rest} = doc; await write(coll + "/" + id, {id, ...rest}); n++; }
-    toast(`Restored ${n} records.`);
-  } catch(e){ toast("That file couldn't be restored. Choose a Raihana ERP backup file."); }
+  let j; try { j = JSON.parse(await file.text()); if (!j || typeof j.collections !== "object") throw 0; } catch(e){ toast("That file couldn't be restored. Choose a Raihana ERP backup file."); return; }
+  const plan = S.restore = restorePlan(j), byColl = list => Object.entries(list.reduce((m, [c]) => (m[c] = (m[c] || 0) + 1, m), {})).map(([c, n]) => `${c} ${n}`).join(", ") || "none";
+  openSheet("Restore backup", `<div class="sum"><div class="r"><span>Backup made</span><span class="num">${esc(String(j.exportedAt || "").slice(0,16).replace("T", " ") || "unknown")}</span></div>
+    <div class="r"><span>Missing here, will be added</span><span class="num">${plan.add.length}</span></div><p class="note">${esc(byColl(plan.add))}</p>
+    <div class="r"><span>Newer in the file, will replace</span><span class="num">${plan.replace.length}</span></div><p class="note">${esc(byColl(plan.replace))}</p>
+    <div class="r"><span>Changed or cancelled here after the backup, kept</span><span class="num">${plan.keep}</span></div>
+    <div class="r"><span>Already the same</span><span class="num">${plan.same}</span></div></div>
+    <p class="note">Nothing is deleted. Records you changed or cancelled after this backup stay as they are.</p><p class="err" id="rsErr"></p>
+    <button type="button" class="primary" data-xrestore="1" ${plan.add.length + plan.replace.length ? "" : "disabled"}>Restore ${plan.add.length + plan.replace.length} records</button>`);
+}
+async function restoreRun(btn){
+  const plan = S.restore; if (!plan) return; if (!isOwner()){ toast("Only the owner can do this."); return; }
+  btn.disabled = true; let n = 0;
+  try { for (const [coll, doc] of [...plan.add, ...plan.replace]){ await write(coll + "/" + doc.id, doc); n++; } S.restore = null; closeSheet(); toast(`Restored ${n} records.`); }
+  catch(e){ $("#rsErr").textContent = `${e.message} ${n} records were restored before the stop; restoring the same file again finishes the rest.`; btn.disabled = false; }
 }
 async function camScan(){
   if (!window.BarcodeDetector) return;
@@ -2710,9 +2857,9 @@ document.addEventListener("click", ev => {
   if (d.xclear){ S.cart = []; S.cartMeta = {}; saveCart(); render(); return; }
   if (d.xsale){ receiptSheet(d.xsale); return; }
   if (d.xprint){ const s = E.sales.find(x => x.id === d.xprint); if (!s) return; const pa = $("#printArea"); pa.innerHTML = receiptHtml(s); try { window.print(); } catch {} return; }
-  if (d.xsalevoid){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Tap again to cancel this sale"; return; }
-    write("sales/" + d.xsalevoid, {voided:true, voidedAt:nowIso()}, true).then(() => { closeSheet(); toast("Sale cancelled. Stock is back."); }).catch(e => toast(e.message)); return; }
-  if (d.xprod){ prodSheet(d.xprod); return; }
+  if (d.xsalevoid){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Confirm cancel"; t.insertAdjacentHTML("beforebegin", `<label style="flex-basis:100%">Reason for cancelling<input id="voidReason"></label>`); if (S.lang === "ar") translate(t.parentElement); $("#voidReason").focus(); return; }
+    cancelSale(d.xsalevoid); return; }
+  if (d.xprod){ if (!canUse("stock")){ toast("The owner has not given you this screen."); return; } prodSheet(d.xprod); return; }
   if (d.xsf){ S.stockF = d.xsf; render(); return; }
   if (d.xchr){ chrSheet(d.xchr); return; }
   if (d.xgive){ giveChronic(d.xgive); return; }
@@ -2723,10 +2870,13 @@ document.addEventListener("click", ev => {
   if (d.xchrdel){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Tap again to delete"; return; }
     write("chronic/" + d.xchrdel, {deleted:true, deletedAt:nowIso()}, true).then(() => { closeSheet(); toast("Card deleted."); }).catch(e => toast(e.message)); return; }
   if (d.xcust){ custSheet(d.xcust); return; }
-  if (d.xcpvoid){ write("custpays/" + d.xcpvoid, {voided:true, voidedAt:nowIso()}, true).then(() => { toast("Payment cancelled."); const x = E.custpays.find(y => y.id === d.xcpvoid); custSheet(x?.customerId); }).catch(e => toast(e.message)); return; }
+  if (d.xcpvoid){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Tap again to cancel"; return; } const x = E.custpays.find(y => y.id === d.xcpvoid);
+    cancelRecord("custpays", d.xcpvoid, `customer payment ${iqd(x?.amount)}`, () => { toast("Payment cancelled."); custSheet(x?.customerId); }); return; }
   if (d.xexp){ openSheet("Add expense", `<form id="expForm" style="display:grid;gap:12px"><div class="grid2"><label>Type<select id="eCat">${EXP_CATS.map(c => `<option>${c}</option>`).join("")}</select></label><label>Date<input id="eDate" type="date" value="${today()}"></label></div><label>Amount (IQD)<input id="eAmt" class="num" inputmode="numeric" required></label><label class="check"><input type="checkbox" id="eCash" checked> Paid from the cash box</label><label>Note<input id="eNote"></label><p class="err" id="eErr"></p><button type="submit" class="primary">Save expense</button></form>`); return; }
-  if (d.xexpvoid){ write("expenses/" + d.xexpvoid, {voided:true, voidedAt:nowIso()}, true).then(() => toast("Expense cancelled.")).catch(e => toast(e.message)); return; }
+  if (d.xexpvoid){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Tap again to cancel"; return; } const x = E.expenses.find(y => y.id === d.xexpvoid);
+    cancelRecord("expenses", d.xexpvoid, `expense ${x?.category || ""} ${iqd(x?.amount)}`, () => toast("Expense cancelled.")); return; }
   if (d.xbackup){ backupAll(t); return; }
+  if (d.xrestore){ restoreRun(t); return; }
   if (d.xsync){ window.ERP_SYNC?.run(); toast("Syncing…"); return; }
   if (d.xlogout){ window.ERP_SYNC?.logout(); render(); return; }
   if (d.xcam){ camScan(); return; }
@@ -2768,7 +2918,7 @@ document.addEventListener("change", ev => {
   if (t.id === "sellTo"){ S.sellTo = t.value; render(); return; }
   if (t.id === "sellStaff"){ S.sellStaff = t.value; render(); return; }
   if (t.id === "moneyM" && t.value){ S.moneyM = t.value; render(); return; }
-  if (t.id === "restoreIn" && t.files?.[0]){ restoreFile(t.files[0]); t.value = ""; return; }
+  if (t.id === "restoreIn" && t.files?.[0]){ if (!isOwner()){ toast("Only the owner can do this."); t.value = ""; return; } restoreFile(t.files[0]); t.value = ""; return; }
 });
 document.addEventListener("keydown", ev => {
   if (ev.target.id === "sellQ" && ev.key === "Enter"){ ev.preventDefault(); const v = ev.target.value.trim(); if (!v) return;
@@ -2785,6 +2935,7 @@ document.addEventListener("submit", async ev => {
   try {
     if (id === "sellForm") return saveSale(ev);
     if (id === "prodForm"){
+      if (!canUse("stock")) return fail("#pErr", "The owner has not given you this screen.");
       const pid = f.dataset.id === "__new" ? newId("PX") : f.dataset.id, name = $("#pName").value.trim(); if (!name) return fail("#pErr", "Enter the name.");
       let midName = $("#pMidName").value, subName = $("#pSubName").value; const midCount = num("#pMidCount"), subCount = num("#pSubCount");
       if (midName && !(midCount > 1 && Number.isInteger(midCount))) return fail("#pErr", "Enter how many middle units are in one box (a whole number above 1).");
@@ -2796,7 +2947,9 @@ document.addEventListener("submit", async ev => {
       else subName = "box";
       const bc = $("#pBar").value.trim(); const clash = bc && catalog().find(x => x.barcode === bc && x.id !== pid); if (clash) return fail("#pErr", `This barcode is already on ${pname(clash)}.`);
       const om = catalog().find(x => x.id === pid)?.m || {}, wq = v => isNum(v) ? wIQD(v) : v, nb = wq(num("#pSellBox")), ns = wq(num("#pSellSub")), nmid = wq(num("#pSellMid"));
-      const priceHistory = (om.sellBox ?? null) !== nb || (om.sellSub ?? null) !== ns || (om.sellMid ?? null) !== nmid ? [...(om.priceHistory || []), {at:nowIso(), by:S.meId, box:nb, mid:nmid, sub:ns, oldBox:om.sellBox ?? null, oldMid:om.sellMid ?? null, oldSub:om.sellSub ?? null, source:"Item card"}].slice(-30) : (om.priceHistory || []);
+      const priceChanged = (om.sellBox ?? null) !== nb || (om.sellSub ?? null) !== ns || (om.sellMid ?? null) !== nmid;
+      const okBy = priceChanged && !canUse("pricing") ? await ownerOK([`Change the sell price of ${name}`]) : S.staff?.id || null; if (priceChanged && !canUse("pricing") && !okBy) return fail("#pErr", NEED_OWNER);
+      const priceHistory = priceChanged ? [...(om.priceHistory || []), {at:nowIso(), by:S.meId, staffBy:S.staff?.id || null, approvedBy:okBy, box:nb, mid:nmid, sub:ns, oldBox:om.sellBox ?? null, oldMid:om.sellMid ?? null, oldSub:om.sellSub ?? null, source:"Item card"}].slice(-30) : (om.priceHistory || []);
       await write("products/" + pid, {...om, priceHistory, id:pid, name, strength:$("#pStr").value.trim(), form:$("#pForm").value.trim(), sci:$("#pSci").value.trim(), barcode:bc, shelf:$("#pShelf").value.trim(), sub, subName, midName, midN, sellBox:nb, sellMid:midName ? nmid : null, sellSub:ns, min:num("#pMin"), fridge:$("#pCold").checked, quick:$("#pQuick").checked});
       toast("Item saved."); prodSheet(pid); return;
     }
@@ -2804,7 +2957,8 @@ document.addEventListener("submit", async ev => {
       const pid = f.dataset.id, p = catalog().find(x => x.id === pid), q = num("#aQty"); if (!(q > 0)) return fail("#aErr", "Enter a quantity above 0.");
       const units = r6(q * unitPer(p, $("#aUnit").value)), reason = $("#aReason").value, more = reason === "Count correction (more found)", key = $("#aKey").value;
       const b = stockOf(p, usedMap()).bs.find(x => x.key === key), mid = newId("MV");
-      await write("moves/" + mid, {id:mid, pid, key, q: more ? -units : units, per:p.sub, reason, note:$("#aNote").value.trim(), date:today(), at:nowIso(), cost: b && isNum(b.cost) ? b.cost : subCostNow(p)});
+      const by = await ownerOK([`${reason}: ${qtyText(p, units)} of ${pname(p)}`]); if (!by) return fail("#aErr", NEED_OWNER);
+      await write("moves/" + mid, {id:mid, pid, key, q: more ? -units : units, per:p.sub, reason, note:$("#aNote").value.trim(), date:today(), at:nowIso(), cost: b && isNum(b.cost) ? b.cost : subCostNow(p), approvedBy:by});
       toast("Stock updated."); prodSheet(pid); return;
     }
     if (id === "chrForm"){
@@ -2823,19 +2977,25 @@ document.addEventListener("submit", async ev => {
       await write("customers/" + cid, {...old, id:cid, name, phone:$("#kPhone").value.trim(), notes:$("#kNotes").value.trim(), createdAt:old.createdAt || nowIso()}); toast("Customer saved."); custSheet(cid); return;
     }
     if (id === "cpForm"){
-      const amt = num("#cpAmt"); if (!(amt > 0)) return fail("#cpErr", "Enter the amount."); const pid = newId("CP");
+      const amt = num("#cpAmt"); if (!(amt > 0)) return fail("#cpErr", "Enter the amount."); const pid = newId("CP"), pd = $("#cpDate").value || today();
+      if (pd !== today() && closeOf(pd)) return fail("#cpErr", "That day is already closed. Use today's date.");
+      const owes = custBalance(f.dataset.id).bal; if (amt > owes && f.dataset.over !== String(amt)){ f.dataset.over = String(amt); return fail("#cpErr", `This is more than the customer owes (${iqd(Math.max(0, owes))}). Tap Save payment again to keep the extra as the customer's credit.`); }
       await write("custpays/" + pid, {id:pid, customerId:f.dataset.id, amount:wIQD(amt), date:$("#cpDate").value || today(), note:$("#cpNote").value.trim(), at:nowIso()}); toast("Payment saved."); custSheet(f.dataset.id); return;
     }
     if (id === "expForm"){
-      const amt = num("#eAmt"); if (!(amt > 0)) return fail("#eErr", "Enter the amount."); const xid = newId("EX");
+      const amt = num("#eAmt"); if (!(amt > 0)) return fail("#eErr", "Enter the amount."); const xid = newId("EX"), ed = $("#eDate").value || today();
+      if (ed !== today() && closeOf(ed)) return fail("#eErr", "That day is already closed. Use today's date.");
       await write("expenses/" + xid, {id:xid, category:$("#eCat").value, amount:wIQD(amt), date:$("#eDate").value || today(), fromCash:$("#eCash").checked, note:$("#eNote").value.trim(), at:nowIso()}); closeSheet(); toast("Expense saved."); return;
     }
     if (id === "closeForm"){
-      const amt = num("#clAmt"); if (!isNum(amt)) return; const dc = dayCash(today());
+      const amt = num("#clAmt"); if (!isNum(amt)) return;
+      if (closeOf(today())){ const by = await ownerOK(["Change today's day close"]); if (!by){ toast(NEED_OWNER); return; } }
+      const dc = cashParts(today(), x => !x.voided);
       await write("closes/" + today(), {id:today(), counted:wIQD(amt), expected:dc.expected, diff:wIQD(amt) - dc.expected, note:$("#clNote").value.trim(), at:nowIso()}); toast("Day closed."); return;
     }
     if (id === "cfgForm"){
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7))}); toast("Settings saved."); return;
+      if (!isOwner()){ toast("Only the owner can do this."); return; }
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0))}); toast("Settings saved."); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -2901,7 +3061,6 @@ Object.assign(AR, {
 "Hours run from login to \"End shift\". Salary: per hour = rate × hours; per day = rate × days worked; monthly = fixed, or shared by hours worked if you tick that option.":"الساعات تُحسب من الدخول حتى «إنهاء الدوام». الراتب: بالساعة = الأجر × الساعات؛ باليوم = الأجر × أيام العمل؛ شهري = ثابت، أو حسب الساعات إذا اخترت ذلك.",
 "You are using the claude.ai version. Data is saved online in your Claude account and shared on every device where you open this link. It needs internet. Photo scan works here.":"أنت تستخدم نسخة claude.ai. البيانات محفوظة على الإنترنت في حسابك وتظهر على كل جهاز تفتح فيه هذا الرابط. تحتاج إنترنت. مسح صورة الفاتورة يعمل هنا.",
 "Full backup of everything (invoices, payments, stock changes, sales, customers, chronic cards, expenses) as one file. Keep it on another device or in Google Drive.":"نسخة احتياطية كاملة لكل شيء (الفواتير، المدفوعات، تغييرات المخزون، المبيعات، الزبائن، بطاقات المزمنين، المصاريف) في ملف واحد. احفظه على جهاز آخر أو في Google Drive.",
-"Restoring adds and replaces records with the ones in the file. Nothing is deleted.":"الاسترجاع يضيف ويستبدل السجلات بالتي في الملف. لا يُحذف شيء.",
 "iPhone:":"آيفون:","Android:":"أندرويد:","Computer:":"الحاسوب:","open the app link in Safari, tap Share, then Add to Home Screen.":"افتح رابط التطبيق في Safari، اضغط مشاركة، ثم إضافة إلى الشاشة الرئيسية.","open the link in Chrome, tap the menu, then Install app.":"افتح الرابط في Chrome، اضغط القائمة، ثم تثبيت التطبيق.","open the link in Chrome or Edge and click the install icon in the address bar.":"افتح الرابط في Chrome أو Edge واضغط أيقونة التثبيت في شريط العنوان.",
 "Markup on cost":"نسبة على الكلفة","Margin: profit as a % of the sell price. Sell = cost ÷ (1 − margin). Example: cost 10,000 with 20% margin sells at 12,500.":"الهامش: الربح كنسبة من سعر البيع. البيع = الكلفة ÷ (1 − الهامش). مثال: كلفة 10,000 بهامش 20% تباع بـ 12,500.","Markup: profit as a % of the cost. Sell = cost × (1 + markup). Example: cost 10,000 with 20% markup sells at 12,000.":"النسبة على الكلفة: الربح كنسبة من الكلفة. البيع = الكلفة × (1 + النسبة). مثال: كلفة 10,000 بنسبة 20% تباع بـ 12,000.","This only fills in the prices below so you can check them. Nothing is saved until you tap Save. Cost is the newest invoice's cost per box after every discount and the bonus.":"هذا يملأ الأسعار أدناه فقط لتراجعها. لا يُحفظ شيء حتى تضغط حفظ. الكلفة هي كلفة العلبة من أحدث فاتورة بعد كل الخصومات والبونص.","Profit margin on sell price":"هامش ربح من سعر البيع","Markup (%)":"النسبة على الكلفة (%)","Profit margin (%)":"هامش الربح (%)","Profit per box":"الربح للعلبة","Markup under 10%":"نسبة أقل من 10%","Margin under 10%":"هامش أقل من 10%","Type the % first.":"اكتب النسبة أولاً.","A profit margin must be under 100%.":"هامش الربح يجب أن يكون أقل من 100%.","Extra stock found at counts":"مخزون زائد وجد بالجرد","Expired, damaged or lost stock (less any found)":"مخزون منتهي أو تالف أو مفقود (ناقص الزائد)","Some sales or stock changes have no cost because the item has no purchase invoice yet, so profit may be a little off.":"بعض المبيعات أو تغييرات المخزون بلا كلفة لأن المادة ليس لها فاتورة شراء بعد، لذلك قد يكون الربح غير دقيق قليلاً.",
 "Items":"الأصناف","Expired":"منتهي","Damaged":"تالف","Lost or missing":"مفقود","Count correction (less found)":"تصحيح جرد (وجد أقل)","Count correction (more found)":"تصحيح جرد (وجد أكثر)","Used in pharmacy":"استخدام داخلي","No batch":"بدون وجبة","Scan barcode":"مسح الباركود","Stocktaking":"الجرد","Boxes counted":"العلب المعدودة","Difference":"الفرق","Items counted":"المواد المعدودة","Save count and fix stock":"حفظ الجرد وتصحيح المخزون","Throw away this count":"إلغاء هذا الجرد","Past stocktakes":"الجرود السابقة","Matches ✓":"مطابق ✓","+ Customer":"+ زبون","empty":"فارغة","This week":"هذا الأسبوع","Today":"اليوم","Sold today":"مبيعات اليوم","Sold this week":"مبيعات الأسبوع","Sold this month":"مبيعات الشهر","On debt":"دين","Profit (after cost)":"الربح (بعد الكلفة)","Discounts given":"الخصومات الممنوحة","Top items":"الأكثر مبيعاً","Busy hours":"أوقات الذروة","By day":"حسب اليوم","Receipts":"الوصولات","No receipts yet.":"لا وصولات بعد.","Cash received (IQD)":"المبلغ المستلم (دينار)","Change to give back":"الباقي للزبون","Quick button on Sell":"زر سريع في البيع","Tap a quick button, scan, or search an item to start this sale.":"اضغط زر سريع أو امسح أو ابحث لبدء البيع.","Tap again to close":"اضغط مرة أخرى للإغلاق","Sales":"المبيعات","Menu":"القائمة","Screens":"الشاشات","Scan invoice":"مسح فاتورة","Packaging and prices":"التعبئة والأسعار","Box price (IQD)":"سعر العلبة (دينار)","Middle unit":"الوحدة الوسطى","Price per middle unit (IQD)":"سعر الوحدة الوسطى (دينار)","Smallest unit":"أصغر وحدة","Price per smallest unit (IQD)":"سعر أصغر وحدة (دينار)","None":"لا يوجد","How many in one box":"كم في العلبة","How many in one middle unit":"كم في الوحدة الوسطى","Sell per middle unit":"بيع الوحدة الوسطى","Sell per smallest unit":"بيع أصغر وحدة","Box only":"علبة فقط","Set by you.":"من إعدادك.","Middle unit (strip) price column":"عمود سعر الشريط","Smallest unit price column":"عمود سعر أصغر وحدة","tablet":"حبة","capsule":"كبسولة","strip":"شريط","blister":"شريط","bottle":"قنينة","tube":"أنبوب","ampoule":"أمبولة","vial":"فيال","pen":"قلم","syringe":"سرنجة","suppository":"تحميلة","pessary":"تحميلة مهبلية","sachet":"كيس","needle":"إبرة","piece":"قطعة","Staff":"الموظفين","Live":"مباشر","Pick dates and times":"اختر التاريخ والوقت","From":"من","To":"إلى","Pharmacist":"الصيدلاني","Everyone":"الجميع","Sold in this time":"المبيعات في هذه الفترة","By pharmacist":"حسب الصيدلاني","No login":"بدون تسجيل دخول","Who is working now?":"من يعمل الآن؟","Choose another name":"اختر اسماً آخر","OK":"موافق","Owner":"المالك","Cashier":"كاشير","Lock":"قفل","End shift":"إنهاء الدوام","Tap again to end shift":"اضغط مرة أخرى لإنهاء الدوام","+ Staff":"+ موظف","Add staff":"إضافة موظف","On shift now":"في الدوام الآن","Hours worked":"ساعات العمل","Days worked":"أيام العمل","Sales made":"المبيعات","Salary":"الراتب","Role":"الدور","Owner (sees everything)":"المالك (يرى كل شيء)","PIN (4 to 6 digits)":"الرمز (4 إلى 6 أرقام)","New PIN (leave empty to keep)":"رمز جديد (اتركه فارغاً للإبقاء)","Paid":"الدفع","Per hour":"بالساعة","Per day worked":"باليوم","Monthly salary":"راتب شهري","Rate (IQD)":"المبلغ (دينار)","Expected hours per month (monthly only)":"الساعات المتوقعة شهرياً (للشهري فقط)","Pay monthly salary by hours worked":"احسب الراتب الشهري حسب الساعات","Can log in":"يستطيع الدخول","No shifts this month.":"لا دوام هذا الشهر.","End":"النهاية","+ Add the owner (you)":"+ أضف المالك (أنت)","Staff and shifts":"الموظفين والدوام","Screen locked.":"تم قفل الشاشة.","Wrong PIN. Try again.":"رمز خاطئ. حاول مرة أخرى.","per hour":"بالساعة","per day":"باليوم","monthly":"شهري","Shift end saved.":"تم حفظ نهاية الدوام.","Pricing":"التسعير","Items with a sell price":"مواد لها سعر بيع","Selling below cost":"بيع أقل من الكلفة","Import price file":"استيراد ملف أسعار","Below cost":"أقل من الكلفة","Profit under 10%":"ربح أقل من 10%","Changed, not saved":"معدلة، غير محفوظة","Change many at once":"تعديل عدة مواد معاً","Profit on cost (%)":"الربح على الكلفة (%)","Round to":"التقريب إلى","No rounding":"بدون تقريب","Tick all shown":"تحديد الكل","Untick all":"إلغاء التحديد","Item":"المادة","Cost per box":"كلفة العلبة","Sell per box":"بيع العلبة","Profit":"الربح","Sell per small unit":"بيع الوحدة الصغيرة","box only":"علبة فقط","Undo changes":"تراجع","Import prices":"استيراد الأسعار","Item name column":"عمود اسم المادة","Barcode column":"عمود الباركود","Sell price per box column":"عمود سعر بيع العلبة","Small unit price column":"عمود سعر الوحدة الصغيرة","Not in file":"غير موجود","Matched by barcode":"مطابق بالباركود","Matched by name":"مطابق بالاسم","Close match, please check":"تطابق تقريبي، راجعه","Not in your stock":"غير موجود في مخزونك","Save":"حفظ","In the file":"في الملف","Your item":"مادتك","Now":"الحالي","From file":"من الملف","Not in stock · skip":"غير موجود · تخطي","Check":"راجع","Also save the barcode from the file when the item has none":"احفظ الباركود من الملف إذا لم يكن للمادة باركود","Price history":"سجل الأسعار","Type to search your stock, then tap a medicine":"اكتب للبحث في المخزون ثم اضغط على الدواء","No medicine in stock matches. Add new items under Stock first.":"لا يوجد دواء مطابق. أضف المادة في المخزون أولاً."
@@ -2917,6 +3076,13 @@ AR_RX.push([/^Markup (-?[\d.]+%)$/, "نسبة $1"], [/^Margin (-?[\d.]+%|—)$/,
   [/^Chronic pickups in (\d+) days$/, "استلام المزمنين خلال $1 أيام"], [/^(\d+) medicines short$/, "$1 أدوية ناقصة"], [/^Save sale · (.+)$/, "حفظ البيعة · $1"], [/^Every month on day (\d+) · (\d+) medicines(.*)$/, "كل شهر يوم $1 · $2 أدوية$3"], [/^Cash box today · (.+)$/, "الصندوق اليوم · $1"], [/^Receipt (.+)$/, "وصل $1"], [/^Stocktaking saved\. (\d+) items corrected\.$/, "تم حفظ الجرد. تم تصحيح $1 مادة."], [/^Loose (.+)s$/, "$1 مفردة"], [/^System: (.*)$/, "النظام: $1"], [/^Customer (\d+)$/, "زبون $1"], [/^On shift since$/, "في الدوام منذ"], [/^Hello (.+)\. Enter your PIN to start your shift\.$/, "مرحباً $1. أدخل رمزك لبدء الدوام."], [/^Salaries for (.+)$/, "الرواتب لشهر $1"], [/^(.+) worked$/, "$1 عمل"], [/^Shifts in (.+)$/, "الدوام في $1"], [/^Shift started at (\S+)\. Welcome (.+)\.$/, "بدأ الدوام الساعة $1. أهلاً $2."], [/^Shift ended for (.+)\.$/, "انتهى دوام $1."], [/^(.*) · on shift since (\S+)$/, "$1 · في الدوام منذ $2"], [/^Apply to ticked \((\d+)\)$/, "تطبيق على المحدد ($1)"], [/^Apply to all shown \((\d+)\)$/, "تطبيق على الكل ($1)"], [/^Save (\d+) prices$/, "حفظ $1 سعر"], [/^Save (\d+) prices from the file$/, "حفظ $1 سعر من الملف"], [/^(\d+) prices changed$/, "$1 أسعار معدلة"], [/^No price · (\d+)$/, "بدون سعر · $1"], [/^Below cost · (\d+)$/, "أقل من الكلفة · $1"], [/^Profit under 10% · (\d+)$/, "ربح أقل من 10% · $1"], [/^Changed, not saved · (\d+)$/, "معدلة · $1"], [/^(\d+) prices saved\.$/, "تم حفظ $1 سعر."], [/^(\d+) receipts · average (.+)$/, "$1 وصل · المعدل $2"], [/^(\d+) sold$/, "$1 مباع"], [/^(\d+)% of sales$/, "$1% من المبيعات"], [/^(\d+) cancelled$/, "$1 ملغاة"], [/^No sales (today|this week|this month) yet\.$/, "لا مبيعات بعد."], [/^(\S+) to (\S+)$/, "$1 إلى $2"],
   [/^(\S+) (\S*) · (\d+) items · (Cash|On debt)$/, (m, d, t, n, w) => `${d} ${t} · ${n} مواد · ${w === "Cash" ? "نقد" : "دين"}`], [/^Expiring 3 months · (\d+)$/, "تنتهي خلال 3 أشهر · $1"], [/^Low · (\d+)$/, "قليل · $1"], [/^Refrigerated · (\d+)$/, "براد · $1"], [/^No sell price · (\d+)$/, "بدون سعر · $1"],
   [/^· next expiry (.+)$/, "· أقرب انتهاء $1"], [/^(.*) · next expiry (\S+)(.*)$/, "$1 · أقرب انتهاء $2$3"], [/^(.*) in stock · exp (\S+)$/, "$1 في المخزون · ينتهي $2"], [/^(.*) in stock$/, "$1 في المخزون"]);
+AR_RX.push([/^This line can't be removed because it has (sales|stock changes|a return to the supplier)\. Cancel those first, or correct the line instead\.$/, (m, w) => `لا يمكن حذف هذا السطر لأن عليه ${w === "sales" ? "مبيعات" : w === "stock changes" ? "تغييرات مخزون" : "إرجاع للمورد"}. ألغها أولاً أو صحح السطر بدلاً من ذلك.`]);
+Object.assign(AR, {"Owner approval needed":"تحتاج موافقة المالك","Not saved: this needs the owner's approval.":"لم يُحفظ: يحتاج موافقة المالك.","Confirm cancel":"تأكيد الإلغاء","Reason for cancelling":"سبب الإلغاء","Write the reason for cancelling.":"اكتب سبب الإلغاء.","Tap again to cancel":"اضغط مرة أخرى للإلغاء","Only the owner can do this.":"هذا للمالك فقط.","PIN is 4 to 6 digits.":"الرمز من 4 إلى 6 أرقام.","Discount staff may give without your PIN (% of the receipt)":"الخصم المسموح للموظف بدون رمزك (% من الوصل)","Staff also need your PIN to sell below the set price, sell more than the stock shows, cancel a sale or payment or expense, write off or add stock, and save a stocktake.":"يحتاج الموظف رمزك أيضاً للبيع بأقل من السعر المحدد، والبيع أكثر من المخزون، وإلغاء بيعة أو دفعة أو مصروف، وشطب أو إضافة مخزون، وحفظ الجرد."});
+AR_RX.push([/^Wrong PIN\. (\d+) tries left\.$/, "رمز خاطئ. بقيت $1 محاولات."], [/^Too many wrong PINs\. Try again in (\d+) seconds\.$/, "محاولات خاطئة كثيرة. حاول بعد $1 ثانية."], [/^(.+), enter your PIN to allow this\.$/, "$1، أدخل رمزك للسماح بهذا."], [/^Cancelled: (.+)$/, "ملغاة: $1"]);
+Object.assign(AR, {"Restore backup":"استرجاع نسخة","Backup made":"تاريخ النسخة","Missing here, will be added":"غير موجودة هنا، ستُضاف","Newer in the file, will replace":"أحدث في الملف، ستُستبدل","Changed or cancelled here after the backup, kept":"تغيرت أو أُلغيت هنا بعد النسخة، تبقى كما هي","Already the same":"متطابقة","Nothing is deleted. Records you changed or cancelled after this backup stay as they are.":"لا يُحذف شيء. السجلات التي غيرتها أو ألغيتها بعد هذه النسخة تبقى كما هي.","You see what will change before anything is saved. Nothing is deleted, and nothing you changed or cancelled after the backup is undone.":"ترى ما سيتغير قبل الحفظ. لا يُحذف شيء، ولا يُلغى ما غيرته أو ألغيته بعد النسخة."});
+AR_RX.push([/^Restore (\d+) records$/, "استرجاع $1 سجل"], [/^Restored (\d+) records\.$/, "تم استرجاع $1 سجل."]);
+Object.assign(AR, {"Changes after closing (new sales, payments, cancels)":"تغييرات بعد الإغلاق (مبيعات ودفعات وإلغاءات جديدة)","Change today's day close":"تعديل إغلاق اليوم","That day is already closed. Use today's date.":"هذا اليوم مغلق. استخدم تاريخ اليوم.","Only the owner can approve invoices.":"اعتماد الفواتير للمالك فقط."});
+AR_RX.push([/^This is more than the customer owes \((.+)\)\. Tap Save payment again to keep the extra as the customer's credit\.$/, "هذا أكثر مما على الزبون ($1). اضغط حفظ الدفعة مرة أخرى لإبقاء الزيادة رصيداً للزبون."], [/^This invoice can't be put on hold because a line it has (sales|stock changes|a return to the supplier)\.$/, (m, w) => `لا يمكن إيقاف هذه الفاتورة لأن أحد سطورها عليه ${w === "sales" ? "مبيعات" : w === "stock changes" ? "تغييرات مخزون" : "إرجاع للمورد"}.`]);
 Object.assign(AR, {"Name, dose, barcode":"الاسم، الجرعة، الباركود","Scan into this box":"امسح الباركود هنا","Enter price":"أدخل السعر","Customers":"الزبائن","Prefilled syringe":"سرنجة جاهزة","Pen":"قلم","Tablet":"حبوب","Ampoule":"أمبولة","Vial":"فيال","Suppository":"تحاميل","Pessary":"تحاميل مهبلية","Eye drops":"قطرة عين","Eye gel":"جل عين","Needle":"إبر","Vaginal capsule":"كبسول مهبلي"});
 window.addEventListener("online", () => $("#netDot")?.classList.remove("off")); window.addEventListener("offline", () => $("#netDot")?.classList.add("off"));
 // every record written while someone is signed in carries their name and the time

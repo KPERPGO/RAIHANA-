@@ -64,7 +64,7 @@ let fails = 0; const ok = (m, c, x) => { console.log(c ? 'ok  ' : 'FAIL', m, x =
     ok('P-07 cash and change are kept on the sale and the receipt', r.saved === 1 && r.last.given === 10000 && r.last.change === 5000 && await p.evaluate(() => /Change\s*5,000/.test(document.getElementById('receipt')?.innerText || '')));
     // debt hidden by default
     const dv = await p.evaluate(() => { closeSheet(); S.cart = [{pid:catalog()[0].id, mode:'box', qty:1, price:5000}]; render(); return {select: document.querySelector('select#xMethod') ? 1 : 0, debtOpt: document.body.innerText.includes('On debt (دين)')}; });
-    ok('Debt: no "On debt" choice on Sell while it is switched off', dv.select === 0 && !dv.debtOpt, dv);
+    ok('Debt: Cash and Card are offered, but no "On debt" choice while debt is switched off', dv.select === 1 && !dv.debtOpt, dv);
     // P-11 customer on a cash sale
     await p.evaluate(async () => { await write('customers/CU-1', {id:'CU-1', name:'Sara', phone:''}); }); await p.waitForTimeout(150);
     r = await sell(p, [{n:'Beta'}], {meta:{customerId:'CU-1'}});
@@ -129,6 +129,16 @@ let fails = 0; const ok = (m, c, x) => { console.log(c ? 'ok  ' : 'FAIL', m, x =
     await p.evaluate(() => { S.cart = [{pid:catalog()[0].id, mode:'box', qty:1, price:5000}]; render(); document.activeElement?.blur(); });
     await p.keyboard.press('F8'); await p.waitForTimeout(100);
     ok('Debt switched on: the choice is back and F8 switches to debt', await p.evaluate(() => !!document.querySelector('select#xMethod') && S.cartMeta.method === 'debt'));
+    await p.close(); }
+
+  { const p = await fresh('en');
+    // card sales: recorded as card, not in the cash box, own total on the dashboard, refund goes back to the card
+    const r = await sell(p, [{n:'Beta'}], {meta:{method:'card'}});
+    ok('Card: sale saved as a card sale with no change', r.saved === 1 && r.last.method === 'card' && r.last.given === undefined, r.last);
+    const cp = await p.evaluate(() => { const c = cashParts(today(), () => true); return {sales:c.sales, card:c.cardSales, st:salesStats('today')}; });
+    ok('Card: not in the cash box, counted as card', cp.sales === 0 && cp.card === 5000 && cp.st.card === 5000 && cp.st.cash === 0, cp);
+    const rc = await p.evaluate(() => { const s = E.sales.find(x => x.method === 'card'); return receiptHtml(s); });
+    ok('Card: receipt says paid by card', /Paid by card/.test(rc));
     await p.close(); }
 
   { const p = await fresh('ar');

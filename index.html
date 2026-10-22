@@ -2208,9 +2208,9 @@ function cashParts(d, keep){ // d = null: any date (a shift can run past midnigh
   const cin = sum(E.custpays.filter(x => keep(x) && on(x)), x => x.amount);
   const sup = sum(S.payments.filter(p => p.verified && (d == null ? keep(p) : p.date === d) && /cash/i.test(p.method || "")), p => p.amount);
   const exp = sum(E.expenses.filter(x => keep(x) && on(x) && x.fromCash !== false), x => x.amount);
-  const debtSales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "debt"), s => s.total);
+  const debtSales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "debt"), s => s.total), cardSales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "card"), s => s.total);
   const ref = sum(E.moves.filter(m => keep(m) && m.saleId && on(m) && m.refundBy === "cash"), m => m.refund); // cash given back for returns
-  return {sales, cin, sup, exp, ref, debtSales, expected: sales + cin - sup - exp - ref};
+  return {sales, cin, sup, exp, ref, debtSales, cardSales, expected: sales + cin - sup - exp - ref};
 }
 const closeOf = d => E.closes.find(x => x.id === d) || null;
 // a closed day shows what it was closed with; sales, payments and cancels made after closing are shown apart ("after")
@@ -2243,12 +2243,12 @@ function inPeriod(s, k){
 }
 function salesStats(k){
   const [from, to] = k === "custom" ? [S.sellFrom || "", S.sellTo || ""] : periodRange(k), ss = E.sales.filter(s => !s.voided && inPeriod(s, k));
-  const rets = refundsWhere(m => inPeriod(m, k)), refunds = rets.reduce((a, m) => a + n0(m.refund), 0), cashRef = rets.filter(m => m.refundBy === "cash").reduce((a, m) => a + n0(m.refund), 0);
+  const rets = refundsWhere(m => inPeriod(m, k)), refunds = rets.reduce((a, m) => a + n0(m.refund), 0), cashRef = rets.filter(m => m.refundBy === "cash").reduce((a, m) => a + n0(m.refund), 0), cardRef = rets.filter(m => m.refundBy === "card").reduce((a, m) => a + n0(m.refund), 0);
   const total = ss.reduce((a,s) => a + n0(s.total), 0) - refunds, cost = ss.reduce((a,s) => a + saleCost(s), 0) + rets.reduce((a, m) => a + n0(m.q) * n0(m.cost), 0);
   const items = {}; ss.forEach(s => (s.lines || []).forEach(l => { const x = items[l.pid] || (items[l.pid] = {pid:l.pid, name:l.name, qty:0, total:0, unit:l.unit}); x.total += n0(l.total); x.qty += n0(l.qty); }));
   const hours = Array(24).fill(0); ss.forEach(s => { const h = new Date(s.at || s.date).getHours(); if (isFinite(h)) hours[h] += n0(s.total); });
   const days = {}; ss.forEach(s => days[s.date] = (days[s.date] || 0) + n0(s.total));
-  return {from, to, count:ss.length, total, cash:ss.filter(s => s.method !== "debt").reduce((a,s) => a + n0(s.total), 0) - cashRef, debt:ss.filter(s => s.method === "debt").reduce((a,s) => a + n0(s.total), 0) - (refunds - cashRef), refunds, disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
+  return {from, to, count:ss.length, total, cash:ss.filter(s => s.method !== "debt" && s.method !== "card").reduce((a,s) => a + n0(s.total), 0) - cashRef, card:ss.filter(s => s.method === "card").reduce((a,s) => a + n0(s.total), 0) - cardRef, debt:ss.filter(s => s.method === "debt").reduce((a,s) => a + n0(s.total), 0) - (refunds - cashRef - cardRef), refunds, disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
     byStaff:Object.values(ss.reduce((m, s) => { const id = s.staffId || "-", x = m[id] || (m[id] = {id, name:s.staffName || "No login", count:0, total:0}); x.count++; x.total += n0(s.total); return m; }, {})).sort((a,b) => b.total - a.total)};
 }
 function quickItems(cat, used){
@@ -2269,6 +2269,7 @@ function sellDash(){
     <div class="kpis">
       <div class="kpi lead"><span class="l">${k === "today" ? "Sold today" : k === "week" ? "Sold this week" : k === "month" ? "Sold this month" : "Sold in this time"}</span><span class="v num">${iqd(st.total)}</span><span class="l">${st.count} receipts · average ${iqd(st.avg)}</span></div>
       <div class="kpi"><span class="l">Cash</span><span class="v num">${iqd(st.cash)}</span></div>
+      ${st.card ? `<div class="kpi"><span class="l">Card</span><span class="v num">${iqd(st.card)}</span></div>` : ""}
       ${!debtOn() && !st.debt ? "" : `<div class="kpi"><span class="l">On debt</span><span class="v num" style="color:var(--${st.debt ? "warn" : "fg"})">${iqd(st.debt)}</span></div>`}
       <div class="kpi"><span class="l">Profit (after cost)</span><span class="v num" style="color:var(--good)">${iqd(st.profit)}</span><span class="l">${st.total ? "Margin " + PRICING.pctTxt(PRICING.marginPct(st.total, st.total - st.profit)) : "—"}</span></div>
       <div class="kpi"><span class="l">Discounts given</span><span class="v num">${iqd(st.disc)}</span>${st.voided ? `<span class="l">${st.voided} cancelled</span>` : ""}${st.refunds ? `<span class="l">Returns −${iqd(st.refunds)}</span>` : ""}</div>
@@ -2312,10 +2313,10 @@ function sellView(){
     ${lines.length ? `<form id="sellForm" class="sum" style="gap:10px">
       <div class="r"><span>Subtotal</span><span class="num">${iqd(sub)}</span></div>
       <div class="grid2"><label>Discount (IQD)<input id="xDisc" class="num" inputmode="numeric" value="${esc(S.cartMeta.disc ?? "")}"></label>
-      ${debtOn() ? "" : `<input type="hidden" id="xMethod" value="cash">`}${!debtOn() ? "" : `<label>Payment<select id="xMethod"><option value="cash" ${S.cartMeta.method !== "debt" ? "selected" : ""}>Cash</option><option value="debt" ${S.cartMeta.method === "debt" ? "selected" : ""}>On debt (دين)</option></select></label>`}</div>
+      <label>Payment<select id="xMethod"><option value="cash" ${!S.cartMeta.method || S.cartMeta.method === "cash" ? "selected" : ""}>Cash</option><option value="card" ${S.cartMeta.method === "card" ? "selected" : ""}>Card</option>${debtOn() ? `<option value="debt" ${S.cartMeta.method === "debt" ? "selected" : ""}>On debt (دين)</option>` : ""}</select></label></div>
       ${`<label>${S.cartMeta.method === "debt" ? "Customer" : "Customer (optional)"}<select id="xCust"><option value="">${S.cartMeta.method === "debt" ? "Choose customer" : "No customer"}</option>${E.customers.filter(c => !c.deleted).map(c => `<option value="${esc(c.id)}" ${S.cartMeta.customerId === c.id ? "selected" : ""}>${esc(c.name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("")}<option value="__new" ${S.cartMeta.customerId === "__new" ? "selected" : ""}>+ New customer</option></select></label>
       ${S.cartMeta.customerId === "__new" ? `<div class="grid2"><label>Customer name<input id="xCName" value="${esc(S.cartMeta.newName || "")}"></label><label>Phone<input id="xCPhone" inputmode="tel" value="${esc(S.cartMeta.newPhone || "")}"></label></div>` : ""}`}
-      ${S.cartMeta.method !== "debt" ? `<div class="grid2"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(S.cartMeta.given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(S.cartMeta.given) && S.cartMeta.given >= total ? (S.cartMeta.given - total).toLocaleString("en-US") : ""}" disabled></label></div>` : ""}
+      ${(S.cartMeta.method || "cash") === "cash" ? `<div class="grid2"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(S.cartMeta.given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(S.cartMeta.given) && S.cartMeta.given >= total ? (S.cartMeta.given - total).toLocaleString("en-US") : ""}" disabled></label></div>` : ""}
       <div class="r big"><span>Total</span><span class="num">${iqd(total)}</span></div>
       <p class="err" id="xErr">${S.sellErr && S.sellErr.cart === JSON.stringify(S.cart) ? S.sellErr.html : ""}</p>
       <button type="submit" class="primary paybtn">Save sale · ${iqd(total)}</button></form>` : ""}
@@ -2443,7 +2444,7 @@ function moneyView(){
   const d = today(), dc = dayCash(d), cl = E.closes.find(x => x.id === d), mm = monthMoney(S.moneyM);
   const exps = E.expenses.filter(x => !x.voided && ym(x.date) === S.moneyM).sort((a,b) => (b.date || "").localeCompare(a.date || ""));
   return `<section class="sec"><div class="sechead"><h2>Cash box today · ${esc(d)}</h2></div>
-    <div class="sum"><div class="r"><span>Cash sales</span><span class="num">${iqd(dc.sales)}</span></div><div class="r"><span>Customers paid debt</span><span class="num">+${iqd(dc.cin)}</span></div><div class="r"><span>Paid to suppliers in cash</span><span class="num">−${iqd(dc.sup)}</span></div><div class="r"><span>Expenses from the box</span><span class="num">−${iqd(dc.exp)}</span></div><div class="r big"><span>Cash that should be in the box</span><span class="num">${iqd(dc.expected)}</span></div><div class="r"><span>Sold on debt today (not in the box)</span><span class="num">${iqd(dc.debtSales)}</span></div>
+    <div class="sum"><div class="r"><span>Cash sales</span><span class="num">${iqd(dc.sales)}</span></div><div class="r"><span>Customers paid debt</span><span class="num">+${iqd(dc.cin)}</span></div><div class="r"><span>Paid to suppliers in cash</span><span class="num">−${iqd(dc.sup)}</span></div><div class="r"><span>Expenses from the box</span><span class="num">−${iqd(dc.exp)}</span></div><div class="r big"><span>Cash that should be in the box</span><span class="num">${iqd(dc.expected)}</span></div><div class="r"><span>Sold on debt today (not in the box)</span><span class="num">${iqd(dc.debtSales)}</span></div><div class="r"><span>Paid by card today (not in the box)</span><span class="num">${iqd(dc.cardSales)}</span></div>
     ${dc.closed && dc.after ? `<div class="r"><span>Changes after closing (new sales, payments, cancels)</span><span class="num" style="color:var(--warn)">${dc.after > 0 ? "+" : "−"}${iqd(Math.abs(dc.after))}</span></div>` : ""}</div>
     <form id="closeForm" class="sum" style="gap:10px"><b>Close the day</b><label>Cash counted in the box (IQD)<input id="clAmt" class="num" inputmode="numeric" value="${cl ? esc(cl.counted) : ""}" required></label>${cl ? `<p class="note">Closed${cl.lastBy ? " by " + esc(whoName(cl.lastBy)) : ""}: difference <b class="num" style="color:var(--${Math.abs(cl.diff) <= TOL ? "good" : "bad"})">${iqd(cl.diff)}</b></p>` : ""}<label>Note<input id="clNote" value="${esc(cl?.note || "")}"></label><button type="submit">${cl ? "Update day close" : "Save day close"}</button></form></section>
   <section class="sec"><div class="sechead"><h2>Profit by month</h2><input id="moneyM" type="month" value="${esc(S.moneyM)}" style="width:auto"></div>
@@ -3062,7 +3063,7 @@ async function saveSaleNow(){
   if (lines.some(x => !isNum(x.c.price))){ err.textContent = "Every item needs a price."; return; }
   const frac = lines.find(x => !Number.isInteger(n0(x.c.qty))); // audit P-06: no half bottles; a part of a box is sold as strips or tablets
   if (frac){ err.textContent = `${pname(frac.p)}: the quantity must be a whole number. To sell part of a box, choose the strip or tablet unit.`; return; }
-  const method = debtOn() ? $("#xMethod").value : "cash";
+  const method = $("#xMethod")?.value || "cash";
   let customerId = S.cartMeta.customerId || null;
   if (method === "debt" && !customerId){ err.textContent = "Choose the customer for a debt sale."; return; }
   const newName = customerId === "__new" ? ($("#xCName")?.value || "").trim() : ""; if (customerId === "__new" && !newName){ err.textContent = "Enter the customer's name."; return; }
@@ -3107,7 +3108,7 @@ function receiptHtml(s){
     ${s.discount ? `<div style="display:flex;justify-content:space-between"><span>Discount</span><span>−${Math.round(s.discount).toLocaleString("en-US")}</span></div>` : ""}
     <div style="display:flex;justify-content:space-between;font-weight:600"><span>Total IQD</span><span>${Math.round(s.total).toLocaleString("en-US")}</span></div>
     ${isNum(s.given) ? `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(s.given).toLocaleString("en-US")}</span></div><div style="display:flex;justify-content:space-between"><span>Change</span><span>${Math.round(s.change).toLocaleString("en-US")}</span></div>` : ""}
-    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : `Paid cash${cu ? " · " + esc(cu.name) : ""}`}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
+    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : s.method === "card" ? `Paid by card${cu ? " · " + esc(cu.name) : ""}` : `Paid cash${cu ? " · " + esc(cu.name) : ""}`}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
 }
 function receiptSheet(id, fresh){
   const s = fresh || E.sales.find(x => x.id === id); if (!s) return;
@@ -3131,7 +3132,7 @@ function returnSheet(id){
     ${(s.lines || []).map((l, i) => { const left = r6(n0(l.qty) - returnedOf(s.id, i)); return `<label><span>${esc(l.name)}</span> <span class="note">sold <span class="num">${l.qty}</span> ${esc(l.unit)}${left < n0(l.qty) ? ` · <span class="num">${left}</span> can still come back` : ""}</span><input class="num" inputmode="numeric" data-xrq="${i}" placeholder="0" ${left <= 0 ? "disabled" : ""}></label>`; }).join("")}
     <label>What happens to the items<select id="rWhere"><option value="shelf">Back on the shelf (stock goes back)</option><option value="damaged">Damaged or opened (stock stays out)</option></select></label>
     <label>Reason<input id="rReason"></label>
-    <p class="note"><span>${s.method === "debt" ? "The refund comes off the customer's debt." : "The refund is paid from the cash box."}</span> <span>Needs the owner's PIN.</span></p>
+    <p class="note"><span>${s.method === "debt" ? "The refund comes off the customer's debt." : s.method === "card" ? "The refund goes back to the customer's card, not from the cash box." : "The refund is paid from the cash box."}</span> <span>Needs the owner's PIN.</span></p>
     <p class="err" id="rErr"></p><button type="submit" class="primary">Save return</button></form>`);
 }
 async function saveReturn(f){
@@ -3147,7 +3148,7 @@ async function saveReturn(f){
   const by = await ownerOK([`Return ${parts.map(y => `${y.x.q} ${y.l.unit} ${y.l.name}`).join(", ")} from receipt ${s.no} (refund ${iqd(total)})`]); if (!by){ err.textContent = NEED_OWNER; return; }
   const rid = newId("RT"), at = nowIso(), recs = [];
   for (const {x, l, refund} of parts){
-    const base = {pid:l.pid, saleId:s.id, saleNo:s.no, saleLine:x.i, returnId:rid, customerId:s.customerId || null, refundBy: s.method === "debt" ? "debt" : "cash", note:reason, date:today(), at, staffId:S.staff?.id || null, approvedBy:by};
+    const base = {pid:l.pid, saleId:s.id, saleNo:s.no, saleLine:x.i, returnId:rid, customerId:s.customerId || null, refundBy: s.method === "debt" ? "debt" : s.method === "card" ? "card" : "cash", note:reason, date:today(), at, staffId:S.staff?.id || null, approvedBy:by};
     const alloc = l.alloc || [];
     if (!shelf){ recs.push({...base, key:alloc[0]?.key || "adj:" + l.pid, q:0, per:alloc[0]?.per ?? null, cost:0, reason:"Customer return (damaged)", rq:x.q, refund}); continue; }
     let units = r6(x.q * n0(l.per)), first = true;
@@ -3703,6 +3704,7 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
 Object.assign(AR, {"Close them now":"أغلقها الآن","Close forgotten shifts":"إغلاق الدوامات المنسية","Set the real end time of each shift. The box starts at 8 hours after the start; change it to the real time. Hours are recounted when you close a shift, and a person never gets more than 24 hours in a day.":"حدد وقت النهاية الحقيقي لكل دوام. الخانة تبدأ بعد 8 ساعات من البداية؛ غيّرها للوقت الحقيقي. تُعاد الساعات عند الإغلاق، ولا يحصل أي شخص على أكثر من 24 ساعة في اليوم.","Close this shift":"أغلق هذا الدوام","Close all with these end times":"أغلق الكل بهذه الأوقات","Each end time must be after the start and not in the future.":"يجب أن يكون وقت النهاية بعد البداية وليس في المستقبل.","Someone may have forgotten to end their shift. Until you set the real end, each counts only 14 hours.":"ربما نسي أحدهم إنهاء دوامه. حتى تحدد النهاية الحقيقية، يُحسب كل دوام 14 ساعة فقط."});
 AR_RX.push([/^(\d+) shifts? closed\. Hours recounted\.$/, "تم إغلاق $1 دوام. أُعيد حساب الساعات."]);
 AR_RX.push([/^(\d+) shifts? open for more than 14 hours\. Someone may have forgotten to end their shift\. Until you set the real end, each counts only 14 hours\.\s*$/, "$1 دوام مفتوح أكثر من 14 ساعة. ربما نسي أحدهم إنهاء دوامه. حتى تحدد النهاية الحقيقية، يُحسب كل دوام 14 ساعة فقط."]);
+Object.assign(AR, {"Card":"بطاقة","Paid by card":"مدفوع بالبطاقة","The refund goes back to the customer's card, not from the cash box.":"يُرد المبلغ إلى بطاقة الزبون وليس من صندوق النقد.","Paid by card today (not in the box)":"مدفوع بالبطاقة اليوم (ليس في الصندوق)"});
 
 </script>
 <script>

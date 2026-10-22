@@ -246,6 +246,7 @@ header.top .in{display:flex;align-items:center;justify-content:space-between;gap
 header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 .hbtn{min-height:40px!important;height:40px;padding:0 12px;border-radius:10px;font-size:14px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line)}
 .hbtn.primary{background:var(--accent2);border-color:var(--accent2);color:#fff}
+.row .s.bad{color:var(--bad)}
 #staffBar:empty{display:none}
 #staffBar{background:var(--sunk);border-top:1px solid var(--line)}
 #staffBar .in2{max-width:1000px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:6px max(16px,env(safe-area-inset-left,0px));font-size:13px}
@@ -2185,14 +2186,14 @@ function custBalance(cid){
   const paid = E.custpays.filter(x => !x.voided && x.customerId === cid).reduce((a,x) => a + n0(x.amount), 0);
   return {debt, paid, bal: debt - paid};
 }
-function cashParts(d, keep){
-  const sum = (arr, f) => arr.reduce((a, x) => a + n0(f(x)), 0);
-  const sales = sum(E.sales.filter(s => keep(s) && s.date === d && s.method === "cash"), s => s.total);
-  const cin = sum(E.custpays.filter(x => keep(x) && x.date === d), x => x.amount);
-  const sup = sum(S.payments.filter(p => p.verified && p.date === d && /cash/i.test(p.method || "")), p => p.amount);
-  const exp = sum(E.expenses.filter(x => keep(x) && x.date === d && x.fromCash !== false), x => x.amount);
-  const debtSales = sum(E.sales.filter(s => keep(s) && s.date === d && s.method === "debt"), s => s.total);
-  const ref = sum(E.moves.filter(m => keep(m) && m.saleId && m.date === d && m.refundBy === "cash"), m => m.refund); // cash given back for returns
+function cashParts(d, keep){ // d = null: any date (a shift can run past midnight); keep() then picks the time window
+  const sum = (arr, f) => arr.reduce((a, x) => a + n0(f(x)), 0), on = x => d == null || x.date === d;
+  const sales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "cash"), s => s.total);
+  const cin = sum(E.custpays.filter(x => keep(x) && on(x)), x => x.amount);
+  const sup = sum(S.payments.filter(p => p.verified && (d == null ? keep(p) : p.date === d) && /cash/i.test(p.method || "")), p => p.amount);
+  const exp = sum(E.expenses.filter(x => keep(x) && on(x) && x.fromCash !== false), x => x.amount);
+  const debtSales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "debt"), s => s.total);
+  const ref = sum(E.moves.filter(m => keep(m) && m.saleId && on(m) && m.refundBy === "cash"), m => m.refund); // cash given back for returns
   return {sales, cin, sup, exp, ref, debtSales, expected: sales + cin - sup - exp - ref};
 }
 const closeOf = d => E.closes.find(x => x.id === d) || null;
@@ -2506,6 +2507,7 @@ async function ctSave(btn){
   } catch(x){ $("#ctErr").textContent = x.message; } finally { btn.disabled = false; }
 }
 document.addEventListener("input", ev => { const t = ev.target;
+  if (t.id === "ccAmt"){ const v = Math.round(Number(t.value.replace(/[,\s]/g, ""))), e = S.countExp; if (t.value.trim() && isFinite(v) && isNum(e)){ const el = $("#ccDiff"); el.textContent = diffTxt(v - e); el.className = v === e ? "note" : "err"; if (S.lang === "ar") translate(el); } return; }
   if (t.dataset.ctb || t.dataset.cts || t.dataset.ctm) ctRead(t.dataset.ctb || t.dataset.cts || t.dataset.ctm);
   if (t.id === "ctQ"){ S.count.q = t.value; lsSet("erp.count", S.count); countSheet(); const q = $("#ctQ"); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
 });
@@ -2821,13 +2823,58 @@ async function tryLogin(){
   if (pin.length < 4){ S.lockErr = "PIN is 4 to 6 digits."; drawLock(); return; }
   const ck = await pinCheck(st, pin); if (!ck.ok){ S.lockErr = pinErr(ck); S.lockPin = ""; drawLock(); return; }
   let sh = E.shifts.find(x => x.staffId === st.id && !x.end && !x.voided && x.device === DEVICE_ID);
-  if (!sh){ sh = {id:newId("SH"), staffId:st.id, staffName:st.name, start:nowIso(), end:null, device:DEVICE_ID}; await write("shifts/" + sh.id, sh); }
+  const fresh = !sh; if (fresh){ sh = {id:newId("SH"), staffId:st.id, staffName:st.name, start:nowIso(), end:null, device:DEVICE_ID}; await write("shifts/" + sh.id, sh); }
   S.session = {staffId:st.id, shiftId:sh.id}; lsSet("erp.session", S.session); S.staff = st; S.lockSel = null; S.lockPin = ""; S.lockErr = "";
-  drawLock(); render(); toast(`Shift started at ${hm(sh.start)}. Welcome ${st.name}.`);
+  drawLock(); render(); toast(`Shift started at ${hm(sh.start)}. Welcome ${st.name}.`); syncNow();
+  if (fresh) cashSheet("open");
 }
-async function endShift(lockOnly){
+/* ---- cash count at every shift start and end: what the drawer should hold, what was counted, and the difference ---- */
+const curShift = () => S.session && E.shifts.find(x => x.id === S.session.shiftId) || null;
+const stampOf = x => x.at || x.createdAt || "";
+function shiftCash(sh, end){ return cashParts(null, x => !x.voided && stampOf(x) >= sh.start && stampOf(x) <= end); }
+function drawerNow(sh){ // the last end-of-shift count is what should be in the drawer when the next shift starts
+  const prev = E.shifts.filter(x => x.id !== sh.id && !x.voided && x.end && isNum(x.closeCount)).sort((a,b) => b.end.localeCompare(a.end))[0];
+  return prev ? prev.closeCount : null; }
+function shiftExpected(sh, end){ const base = isNum(sh.openCount) ? sh.openCount : drawerNow(sh), c = shiftCash(sh, end);
+  return {base, c, expected: base === null ? null : base + c.expected}; }
+function syncNow(){ try { if (window.ERP_SYNC?.cfg?.()) window.ERP_SYNC.run(); } catch(e){ /* sync problems show in Settings */ } }
+function cashLine(sh){ // one line per count, red when the drawer did not match
+  const one = (l, c, d) => isNum(c) ? `<span class="s${isNum(d) && d ? " bad" : ""}">${l}: ${iqd(c)}${isNum(d) ? " · " + diffTxt(d) : ""}</span>` : "";
+  return one("Cash at start", sh.openCount, sh.openDiff) + one("Cash at end", sh.closeCount, sh.closeDiff); }
+const diffTxt = d => d === 0 ? "Matches ✓" : d < 0 ? `Short by ${iqd(-d)}` : `Extra ${iqd(d)}`;
+function cashSheet(kind){
+  const sh = curShift(); if (!sh) return; const end = kind === "end";
+  const x = end ? shiftExpected(sh, nowIso()) : {expected: drawerNow(sh)}, c = x.c;
+  S.countExp = x.expected;
+  openSheet(end ? "Count the cash: end of shift" : "Count the cash: start of shift", `<div class="sum">
+    ${end ? `<div class="r"><span>Counted at the start</span><span class="num">${x.base === null ? "Not counted" : iqd(x.base)}</span></div>
+    <div class="r"><span>Cash sales</span><span class="num">${iqd(c.sales)}</span></div>
+    ${c.cin ? `<div class="r"><span>Customer payments</span><span class="num">${iqd(c.cin)}</span></div>` : ""}
+    ${c.ref ? `<div class="r"><span>Cash given back for returns</span><span class="num">−${iqd(c.ref)}</span></div>` : ""}
+    ${c.exp ? `<div class="r"><span>Expenses paid from the drawer</span><span class="num">−${iqd(c.exp)}</span></div>` : ""}
+    ${c.sup ? `<div class="r"><span>Supplier payments in cash</span><span class="num">−${iqd(c.sup)}</span></div>` : ""}` : ""}
+    <div class="r"><b>Should be in the drawer</b><b class="num">${x.expected === null ? "Not known yet" : iqd(x.expected)}</b></div></div>
+    <label>Cash you counted (IQD)<input id="ccAmt" type="text" inputmode="numeric" autocomplete="off"></label>
+    <p class="note" id="ccDiff">${end ? "Count every note in the drawer. The owner sees any difference." : "Count the drawer before you sell. The owner sees any difference."}</p><p class="err" id="ccErr"></p>
+    <button type="button" class="primary" data-xcashcount="${kind}">${end ? "Save count and end shift" : "Save count"}</button>`);
+  setTimeout(() => $("#ccAmt")?.focus(), 50);
+}
+async function saveCashCount(kind, btn){
+  const sh = curShift(), raw = ($("#ccAmt")?.value || "").replace(/[,\s]/g, ""), amt = Math.round(Number(raw));
+  if (!sh) return; if (raw === "" || !isFinite(amt) || amt < 0){ $("#ccErr").textContent = "Type the cash you counted."; return; }
+  btn.disabled = true;
+  try {
+    if (kind === "open"){ const e = drawerNow(sh);
+      await write("shifts/" + sh.id, {openCount:amt, openExpected:e, openDiff:e === null ? null : amt - e}, true);
+      closeSheet(); toast(e === null || amt === e ? "Cash count saved." : `Cash count saved. ${diffTxt(amt - e)}.`); render(); syncNow(); return; }
+    const end = nowIso(), x = shiftExpected(sh, end);
+    await write("shifts/" + sh.id, {closeCount:amt, closeExpected:x.expected, closeDiff:x.expected === null ? null : amt - x.expected}, true);
+    closeSheet(); syncNow(); await endShift(false, end);
+  } catch(e){ $("#ccErr").textContent = e.message; btn.disabled = false; }
+}
+async function endShift(lockOnly, at){
   if (!S.staff) return; const nm = S.staff.name;
-  if (!lockOnly && S.session?.shiftId){ try { await write("shifts/" + S.session.shiftId, {end:nowIso()}, true); } catch(e){ toast(e.message); return; } }
+  if (!lockOnly && S.session?.shiftId){ try { await write("shifts/" + S.session.shiftId, {end:at || nowIso()}, true); } catch(e){ toast(e.message); return; } }
   S.session = lockOnly ? S.session : null; lsSet("erp.session", S.session); S.staff = null; S.lockSel = null;
   if (lockOnly){ S.lockSel = null; } render(); drawLock(); toast(lockOnly ? "Screen locked." : `Shift ended for ${nm}.`);
 }
@@ -2840,6 +2887,7 @@ function staffView(){
   return `<section class="kpis"><div class="kpi lead"><span class="l">Salaries for ${esc(m)}</span><span class="v num">${iqd(rows.reduce((a,r) => a + r.w.pay, 0))}</span><span class="l">${hrsTxt(rows.reduce((a,r) => a + r.w.hours, 0))} worked</span></div>
     <div class="kpi"><span class="l">On shift now</span><span class="v num">${E.shifts.filter(x => !x.end && !x.voided).length}</span></div><div class="kpi"><span class="l">Staff</span><span class="v num">${activeStaff().length}</span></div></section>
   ${!hasOwner() ? `<div class="banner bad" style="border:0">There is no owner yet, so everyone sees every screen. Add yourself as the owner (Role: Owner) to protect the owner screens.</div>` : ""}
+  ${(() => { const off = E.shifts.filter(x => !x.voided && (x.start || "").slice(0,7) === m && ((isNum(x.openDiff) && x.openDiff) || (isNum(x.closeDiff) && x.closeDiff))); return off.length ? `<div class="banner bad" style="border:0">${off.length} cash count${off.length === 1 ? "" : "s"} did not match this month. Open the person below to see each shift.</div>` : ""; })()}
   ${late.length ? `<div class="banner bad" style="border:0">${late.length} shift${late.length === 1 ? "" : "s"} open for more than 14 hours. Someone may have forgotten to end their shift. Open the person below to fix it.</div>` : ""}
   <section class="sec"><div class="sechead"><h2>Staff</h2><div class="actions"><input id="staffM" type="month" value="${esc(m)}" style="width:auto"><button type="button" class="primary" data-xstaff="__new">+ Staff</button></div></div>
     <div class="list">${rows.map(({x, w}) => `<button type="button" class="row" data-xstaff="${esc(x.id)}"><span class="main"><span class="t">${esc(x.name)} <span class="pill">${esc(x.role === "owner" ? "Owner" : x.role === "cashier" ? "Cashier" : "Pharmacist")}</span>${x.active === false ? ` <span class="pill">Stopped</span>` : ""}</span><span class="s">${hrsTxt(w.hours)} · ${w.days} days · ${w.count} sales ${iqd(w.sales)}${w.open ? ` · on shift since ${esc(hm(w.open.start))}` : ""}</span></span><span class="end"><span class="num">${iqd(w.pay)}</span><span class="s">${esc(x.payType === "monthly" ? "monthly" : x.payType === "daily" ? "per day" : "per hour")}</span></span></button>`).join("")}</div>
@@ -2860,7 +2908,7 @@ function staffSheet(id){
         <p class="note">Staff is for the owner only.</p></fieldset>
       <label class="check"><input type="checkbox" id="fActive" ${x.active !== false ? "checked" : ""}> Can log in</label>
       <p class="err" id="fErr"></p><button type="submit" class="primary">Save</button></form>
-    ${w ? `<div class="sec"><h2>Shifts in ${esc(S.staffM)}</h2><div class="list">${w.sh.length ? [...w.sh].reverse().map(sh => `<div class="row" style="cursor:default;flex-wrap:wrap"><span class="main"><span class="t num">${esc(localDT(sh.start).replace("T", " "))} → ${sh.end ? esc(hm(sh.end)) : "now"}</span><span class="s">${hrsTxt(shiftHours(sh))}${sh.fixedBy ? " · end time fixed by owner" : ""}</span></span><span class="end">${isOwner() ? `<label style="font-size:12px">End<input type="datetime-local" data-xshend="${esc(sh.id)}" value="${sh.end ? esc(localDT(sh.end)) : ""}" style="min-width:190px"></label>` : ""}</span></div>`).join("") : `<div class="empty">No shifts this month.</div>`}</div></div>` : ""}`);
+    ${w ? `<div class="sec"><h2>Shifts in ${esc(S.staffM)}</h2><div class="list">${w.sh.length ? [...w.sh].reverse().map(sh => `<div class="row" style="cursor:default;flex-wrap:wrap"><span class="main"><span class="t num">${esc(localDT(sh.start).replace("T", " "))} → ${sh.end ? esc(hm(sh.end)) : "now"}</span><span class="s">${hrsTxt(shiftHours(sh))}${sh.fixedBy ? " · end time fixed by owner" : ""}</span>${cashLine(sh)}</span><span class="end">${isOwner() ? `<label style="font-size:12px">End<input type="datetime-local" data-xshend="${esc(sh.id)}" value="${sh.end ? esc(localDT(sh.end)) : ""}" style="min-width:190px"></label>` : ""}</span></div>`).join("") : `<div class="empty">No shifts this month.</div>`}</div></div>` : ""}`);
 }
 document.addEventListener("click", ev => { const t = ev.target.closest("[data-hold],[data-approve]"); if (!t) return;
   if (t.dataset.approve !== undefined){ if (!isOwner()){ ev.preventDefault(); ev.stopImmediatePropagation(); toast("Only the owner can approve invoices."); return; }
@@ -2890,8 +2938,10 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (d.xpinback){ S.lockPin = (S.lockPin || "").slice(0, -1); drawLock(); return; }
   if (d.xpinok){ tryLogin(); return; }
   if (d.xstaff){ if (!isOwner()){ toast("Only the owner can do this."); return; } staffSheet(d.xstaff); return; }
-  if (d.xendshift){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Tap again to end shift"; setTimeout(() => { t.dataset.sure = ""; t.textContent = "End shift"; }, 4000); return; } endShift(false); return; }
+  if (d.xendshift){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Tap again to end shift"; setTimeout(() => { t.dataset.sure = ""; t.textContent = "End shift"; }, 4000); return; } if (curShift()) cashSheet("end"); else endShift(false); return; }
   if (d.xlock){ endShift(true); return; }
+  if (d.xcashcount){ saveCashCount(d.xcashcount, t); return; }
+  if (d.xcountopen){ cashSheet("open"); return; }
 });
 document.addEventListener("keydown", ev => { if (!$("#lockScreen") || !S.lockSel) return; if (/^\d$/.test(ev.key)){ S.lockPin = ((S.lockPin || "") + ev.key).slice(0, 6); drawLock(); } else if (ev.key === "Backspace"){ S.lockPin = (S.lockPin || "").slice(0, -1); drawLock(); } else if (ev.key === "Enter") tryLogin(); });
 document.addEventListener("change", async ev => { const t = ev.target;
@@ -3509,7 +3559,7 @@ render = window.render = function(){
   $("#netDot")?.classList.toggle("off", !navigator.onLine);
   let bar = $("#staffBar"); if (!bar){ bar = document.createElement("div"); bar.id = "staffBar"; $("header.top").appendChild(bar); }
   const sh = S.session && E.shifts.find(x => x.id === S.session.shiftId);
-  bar.innerHTML = S.staff ? `<div class="in2"><span class="who"><span class="av" aria-hidden="true">${esc(S.staff.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0,2).toUpperCase())}</span><b>${esc(S.staff.name)}</b><span class="t">On shift since <span class="num">${esc(hm(sh?.start))}</span></span></span><span class="clock num" id="topClock">${esc(localDT(nowIso()).replace("T", " "))}</span><span class="actions"><button type="button" data-xlock="1">Lock</button><button type="button" class="danger" data-xendshift="1">End shift</button></span></div>` : "";
+  bar.innerHTML = S.staff ? `<div class="in2"><span class="who"><span class="av" aria-hidden="true">${esc(S.staff.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0,2).toUpperCase())}</span><b>${esc(S.staff.name)}</b><span class="t">On shift since <span class="num">${esc(hm(sh?.start))}</span></span></span><span class="clock num" id="topClock">${esc(localDT(nowIso()).replace("T", " "))}</span><span class="actions">${sh && !isNum(sh.openCount) ? `<button type="button" class="primary" data-xcountopen="1">Count cash</button>` : ""}<button type="button" data-xlock="1">Lock</button><button type="button" class="danger" data-xendshift="1">End shift</button></span></div>` : "";
   if (S.lang === "ar") translate(bar);
   const r = baseRenderERP.apply(this, arguments); drawLock();
   if (S.tab !== lastTabERP){ lastTabERP = S.tab; window.scrollTo(0, 0); document.querySelector(`nav.tabs [data-tab="${S.tab}"]`)?.scrollIntoView({block:"nearest", inline:"nearest"}); }
@@ -3540,6 +3590,8 @@ const queueRender = () => { if (renderQueued) return; renderQueued = true; reque
   const waitBase = () => { if (!window.BOOT || BOOT.done) return; progress(); if (!S.ready) setTimeout(waitBase, 50); }; waitBase();
   S.db.collection("meta").onSnapshot(s => { const d = s.docs.find(x => x.id === "erp"); E.cfg = d ? d.data() : {}; }, () => {});
 })();
+Object.assign(AR, {"Count the cash: start of shift":"عدّ النقد: بداية الدوام","Count the cash: end of shift":"عدّ النقد: نهاية الدوام","Counted at the start":"المعدود في البداية","Not counted":"لم يُعدّ","Cash sales":"مبيعات نقدية","Customer payments":"دفعات الزبائن","Cash given back for returns":"نقد مُرجع للزبائن","Expenses paid from the drawer":"مصاريف من الصندوق","Supplier payments in cash":"دفعات نقدية للموردين","Should be in the drawer":"المفروض في الصندوق","Not known yet":"غير معروف بعد","Cash you counted (IQD)":"النقد الذي عددته (دينار)","Count every note in the drawer. The owner sees any difference.":"عدّ كل الأوراق في الصندوق. المالك يرى أي فرق.","Count the drawer before you sell. The owner sees any difference.":"عدّ الصندوق قبل البيع. المالك يرى أي فرق.","Save count and end shift":"حفظ العد وإنهاء الدوام","Save count":"حفظ العد","Count cash":"عدّ النقد","Type the cash you counted.":"اكتب النقد الذي عددته.","Cash count saved.":"تم حفظ عد النقد."});
+AR_RX.push([/^Short by (.+)$/, "ناقص $1"], [/^Extra (.+)$/, "زيادة $1"], [/^Cash count saved\. Short by (.+)\.$/, "تم حفظ العد. ناقص $1."], [/^Cash count saved\. Extra (.+)\.$/, "تم حفظ العد. زيادة $1."], [/^Cash at start: (.+?)( · .+)?$/, (m, a, b) => "النقد في البداية: " + a + (b ? " · " + (trOne(b.slice(3)) ?? b.slice(3)) : "")], [/^Cash at end: (.+?)( · .+)?$/, (m, a, b) => "النقد في النهاية: " + a + (b ? " · " + (trOne(b.slice(3)) ?? b.slice(3)) : "")], [/^(\d+) cash counts? did not match this month\. Open the person below to see each shift\.$/, "$1 عدّ نقد غير مطابق هذا الشهر. افتح اسم الموظف أدناه لرؤية كل دوام."]);
 
 </script>
 <script>

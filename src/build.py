@@ -171,6 +171,7 @@ header.top .in{display:flex;align-items:center;justify-content:space-between;gap
 header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 .hbtn{min-height:40px!important;height:40px;padding:0 12px;border-radius:10px;font-size:14px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line)}
 .hbtn.primary{background:var(--accent2);border-color:var(--accent2);color:#fff}
+.row .s.bad{color:var(--bad)}
 #staffBar:empty{display:none}
 #staffBar{background:var(--sunk);border-top:1px solid var(--line)}
 #staffBar .in2{max-width:1000px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:6px max(16px,env(safe-area-inset-left,0px));font-size:13px}

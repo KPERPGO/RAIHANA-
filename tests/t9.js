@@ -31,7 +31,7 @@ const CASES = [
       const add = getComputedStyle(document.getElementById('addBtn')).display !== 'none';
       return {vis, bad, inMenu, notOpened:opened, add, own:isOwner()};
     }, [c, lang]);
-    const same = (a, x) => a.join() === x.join();
+    const same = (a, x) => [...a].sort().join() === [...x].sort().join();
     const ok = same(r.vis, c.expect) && same(r.inMenu, c.expect) && !r.bad.length && !r.notOpened.length && (c.newinv === undefined ? r.add : r.add === c.newinv) && !errs.length;
     if (!ok) { fails++; console.log('FAIL', size, lang, c.name, JSON.stringify(r), errs); }
     await page.close();

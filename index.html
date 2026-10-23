@@ -163,6 +163,8 @@ html,body{height:100%}
 body{padding-bottom:0!important;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:none}
 header.top{position:relative!important;top:auto!important;flex:none}
 #banner{flex:none}
+/* the page area is taller than short pages: keep sections and their rows at their own height instead of stretching to fill it */
+main#view,main#view .sec{align-content:start}
 main#view{flex:1 1 auto;min-height:0;width:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:24px}
 nav.tabs{position:relative!important;flex:none;bottom:auto!important;border-top:0!important;border-bottom:1px solid var(--line);padding-bottom:0!important;z-index:5}
 body::before{display:none}
@@ -193,16 +195,20 @@ nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:0}
 nav.tabs .ng{display:block;margin:5px 6px 0;line-height:14px;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}nav.tabs .ng .gs{display:none}
 nav.tabs .tl button{width:100%;height:26px;min-height:26px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
 nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
+/* a group with no heading (Pricing, Reports) starts with a thin line, so it does not read as part of the group above */
+nav.tabs .tl button.gsep{margin-top:5px;overflow:visible}nav.tabs .tl button.gsep::before{content:"";position:absolute;inset-inline:4px;top:-3px;border-top:1px solid var(--line)}nav.tabs .tl button{position:relative}
 body.navshut nav.tabs{width:auto}}
 @media (max-width:760px){nav.tabs .in{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:5px 8px}nav.tabs .tl{display:contents}
 nav.tabs .tl button,nav.tabs .navmenu{width:100%;height:30px;min-height:30px!important;padding:0 2px;font-size:12px;justify-content:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-nav.tabs .ng{display:flex;align-items:center;justify-content:flex-end;gap:2px;height:30px;padding:0 2px;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--accent);text-align:center;line-height:11px;overflow:hidden}nav.tabs .ng[hidden]{display:none}
+nav.tabs .ng{display:flex;align-items:center;justify-content:flex-end;gap:2px;height:30px;padding:0 2px;font-size:9.5px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:var(--accent);text-align:center;line-height:11px;overflow:hidden;white-space:nowrap}nav.tabs .ng[hidden]{display:none}
 nav.tabs .ng .gl{display:none}nav.tabs .ng .gs::after{content:" ›"}html[dir=rtl] nav.tabs .ng .gs::after{content:" ‹"}nav.tabs .ng .nb{margin:0;min-width:14px;height:14px;line-height:14px;font-size:9px}nav.tabs .navmenu{gap:3px}nav.tabs .navmenu svg{width:14px;height:14px;flex:none}}
 button,.btn{min-height:44px}
 .row{min-height:52px}
 .lineedit .lh button,.list .end button{min-height:36px}
 input,select{min-height:44px}
 .chips button{min-height:40px}
+/* Home: quick buttons for the most common jobs */
+.quickacts{display:flex;flex-wrap:wrap;gap:8px;order:-1}.quickacts button{min-height:44px;padding:0 16px;border-radius:999px;font-weight:600}
 .repidx{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px}.repidx h3{margin:4px 2px 6px;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}.repidx .row{min-height:44px}html[dir=rtl] .repidx .end{transform:scaleX(-1)}
 @media (min-width:1000px){.wrap,header.top .in{max-width:1000px}.sheet .panel{max-width:900px}}
 #printArea{display:none}
@@ -317,12 +323,12 @@ window.BOOT = (function(){
   <button type="button" data-tab="invoices">Invoices</button>
   <button type="button" data-tab="items">Items</button>
   <button type="button" data-tab="suppliers">Suppliers</button>
-  <button type="button" data-tab="pricing">Pricing</button>
+  <button type="button" data-tab="pricing" class="gsep">Pricing</button>
   <span class="ng" data-grp="finance"><span class="gl">Finance</span><span class="gs">Finance</span><i class="nb" hidden></i></span>
   <button type="button" data-tab="payments">Payments</button>
   <button type="button" data-tab="money">Cash box</button>
   <button type="button" data-tab="books">Accounts</button>
-  <button type="button" data-tab="reports">Reports</button>
+  <button type="button" data-tab="reports" class="gsep">Reports</button>
   <span class="ng" data-grp="admin"><span class="gl">Administration</span><span class="gs">Admin</span><i class="nb" hidden></i></span>
   <button type="button" data-tab="staff">Staff</button>
   <button type="button" data-tab="settings">Settings</button>
@@ -3473,7 +3479,12 @@ homeExtras = window.homeExtras = function(){
   const dueCards = E.chronic.filter(c => !c.deleted && c.active !== false && chrStatus(c).dl <= ALERT_DAYS() && !chrStatus(c).givenThis).length;
   const td = E.sales.filter(s => !s.voided && s.date === today());
   const owed = E.customers.reduce((a,c) => a + Math.max(0, custBalance(c.id).bal), 0); // debt selling is off unless switched on in Settings: the tile shows only when it matters
-  return `<section class="kpis" aria-label="Today">
+  // quick buttons for the day's most common jobs; each only for people who may open that screen. They call the same actions as the screens do
+  const quick = [canUse("sell") && `<button type="button" class="primary" data-tab="sell">Sell</button>`, `<button type="button" data-xfind="1">Find</button>`,
+    canUse("newinv") && `<button type="button" data-act="newInv">+ Invoice</button>`, canUse("stock") && `<button type="button" data-xcount="1">Stocktaking</button>`,
+    canUse("stock") && `<button type="button" data-xreorder="1">Reorder list</button>`, canUse("stock") && `<button type="button" data-xrepgo="stock-low">Low stock</button>`].filter(Boolean);
+  return `<div class="quickacts" role="group" aria-label="Quick actions">${quick.join("")}</div>
+  <section class="kpis" aria-label="Today">
     <button type="button" class="kpi tap" data-tab="sell"><span class="l">Sales today</span><span class="v num">${iqd(td.reduce((a,s) => a + n0(s.total), 0))}</span><span class="l">${td.length} receipts · tap to sell</span></button>
     <button type="button" class="kpi tap" data-tab="chronic"><span class="l">Chronic pickups in ${ALERT_DAYS()} days</span><span class="v num">${dueCards}</span><span class="l" ${soon.length ? 'style="color:var(--bad)"' : ""}>${soon.length ? `${soon.length} medicines short` : "stock is enough"}</span></button>
     <button type="button" class="kpi tap" data-tab="stock"><span class="l">Low or out of stock</span><span class="v num" ${low ? 'style="color:var(--bad)"' : ""}>${low}</span><span class="l">tap to see</span></button>
@@ -3972,7 +3983,7 @@ function reportGo(k){
 }
 { const baseReports = window.reportsView || (() => ""); ERP_VIEWS.reports = () => reportsIndex() + baseReports(); }
 document.addEventListener("click", ev => { const t = ev.target.closest("[data-xrepgo]"); if (t) reportGo(t.dataset.xrepgo); });
-Object.assign(AR, {"All reports":"كل التقارير","Profit and accounts":"الأرباح والحسابات","Sales today: total, profit, top items, busy hours":"مبيعات اليوم: المجموع، الربح، الأكثر بيعاً، أوقات الذروة","Sales this month":"مبيعات هذا الشهر","Receipts: reprint, return or cancel":"الوصولات: إعادة طباعة، إرجاع أو إلغاء","Cash box, expenses and profit by month":"صندوق النقد، المصاريف والربح الشهري","Low and out of stock":"المواد القليلة والنافدة","Reorder list":"قائمة إعادة الطلب","Prices below cost":"أسعار أقل من الكلفة","Items with no sell price":"مواد بدون سعر بيع","Hours, salary and activity log":"الساعات، الرواتب وسجل النشاط","Supplier reports (what to pay, expiry, prices, monthly, statement check) are below.":"تقارير الموردين (ما يجب دفعه، الصلاحية، الأسعار، الشهري، مطابقة كشف الحساب) في الأسفل."});
+Object.assign(AR, {"Quick actions":"إجراءات سريعة","All reports":"كل التقارير","Profit and accounts":"الأرباح والحسابات","Sales today: total, profit, top items, busy hours":"مبيعات اليوم: المجموع، الربح، الأكثر بيعاً، أوقات الذروة","Sales this month":"مبيعات هذا الشهر","Receipts: reprint, return or cancel":"الوصولات: إعادة طباعة، إرجاع أو إلغاء","Cash box, expenses and profit by month":"صندوق النقد، المصاريف والربح الشهري","Low and out of stock":"المواد القليلة والنافدة","Reorder list":"قائمة إعادة الطلب","Prices below cost":"أسعار أقل من الكلفة","Items with no sell price":"مواد بدون سعر بيع","Hours, salary and activity log":"الساعات، الرواتب وسجل النشاط","Supplier reports (what to pay, expiry, prices, monthly, statement check) are below.":"تقارير الموردين (ما يجب دفعه، الصلاحية، الأسعار، الشهري، مطابقة كشف الحساب) في الأسفل."});
 { const baseStaff = ERP_VIEWS.staff; ERP_VIEWS.staff = () => baseStaff() + activitySection(); }
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return;
   if (t.dataset.xreorder){ reorderSheet(); return; }

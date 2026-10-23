@@ -82,7 +82,7 @@ nav = ('<div class="shell"><nav class="tabs" aria-label="Sections"><div class="i
        f'  <button type="button" class="navmenu" data-xmenu="1" aria-label="Show or hide screens" aria-expanded="true">{MENU_SVG}<span>Menu</span></button>\n'
        '  <div class="tl">\n' + "\n".join(
            (f'  <span class="ng" data-grp="{g}"><span class="gl">{gn}</span><span class="gs">{GROUP_SHORT.get(g, gn)}</span><i class="nb" hidden></i></span>\n' if gn != dict(TABS)[ks[0]] else "") +
-           "\n".join(f'  <button type="button" data-tab="{k}"{" class=\"gsep\"" if j == 0 and g != "home" and gn == dict(TABS)[ks[0]] else ""}{" aria-current=\"page\"" if k=="home" else ""}>{dict(TABS)[k]}</button>' for j, k in enumerate(ks))
+           "\n".join(f'  <button type="button" data-tab="{k}" data-g="{g}"{" class=\"gsep\"" if j == 0 and g != "home" and gn == dict(TABS)[ks[0]] else ""}{" aria-current=\"page\"" if k=="home" else ""}>{dict(TABS)[k]}</button>' for j, k in enumerate(ks))
            for g,gn,ks in GROUPS) + '\n  </div>\n</div></nav>')
 rep(NAV_OLD, "")
 rep('<div id="banner" class="wrap" hidden style="padding-block:8px 0"><div class="banner" id="bannerText"></div></div>\n<main class="wrap" id="view"></main>',
@@ -119,6 +119,13 @@ nav.tabs .navmenu{flex:none;min-width:0;min-height:34px!important;height:34px;pa
 .shell,.mcol{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column}
 body.navshut nav.tabs .tl{display:none}
 nav.tabs .ng,.nb[hidden]{display:none}
+/* group headings open and close their screens (see navGroups); a closed group hides its screens except the one in use */
+nav.tabs .tl button.gshut{display:none!important}
+nav.tabs .ng{cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;border-radius:8px}
+nav.tabs .ng:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+nav.tabs .ng[aria-expanded=true]{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+nav.tabs .ng .gl::after,nav.tabs .ng .gs::after{content:" ▸"}html[dir=rtl] nav.tabs .ng .gl::after,html[dir=rtl] nav.tabs .ng .gs::after{content:" ◂"}
+nav.tabs .ng[aria-expanded=true] .gl::after,nav.tabs .ng[aria-expanded=true] .gs::after,html[dir=rtl] nav.tabs .ng[aria-expanded=true] .gl::after,html[dir=rtl] nav.tabs .ng[aria-expanded=true] .gs::after{content:" ▾"}
 .crumb{color:var(--muted);font-weight:400}.crumb:empty{display:none}
 .nb{display:inline-block;min-width:16px;height:16px;line-height:16px;border-radius:8px;background:var(--bad);color:#fff;font:600 10px/16px var(--mono);text-align:center;margin-inline-start:6px;font-style:normal}
 body.navshut nav.tabs .in{display:flex}
@@ -126,7 +133,7 @@ body.navshut nav.tabs .in{display:flex}
 nav.tabs{width:200px;flex:none;border-bottom:0!important;border-inline-end:1px solid var(--line);overflow-y:auto}
 nav.tabs .in{max-width:none;margin:0;flex-direction:column;align-items:stretch;gap:6px;padding:8px}
 nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:0}
-nav.tabs .ng{display:block;margin:5px 6px 0;line-height:14px;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}nav.tabs .ng .gs{display:none}
+nav.tabs .ng{display:flex;align-items:center;min-height:28px;margin:3px 0 0;padding:0 8px;line-height:14px;font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}nav.tabs .ng .gs{display:none}
 nav.tabs .tl button{width:100%;height:26px;min-height:26px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
 nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
 /* a group with no heading (Pricing, Reports) starts with a thin line, so it does not read as part of the group above */
@@ -134,8 +141,8 @@ nav.tabs .tl button.gsep{margin-top:5px;overflow:visible}nav.tabs .tl button.gse
 body.navshut nav.tabs{width:auto}}
 @media (max-width:760px){nav.tabs .in{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:5px 8px}nav.tabs .tl{display:contents}
 nav.tabs .tl button,nav.tabs .navmenu{width:100%;height:30px;min-height:30px!important;padding:0 2px;font-size:12px;justify-content:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-nav.tabs .ng{display:flex;align-items:center;justify-content:flex-end;gap:2px;height:30px;padding:0 2px;font-size:9.5px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:var(--accent);text-align:center;line-height:11px;overflow:hidden;white-space:nowrap}nav.tabs .ng[hidden]{display:none}
-nav.tabs .ng .gl{display:none}nav.tabs .ng .gs::after{content:" ›"}html[dir=rtl] nav.tabs .ng .gs::after{content:" ‹"}nav.tabs .ng .nb{margin:0;min-width:14px;height:14px;line-height:14px;font-size:9px}nav.tabs .navmenu{gap:3px}nav.tabs .navmenu svg{width:14px;height:14px;flex:none}}
+nav.tabs .ng{display:flex;align-items:center;justify-content:center;gap:2px;height:30px;padding:0 2px;border:1px solid var(--line);font-size:9.5px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:var(--accent);text-align:center;line-height:11px;overflow:hidden;white-space:nowrap}nav.tabs .ng[hidden]{display:none}
+nav.tabs .ng .gl{display:none}nav.tabs .ng .nb{margin:0;min-width:14px;height:14px;line-height:14px;font-size:9px}nav.tabs .navmenu{gap:3px}nav.tabs .navmenu svg{width:14px;height:14px;flex:none}}
 button,.btn{min-height:44px}
 .row{min-height:52px}
 .lineedit .lh button,.list .end button{min-height:36px}

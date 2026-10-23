@@ -18,16 +18,23 @@ const CASES = [
       E.staff = c.staff; S.staff = c.me ? c.staff.find(x => x.id === c.me) : null; if (lang === 'ar' && S.lang !== 'ar') document.getElementById('langBtn').click(); S.tab = 'home'; render();
       await new Promise(r => setTimeout(r, 150));
       const vis = [], bad = [];
-      for (const bt of document.querySelectorAll('nav.tabs [data-tab]')) { if (bt.hidden) continue; const k = bt.dataset.tab, q = bt.getBoundingClientRect();
+      // a screen in a closed group is reached by tapping its group heading (which must itself be on screen), then the screen button
+      const tapOk = el => { const q = el.getBoundingClientRect(), top = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+        return q.width > 20 && q.height > 20 && q.left >= 0 && q.right <= innerWidth + 0.5 && q.top >= 0 && q.bottom <= innerHeight && (top === el || el.contains(top)); };
+      for (const bt of document.querySelectorAll('nav.tabs [data-tab]')) { if (bt.hidden) continue; const k = bt.dataset.tab;
+        const head = bt.classList.contains('gshut') ? document.querySelector(`nav.tabs .ng[data-grp="${bt.dataset.g}"]`) : null;
+        if (head) { if (!tapOk(head)) bad.push(k + ' heading'); head.click(); }
+        const q = bt.getBoundingClientRect();
         const inView = q.width > 20 && q.height > 20 && q.left >= 0 && q.right <= innerWidth + 0.5 && q.top >= 0 && q.bottom <= innerHeight;
         const top = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
-        if (!inView || !(top === bt || bt.contains(top))) bad.push(k); vis.push(k); }
+        if (!inView || !(top === bt || bt.contains(top))) bad.push(k); vis.push(k); if (head) head.click(); }
       const menu = document.querySelector('.navmenu'), mq = menu.getBoundingClientRect(); if (!(mq.width > 20 && mq.right <= innerWidth + 0.5)) bad.push('Menu');
       // Menu hides the screen list, a second tap brings every allowed screen back
-      const shown = () => [...document.querySelectorAll('nav.tabs [data-tab]')].filter(x => !x.hidden && x.getBoundingClientRect().width > 0).map(x => x.dataset.tab);
+      const seen = x => x && x.getBoundingClientRect().width > 0;
+      const shown = () => [...document.querySelectorAll('nav.tabs [data-tab]')].filter(x => !x.hidden && (seen(x) || (x.classList.contains('gshut') && seen(document.querySelector(`nav.tabs .ng[data-grp="${x.dataset.g}"]`))))).map(x => x.dataset.tab);
       menu.click(); await new Promise(r => setTimeout(r, 50)); if (shown().length) bad.push('Menu did not hide the list'); const mq2 = menu.getBoundingClientRect(); if (!(mq2.width > 20 && mq2.right <= innerWidth + 0.5)) bad.push('Menu gone when list hidden');
       menu.click(); await new Promise(r => setTimeout(r, 50)); const inMenu = shown();
-      const opened = []; for (const k of vis) { document.querySelector(`nav.tabs [data-tab="${k}"]`).click(); await new Promise(r => setTimeout(r, 30)); if (S.tab !== k) opened.push(k); }
+      const opened = []; for (const k of vis) { const bt = document.querySelector(`nav.tabs [data-tab="${k}"]`); if (bt.classList.contains('gshut')) document.querySelector(`nav.tabs .ng[data-grp="${bt.dataset.g}"]`).click(); bt.click(); await new Promise(r => setTimeout(r, 30)); if (S.tab !== k) opened.push(k); }
       const add = getComputedStyle(document.getElementById('addBtn')).display !== 'none';
       return {vis, bad, inMenu, notOpened:opened, add, own:isOwner()};
     }, [c, lang]);

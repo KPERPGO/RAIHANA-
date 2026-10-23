@@ -1728,14 +1728,18 @@ function navAlerts(){
   try { low = lowStock(catalog(), usedMap()).length; due = E.chronic.filter(c => !c.deleted && c.active !== false && chrStatus(c).dl <= ALERT_DAYS() && !chrStatus(c).givenThis).length; stale = staleList().length; late = isOwner() ? lateShifts().length : 0; } catch(e){}
   return navCount.v = {inventory:low, patients:due, purchasing:stale, admin:late};
 }
+/* a group with a heading starts closed; tapping the heading shows or hides its screens. At most two groups stay open:
+   opening a third closes the one opened longest ago. The screen in use always shows, even in a closed group */
+let navOpen = [];
+function navToggle(g){ navOpen = navOpen.includes(g) ? navOpen.filter(x => x !== g) : [...navOpen, g].slice(-2); navGroups(); }
 function navGroups(){
   const tl = document.querySelector("nav.tabs .tl"); if (!tl) return; const al = navAlerts();
-  let cur = null, any = false;
-  const flush = () => { if (cur) cur.hidden = !any; };
-  for (const el of tl.children){
-    if (el.classList.contains("ng")){ flush(); cur = el; any = false; const n = al[el.dataset.grp] || 0, nb = el.querySelector(".nb"); if (nb){ nb.hidden = !n; nb.textContent = n > 99 ? "99+" : n; } }
-    else if (el.dataset.tab && !el.hidden) any = true; }
-  flush();
+  const heads = {}, seen = {};
+  for (const el of tl.querySelectorAll(".ng")) heads[el.dataset.grp] = el;
+  for (const el of tl.querySelectorAll("[data-tab]")){ const g = el.dataset.g, h = heads[g]; if (!el.hidden) seen[g] = true;
+    el.classList.toggle("gshut", !!h && !navOpen.includes(g) && el.dataset.tab !== S.tab); }
+  for (const [g, el] of Object.entries(heads)){ el.hidden = !seen[g]; const n = al[g] || 0, nb = el.querySelector(".nb"); if (nb){ nb.hidden = !n; nb.textContent = n > 99 ? "99+" : n; }
+    el.setAttribute("aria-expanded", String(navOpen.includes(g))); el.setAttribute("role", "button"); el.tabIndex = 0; }
   let c = $("#crumb"), scr = document.querySelector("header.top .scr");
   if (!c && scr){ c = document.createElement("span"); c.id = "crumb"; c.className = "crumb"; scr.insertBefore(c, $("#scrTitle")); const b = document.createElement("button"); b.type = "button"; b.id = "finderBtn"; b.setAttribute("aria-label", "Find a screen"); b.dataset.xfind = "1"; b.textContent = "⌕"; b.style.cssText = "min-height:28px;height:28px;padding:0 8px;margin-inline-start:8px"; scr.appendChild(b); }
   if (c){ const g = GROUP_OF[S.tab] || ""; const t = g ? g + " ›" : ""; if (c.dataset.k !== t + S.lang){ c.dataset.k = t + S.lang; c.textContent = t ? t + " " : ""; if (S.lang === "ar") translate(c); } }
@@ -1772,6 +1776,8 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (t.dataset.xfindgo){ closeSheet(); document.querySelector(`nav.tabs [data-tab="${t.dataset.xfindgo}"]`)?.click(); }
   if (t.dataset.xfindsell){ closeSheet(); S.sellQ = t.dataset.xfindsell; document.querySelector('nav.tabs [data-tab="sell"]')?.click(); } });
 document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k" && !$("#lockScreen")){ ev.preventDefault(); finderSheet(); } });
+document.addEventListener("click", ev => { const h = ev.target.closest("nav.tabs .ng"); if (h) navToggle(h.dataset.grp); });
+document.addEventListener("keydown", ev => { const h = ev.target.closest?.("nav.tabs .ng"); if (h && (ev.key === "Enter" || ev.key === " ")){ ev.preventDefault(); navToggle(h.dataset.grp); } });
 Object.assign(AR, {"Admin":"الإدارة","Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick \"Quick button on Sell\".":"تظهر هنا أزرار سريعة للمواد الأكثر بيعاً. يمكنك أيضاً تثبيت مادة: افتحها من المخزون وضع علامة على \"زر سريع في البيع\".","Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Find":"بحث","Screen, medicine, barcode, customer, invoice or receipt":"شاشة، دواء، باركود، زبون، فاتورة أو وصل","Nothing matches.":"لا توجد نتيجة.","Chronic card":"بطاقة مزمن","Invoice":"فاتورة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
 let lastTabERP = null;
 const baseRenderERP = render;

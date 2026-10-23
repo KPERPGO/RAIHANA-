@@ -1,6 +1,6 @@
 // Safeguard: every screen a person is allowed must be visible, tappable, hidden and shown again by Menu, on phone and desktop.
 const { chromium } = require('./pw');
-const ALL = ['home','sell','stock','pricing','chronic','invoices','items','payments','suppliers','customers','money','reports','staff','settings'];
+const ALL = ['home','sell','stock','pricing','chronic','invoices','items','payments','suppliers','customers','dose','money','reports','staff','settings'];
 const CASES = [
   {name:'no staff yet', staff:[], me:null, expect:ALL},
   {name:'only a pharmacist, no owner (Owner case)', staff:[{id:'ST-P', name:'Ali', role:'pharmacist', active:true}], me:'ST-P', expect:ALL},

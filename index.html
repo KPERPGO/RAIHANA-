@@ -307,6 +307,7 @@ window.BOOT = (function(){
   <button type="button" data-tab="payments">Payments</button>
   <button type="button" data-tab="suppliers">Suppliers</button>
   <button type="button" data-tab="customers">Customers</button>
+  <button type="button" data-tab="dose">Dose</button>
   <button type="button" data-tab="money">Money</button>
   <button type="button" data-tab="reports">Reports</button>
   <button type="button" data-tab="staff">Staff</button>
@@ -1923,7 +1924,7 @@ render();
 /* ---------- Raihana ERP modules (2026-10-21): stock by batch, cashier, customers on debt,
    chronic patient cards with shortage alerts, money (cash box, expenses, profit), settings.
    Stock is worked out from the purchase invoices: what came in, minus returns, sales and write-offs. ---------- */
-const E = {staff:[], shifts:[], prods:[], sales:[], moves:[], customers:[], custpays:[], chronic:[], expenses:[], closes:[], counts:[], events:[], cfg:{}};
+const E = {staff:[], shifts:[], doserules:[], prods:[], sales:[], moves:[], customers:[], custpays:[], chronic:[], expenses:[], closes:[], counts:[], events:[], cfg:{}};
 /* several sales open at once: one tab per customer at the counter */
 S.tabs = lsGet("erp.tabs", null) || [{n:1, lines:lsGet("erp.cart", []), meta:lsGet("erp.cartMeta", {})}];
 S.tabAt = Math.min(lsGet("erp.tabAt", 0), S.tabs.length - 1); S.sellPeriod = lsGet("erp.sellPeriod", "today");
@@ -2293,7 +2294,7 @@ function sellView(){
   const quick = quickItems(cat, used);
   return `<section class="sec">
     <div class="tabsale" role="tablist" aria-label="Open sales">${S.tabs.map((t, i) => `<button type="button" role="tab" aria-selected="${i === S.tabAt}" data-xtab="${i}"><span>${esc(tabName(t))}</span><span class="num">${(t.lines || []).length ? iqd(Math.max(0, tabSum(t))) : "empty"}</span></button>`).join("")}<button type="button" class="add" data-xnewtab="1" aria-label="New customer">+ Customer</button></div>
-    <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}</div>
+    <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}${canUse("dose") ? `<button type="button" class="hbtn" data-xdosepop="1">Dose</button>` : ""}</div>
     <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print</p>
     ${q ? `<div class="list">${hits.length ? hits.map(p => { const s = stockOf(p, used); return `<button type="button" class="row" data-xadd="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""} · ${esc(qtyText(p, s.good))} in stock${s.next ? ` · exp ${esc(s.next.expiry)}` : ""}</span></span><span class="end num">${p.sellBox ? iqd(p.sellBox) : `<span class="pill warn">No price</span>`}</span></button>`; }).join("") : `<div class="empty">No item matches. Items appear here once they are on a purchase invoice, or add one under Stock.</div>`}</div>` : ""}
     ${!q && quick.length ? `<div class="quick">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" ${s.good <= 0 ? 'class="out"' : ""}><b>${esc(p.name)}</b><span>${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span><span class="num">${p.sellBox ? f0(p.sellBox) : "No price"}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : ""}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
@@ -2797,7 +2798,7 @@ document.addEventListener("change", ev => { const t = ev.target, d = t.dataset;
 S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice(0,7);
 /* screen permissions: the owner ticks which screens each employee may use. "newinv" is the + Invoice / Scan buttons.
    Staff stays owner-only, so nobody can give themselves more screens */
-const PERM_SCREENS = [["newinv","New purchase invoice"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["money","Money"],["reports","Reports"],["settings","Settings"]];
+const PERM_SCREENS = [["newinv","New purchase invoice"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["dose","Dose"],["money","Money"],["reports","Reports"],["settings","Settings"]];
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
 const canUse = k => isOwner() || (k !== "staff" && myPerms().includes(k));
@@ -3179,18 +3180,18 @@ async function cancelRecord(coll, id, what, after){
 async function backupAll(btn){
   if (!S.dl){ toast("Download isn't available here."); return; } btn.disabled = true;
   try {
-    const data = {app:"Raihana ERP", version:1, exportedAt:nowIso(), collections:{suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})), products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts}};
+    const data = {app:"Raihana ERP", version:1, exportedAt:nowIso(), collections:{suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})), products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, doserules:E.doserules}};
     await S.dl.save({filename:`Raihana_ERP_Backup_${today()}.json`, data:new Blob([JSON.stringify(data)], {type:"application/json"})});
     toast("Backup saved."); window.markBackup?.();
   } catch(e){ toast(e?.code === "declined" ? "Download cancelled." : "Backup failed. Try again."); } finally { btn.disabled = false; }
 }
 /* restore (audit F-03): shows what will change first, adds records that are missing, and replaces a record only when the
    file's copy is newer. A record changed or cancelled on this device after the backup is always kept as it is. */
-const RESTORE_COLLS = ["suppliers","invoices","payments","credits","meta","products","sales","moves","customers","custpays","chronic","expenses","closes","counts","staff","shifts","events"];
+const RESTORE_COLLS = ["doserules","suppliers","invoices","payments","credits","meta","products","sales","moves","customers","custpays","chronic","expenses","closes","counts","staff","shifts","events"];
 const recStamp = d => [d?.lastAt, d?.updatedAt, d?.voidedAt, d?.deletedAt, d?.staffAt, d?.at, d?.createdAt].filter(x => typeof x === "string").sort().pop() || "";
 function deviceColl(coll){
   return ({suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits || S.credits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})),
-    products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts})[coll] || [];
+    products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, doserules:E.doserules})[coll] || [];
 }
 function restorePlan(j){
   const plan = {add:[], replace:[], keep:0, same:0};
@@ -3446,7 +3447,7 @@ document.addEventListener("submit", async ev => {
 });
 
 /* ---------- hook into the app: tabs, home screen, Excel, Arabic ---------- */
-window.ERP_VIEWS = {none:() => `<div class="empty">The owner has not given you any screens yet. Ask the owner to tick your screens under Staff.</div>`, staff:staffView, pricing:pricingView, sell:sellView, stock:stockView, chronic:chronicView, customers:customersView, money:moneyView, settings:settingsView};
+window.ERP_VIEWS = {none:() => `<div class="empty">The owner has not given you any screens yet. Ask the owner to tick your screens under Staff.</div>`, staff:staffView, pricing:pricingView, sell:sellView, stock:stockView, chronic:chronicView, customers:customersView, dose:doseView, money:moneyView, settings:settingsView};
 const baseHomeExtras = homeExtras;
 homeExtras = window.homeExtras = function(){
   const used = usedMap(), cat = catalog(), low = lowStock(cat, used).length, soon = chronicNeeds(ALERT_DAYS()).filter(n => n.short > 0);
@@ -3608,7 +3609,7 @@ if (document.readyState === "loading") document.addEventListener("DOMContentLoad
 let renderQueued = false;
 const queueRender = () => { if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); };
 (function start(){
-  const map = {staff:"staff", shifts:"shifts", counts:"counts", products:"prods", sales:"sales", moves:"moves", customers:"customers", custpays:"custpays", chronic:"chronic", expenses:"expenses", closes:"closes", events:"events"};
+  const map = {staff:"staff", shifts:"shifts", counts:"counts", products:"prods", sales:"sales", moves:"moves", customers:"customers", custpays:"custpays", chronic:"chronic", expenses:"expenses", closes:"closes", events:"events", doserules:"doserules"};
   const total = Object.keys(map).length, got = new Set();
   const progress = () => { const B = window.BOOT; if (!B || B.done) return; B.set(15 + (S.ready ? 35 : 0) + 50 * got.size / total);
     if (S.ready && (got.size === total || !S.db)){ staffAfterData(); render(); B.finish(); } };
@@ -3705,6 +3706,95 @@ Object.assign(AR, {"Close them now":"أغلقها الآن","Close forgotten shi
 AR_RX.push([/^(\d+) shifts? closed\. Hours recounted\.$/, "تم إغلاق $1 دوام. أُعيد حساب الساعات."]);
 AR_RX.push([/^(\d+) shifts? open for more than 14 hours\. Someone may have forgotten to end their shift\. Until you set the real end, each counts only 14 hours\.\s*$/, "$1 دوام مفتوح أكثر من 14 ساعة. ربما نسي أحدهم إنهاء دوامه. حتى تحدد النهاية الحقيقية، يُحسب كل دوام 14 ساعة فقط."]);
 Object.assign(AR, {"Card":"بطاقة","Paid by card":"مدفوع بالبطاقة","The refund goes back to the customer's card, not from the cash box.":"يُرد المبلغ إلى بطاقة الزبون وليس من صندوق النقد.","Paid by card today (not in the box)":"مدفوع بالبطاقة اليوم (ليس في الصندوق)"});
+
+/* ---- dose calculator: the owner enters dose rules taken from an official label (FDA, EMA); staff enter age and weight.
+   The app only works out numbers from those rules and always shows the source. It never invents a dose, and it says so when
+   age or weight is outside a rule, or when a condition (kidney, liver, pregnancy) has no advice in the rule ---- */
+S.dose = {rid:"", y:"", m:"", kg:"", renal:false, hepatic:false, preg:false};
+const doseRules = () => E.doserules.filter(r => !r.deleted).sort((a, b) => (a.drug || "").localeCompare(b.drug || ""));
+const dfmt = v => (Math.round(v * 10) / 10).toLocaleString("en-US");
+function doseCalc(r, ageM, kg){
+  if (!isNum(kg) || kg <= 0) return {err:"Type the weight in kg."};
+  if (!isNum(ageM) || ageM < 0) return {err:"Type the age."};
+  if ((isNum(r.ageMin) && ageM < r.ageMin) || (isNum(r.ageMax) && ageM > r.ageMax)) return {out:`Age is outside this rule (${isNum(r.ageMin) ? r.ageMin : 0} to ${isNum(r.ageMax) ? r.ageMax : "any"} months). Do not use this rule.`};
+  if ((isNum(r.kgMin) && kg < r.kgMin) || (isNum(r.kgMax) && kg > r.kgMax)) return {out:`Weight is outside this rule (${isNum(r.kgMin) ? r.kgMin : 0} to ${isNum(r.kgMax) ? r.kgMax : "any"} kg). Do not use this rule.`};
+  const k = r.basis === "perkg" ? kg : 1;
+  let lo = r.doseMin * k, hi = r.doseMax * k, capped = false;
+  if (isNum(r.maxSingle) && hi > r.maxSingle){ hi = r.maxSingle; lo = Math.min(lo, hi); capped = true; }
+  const caps = [r.dosesPerDay * hi]; if (isNum(r.maxDay)) caps.push(r.maxDay); if (isNum(r.maxDayKg)) caps.push(r.maxDayKg * kg);
+  const day = Math.min(...caps);
+  return {lo, hi, day, capped, every:24 / r.dosesPerDay, ml:isNum(r.mgPer5ml) && r.mgPer5ml > 0 ? [lo / r.mgPer5ml * 5, hi / r.mgPer5ml * 5] : null, tab:isNum(r.mgTab) && r.mgTab > 0 ? [lo / r.mgTab, hi / r.mgTab] : null};
+}
+function doseOut(){
+  const d = S.dose, r = doseRules().find(x => x.id === d.rid); if (!r) return `<div class="empty">Choose a medicine.</div>`;
+  const ageM = (d.y === "" && d.m === "") ? NaN : n0(parseNum(d.y)) * 12 + n0(parseNum(d.m)), c = doseCalc(r, ageM, parseNum(d.kg));
+  if (c.err) return `<div class="banner">${c.err}</div>`;
+  if (c.out) return `<div class="banner bad" style="border:0">${c.out}</div>`;
+  const row = (l, v) => `<div class="r"><span>${l}</span><span class="dv">${v}</span></div>`, rng = (a, b, u) => dfmt(a) === dfmt(b) ? `${dfmt(a)} ${u}` : `${dfmt(a)} to ${dfmt(b)} ${u}`;
+  const cond = [[d.renal, "Kidney problem", r.renalNote], [d.hepatic, "Liver problem", r.hepaticNote], [d.preg, "Pregnant or breastfeeding", r.pregNote]].filter(x => x[0]).map(([, l, note]) => note ? `<div class="banner"><b>${l}</b> <span>${esc(note)}</span></div>` : `<div class="banner bad" style="border:0"><b>${l}</b> <span>This rule has no advice for this. Check the full label before giving it.</span></div>`).join("");
+  return `<div class="sum">${row("Dose each time", rng(c.lo, c.hi, "mg"))}${c.capped ? `<p class="note">Limited to the largest single dose in the rule.</p>` : ""}
+    ${c.ml ? row("As liquid", rng(c.ml[0], c.ml[1], "mL") + ` <span class="note">(${dfmt(r.mgPer5ml)} mg per 5 mL)</span>`) : ""}${c.tab ? row("As tablets", rng(c.tab[0], c.tab[1], "tablet") + ` <span class="note">(${dfmt(r.mgTab)} mg each)</span>`) : ""}
+    ${row("Times a day", `${r.dosesPerDay}, about every ${dfmt(c.every)} hours`)}<div class="r big"><span>Do not give more than, in 24 hours</span><span class="dv">${dfmt(c.day)} mg</span></div></div>
+    ${cond}${r.notes ? `<p class="note">${esc(r.notes)}</p>` : ""}
+    <p class="note">Source: ${esc(r.srcName)} · ${esc(r.srcRef)} · ${esc(r.srcDate)}${r.approvedBy ? ` · approved by ${esc(whoName(r.approvedBy))}` : ""}</p>
+    <p class="note">This is an aid. The pharmacist checks it and decides.</p>`;
+}
+function doseCalcHtml(){
+  const all = doseRules(), ok = all.filter(r => r.status === "approved"), d = S.dose;
+  if (!d.rid || !ok.some(x => x.id === d.rid)) d.rid = ok[0]?.id || "";
+  return ok.length ? `<label>Medicine and patient group<select id="dsRule">${ok.map(r => `<option value="${esc(r.id)}" ${r.id === d.rid ? "selected" : ""}>${esc(r.drug)}${r.group ? " \u00b7 " + esc(r.group) : ""}</option>`).join("")}</select></label>
+    <div class="grid2 stack"><label>Age (years)<input id="dsY" class="num" inputmode="numeric" value="${esc(d.y)}"></label><label>Plus months<input id="dsM" class="num" inputmode="numeric" value="${esc(d.m)}"></label></div>
+    <label>Weight (kg)<input id="dsKg" class="num" inputmode="decimal" value="${esc(d.kg)}"></label>
+    <div class="chips"><label class="check"><input type="checkbox" id="dsRenal" ${d.renal ? "checked" : ""}> Kidney problem</label><label class="check"><input type="checkbox" id="dsHep" ${d.hepatic ? "checked" : ""}> Liver problem</label><label class="check"><input type="checkbox" id="dsPreg" ${d.preg ? "checked" : ""}> Pregnant or breastfeeding</label></div>
+    <div id="doseOut" style="display:grid;gap:10px">${doseOut()}</div>` : `<div class="empty">No approved dose rules yet. ${isOwner() ? "Add a rule below from an official label, then approve it." : "Ask the owner to add and approve the rules."}</div>`;
+}
+function doseView(){
+  const all = doseRules(), own = isOwner();
+  return `<section class="sec"><h2>Dose calculator</h2><div class="sum" style="gap:12px">${doseCalcHtml()}</div></section>
+  ${own ? `<section class="sec"><div class="sechead"><h2>Dose rules</h2><button type="button" class="primary" data-xdedit="__new">+ Rule</button></div>
+    <p class="note">Copy each rule from an official label (FDA or EMA). Every rule must name its source. A rule is only used after you approve it, and changing a rule puts it back to draft.</p>
+    <div class="list">${all.length ? all.map(r => `<button type="button" class="row" data-xdedit="${esc(r.id)}"><span class="main"><span class="t">${esc(r.drug)}${r.group ? " \u00b7 " + esc(r.group) : ""} <span class="pill ${r.status === "approved" ? "good" : "warn"}">${r.status === "approved" ? "Approved" : "Draft"}</span></span><span class="s">${esc(r.srcName)} \u00b7 ${esc(r.srcDate)}</span></span></button>`).join("") : `<div class="empty">No rules yet.</div>`}</div></section>` : ""}`;
+}
+function doseSheet(id){
+  const r = E.doserules.find(x => x.id === id) || {}, v = k => esc(r[k] ?? ""), f = (k, l, ph = "") => `<label>${l}<input id="dr_${k}" class="num" inputmode="decimal" value="${v(k)}" ${ph ? `placeholder="${ph}"` : ""}></label>`;
+  openSheet(r.id ? "Edit dose rule" : "New dose rule", `<form id="doseForm" data-id="${esc(r.id || "")}" style="display:grid;gap:10px">
+    <div class="grid2 stack"><label>Medicine<input id="dr_drug" value="${v("drug")}" required></label><label>Patient group<input id="dr_group" value="${v("group")}" placeholder="Child, Adult"></label></div>
+    <div class="grid2 stack">${f("ageMin", "Age from (months)")}${f("ageMax", "Age to (months)")}${f("kgMin", "Weight from (kg)")}${f("kgMax", "Weight to (kg)")}</div>
+    <label>Dose is<select id="dr_basis"><option value="perkg" ${r.basis !== "fixed" ? "selected" : ""}>mg per kg of body weight</option><option value="fixed" ${r.basis === "fixed" ? "selected" : ""}>a fixed number of mg</option></select></label>
+    <div class="grid2 stack">${f("doseMin", "Dose from (mg)")}${f("doseMax", "Dose to (mg)")}${f("dosesPerDay", "Times a day (most)")}${f("maxSingle", "Largest single dose (mg)")}${f("maxDay", "Most per day (mg)")}${f("maxDayKg", "Most per day (mg per kg)")}${f("mgPer5ml", "Liquid: mg in 5 mL")}${f("mgTab", "Tablet: mg each")}</div>
+    <label>Kidney advice<input id="dr_renalNote" value="${v("renalNote")}"></label><label>Liver advice<input id="dr_hepaticNote" value="${v("hepaticNote")}"></label><label>Pregnancy and breastfeeding advice<input id="dr_pregNote" value="${v("pregNote")}"></label><label>Other notes<input id="dr_notes" value="${v("notes")}"></label>
+    <div class="grid2 stack"><label>Source (FDA or EMA document)<input id="dr_srcName" value="${v("srcName")}" required></label><label>Document title or link<input id="dr_srcRef" value="${v("srcRef")}" required></label><label>Label date<input id="dr_srcDate" value="${v("srcDate")}" placeholder="2024-05" required></label></div>
+    <p class="err" id="drErr"></p><div class="actions"><button type="submit" class="primary">Save as draft</button>${r.id && r.status !== "approved" ? `<button type="button" data-xdappr="${esc(r.id)}">Approve this rule</button>` : ""}${r.id ? `<button type="button" class="danger" data-xddel="${esc(r.id)}">Delete</button>` : ""}</div></form>`);
+  if (S.lang === "ar") translate($("#sheet"));
+}
+document.addEventListener("submit", async ev => { if (ev.target.id !== "doseForm") return; ev.preventDefault();
+  if (!isOwner()){ toast("Only the owner can do this."); return; }
+  const g = k => $("#dr_" + k).value.trim(), num = k => { const x = parseNum($("#dr_" + k).value); return x === null || isNaN(x) ? null : x; }, err = m => { $("#drErr").textContent = m; };
+  const rule = {drug:g("drug"), group:g("group"), ageMin:num("ageMin"), ageMax:num("ageMax"), kgMin:num("kgMin"), kgMax:num("kgMax"), basis:$("#dr_basis").value, doseMin:num("doseMin"), doseMax:num("doseMax"), dosesPerDay:num("dosesPerDay"), maxSingle:num("maxSingle"), maxDay:num("maxDay"), maxDayKg:num("maxDayKg"), mgPer5ml:num("mgPer5ml"), mgTab:num("mgTab"), renalNote:g("renalNote"), hepaticNote:g("hepaticNote"), pregNote:g("pregNote"), notes:g("notes"), srcName:g("srcName"), srcRef:g("srcRef"), srcDate:g("srcDate")};
+  if (!rule.drug || !rule.srcName || !rule.srcRef || !rule.srcDate) return err("Type the medicine and its source (document, title or link, date).");
+  if (!isNum(rule.doseMin) || !isNum(rule.doseMax) || rule.doseMin <= 0 || rule.doseMax < rule.doseMin) return err("Type the dose from and to, with the largest not smaller than the smallest.");
+  if (!isNum(rule.dosesPerDay) || rule.dosesPerDay < 1 || rule.dosesPerDay > 24) return err("Type how many times a day (1 to 24).");
+  const id = ev.target.dataset.id || newId("DR");
+  try { await write("doserules/" + id, {...rule, id, status:"draft", approvedBy:null, approvedAt:null, deleted:false}); closeSheet(); toast("Rule saved as a draft. Approve it to use it."); } catch(x){ err(x.message); }
+});
+document.addEventListener("click", async ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
+  if (d.xdosepop){ openSheet("Dose calculator", `<div style="display:grid;gap:12px">${doseCalcHtml()}</div>`); if (S.lang === "ar") translate($("#sheet")); setTimeout(() => $("#dsKg")?.focus(), 80); return; }
+  if (d.xdedit !== undefined){ if (!isOwner()){ toast("Only the owner can do this."); return; } doseSheet(d.xdedit === "__new" ? "" : d.xdedit); return; }
+  if (d.xdappr){ if (!isOwner()){ toast("Only the owner can do this."); return; } const by = await ownerOK([`Approve a dose rule (${E.doserules.find(x => x.id === d.xdappr)?.drug})`], {always:true}); if (!by) return;
+    try { await write("doserules/" + d.xdappr, {status:"approved", approvedBy:by, approvedAt:nowIso()}, true); closeSheet(); toast("Rule approved."); } catch(x){ toast(x.message); } return; }
+  if (d.xddel){ if (!isOwner()){ toast("Only the owner can do this."); return; } if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Tap again to delete"; setTimeout(() => { t.dataset.sure = ""; t.textContent = "Delete"; }, 4000); return; }
+    try { await write("doserules/" + d.xddel, {deleted:true, status:"draft"}, true); closeSheet(); toast("Rule deleted."); } catch(x){ toast(x.message); } }
+});
+const doseLive = ev => { const t = ev.target; if (!t.id || !t.id.startsWith("ds")) return; const d = S.dose;
+  if (t.id === "dsRule") d.rid = t.value; else if (t.id === "dsY") d.y = t.value; else if (t.id === "dsM") d.m = t.value; else if (t.id === "dsKg") d.kg = t.value;
+  else if (t.id === "dsRenal") d.renal = t.checked; else if (t.id === "dsHep") d.hepatic = t.checked; else if (t.id === "dsPreg") d.preg = t.checked; else return;
+  const o = $("#doseOut"); if (o){ o.innerHTML = doseOut(); if (S.lang === "ar") translate(o); } };
+document.addEventListener("input", doseLive); document.addEventListener("change", doseLive);
+TIPS.dose = "Choose the medicine, type the age and weight, and read the dose with its source. Only rules the owner approved appear here.";
+Object.assign(AR, {"Dose":"الجرعة","Dose calculator":"حاسبة الجرعات","Dose rules":"قواعد الجرعات","+ Rule":"+ قاعدة","Medicine and patient group":"الدواء وفئة المريض","Age (years)":"العمر (سنوات)","Plus months":"مع أشهر","Weight (kg)":"الوزن (كغم)","Kidney problem":"مشكلة في الكلى","Liver problem":"مشكلة في الكبد","Pregnant or breastfeeding":"حامل أو مرضعة","Choose a medicine.":"اختر دواءً.","Type the weight in kg.":"اكتب الوزن بالكيلوغرام.","Type the age.":"اكتب العمر.","Dose each time":"الجرعة في كل مرة","As liquid":"كشراب","As tablets":"كأقراص","Times a day":"عدد المرات في اليوم","Do not give more than, in 24 hours":"لا تعطِ أكثر من ذلك خلال 24 ساعة","Limited to the largest single dose in the rule.":"تم تحديدها بأكبر جرعة مفردة في القاعدة.","This rule has no advice for this. Check the full label before giving it.":"لا توجد نصيحة في هذه القاعدة لهذه الحالة. راجع النشرة الكاملة قبل الإعطاء.","This is an aid. The pharmacist checks it and decides.":"هذه أداة مساعدة. الصيدلي يراجعها ويقرر.","No approved dose rules yet. Ask the owner to add and approve the rules.":"لا توجد قواعد جرعات معتمدة بعد. اطلب من المالك إضافتها واعتمادها.","No approved dose rules yet. Add a rule below from an official label, then approve it.":"لا توجد قواعد جرعات معتمدة بعد. أضف قاعدة أدناه من نشرة رسمية ثم اعتمدها.","Copy each rule from an official label (FDA or EMA). Every rule must name its source. A rule is only used after you approve it, and changing a rule puts it back to draft.":"انسخ كل قاعدة من نشرة رسمية (FDA أو EMA). يجب أن تذكر كل قاعدة مصدرها. لا تُستعمل القاعدة إلا بعد اعتمادك لها، وتعديلها يعيدها إلى مسودة.","No rules yet.":"لا توجد قواعد بعد.","Approved":"معتمدة","Draft":"مسودة","Edit dose rule":"تعديل قاعدة جرعة","New dose rule":"قاعدة جرعة جديدة","Medicine":"الدواء","Patient group":"فئة المريض","Age from (months)":"العمر من (أشهر)","Age to (months)":"العمر إلى (أشهر)","Weight from (kg)":"الوزن من (كغم)","Weight to (kg)":"الوزن إلى (كغم)","Dose is":"الجرعة هي","mg per kg of body weight":"ملغ لكل كغم من وزن الجسم","a fixed number of mg":"عدد ثابت من الملغ","Dose from (mg)":"الجرعة من (ملغ)","Dose to (mg)":"الجرعة إلى (ملغ)","Times a day (most)":"المرات في اليوم (الأكثر)","Largest single dose (mg)":"أكبر جرعة مفردة (ملغ)","Most per day (mg)":"الأكثر في اليوم (ملغ)","Most per day (mg per kg)":"الأكثر في اليوم (ملغ لكل كغم)","Liquid: mg in 5 mL":"الشراب: ملغ في 5 مل","Tablet: mg each":"القرص: ملغ لكل قرص","Kidney advice":"نصيحة للكلى","Liver advice":"نصيحة للكبد","Pregnancy and breastfeeding advice":"نصيحة للحمل والرضاعة","Other notes":"ملاحظات أخرى","Source (FDA or EMA document)":"المصدر (وثيقة FDA أو EMA)","Document title or link":"عنوان الوثيقة أو رابطها","Label date":"تاريخ النشرة","Save as draft":"حفظ كمسودة","Approve this rule":"اعتماد هذه القاعدة","Type the medicine and its source (document, title or link, date).":"اكتب الدواء ومصدره (الوثيقة والعنوان أو الرابط والتاريخ).","Type the dose from and to, with the largest not smaller than the smallest.":"اكتب الجرعة من وإلى، على ألا تكون الكبرى أصغر من الصغرى.","Type how many times a day (1 to 24).":"اكتب عدد المرات في اليوم (من 1 إلى 24).","Rule saved as a draft. Approve it to use it.":"تم حفظ القاعدة كمسودة. اعتمدها لاستعمالها.","Rule approved.":"تم اعتماد القاعدة.","Rule deleted.":"تم حذف القاعدة.","Tap again to delete":"اضغط مرة أخرى للحذف","Choose the medicine, type the age and weight, and read the dose with its source. Only rules the owner approved appear here.":"اختر الدواء، اكتب العمر والوزن، واقرأ الجرعة مع مصدرها. تظهر هنا فقط القواعد التي اعتمدها المالك."});
+AR_RX.push([/^([\d,.]+) to ([\d,.]+) (mg|mL|tablet)$/, "$1 إلى $2 $3"], [/^([\d,.]+) (mg|mL|tablet)$/, "$1 $2"], [/^(\d+), about every ([\d,.]+) hours$/, "$1، تقريباً كل $2 ساعة"], [/^\(([\d,.]+) mg per 5 mL\)$/, "($1 ملغ في 5 مل)"], [/^\(([\d,.]+) mg each\)$/, "($1 ملغ لكل قرص)"], [/^Source: (.+?)( · approved by (.+))?$/, (m, a, b, c) => "المصدر: " + a + (c ? " · اعتمدها " + c : "")],
+  [/^Age is outside this rule \((\d+) to (\d+|any) months\)\. Do not use this rule\.$/, "العمر خارج نطاق هذه القاعدة ($1 إلى $2 شهراً). لا تستعمل هذه القاعدة."], [/^Weight is outside this rule \(([\d.]+) to ([\d.]+|any) kg\)\. Do not use this rule\.$/, "الوزن خارج نطاق هذه القاعدة ($1 إلى $2 كغم). لا تستعمل هذه القاعدة."]);
+document.head.insertAdjacentHTML("beforeend", `<style>.dv{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:end}</style>`);
 
 </script>
 <script>

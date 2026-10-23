@@ -82,7 +82,7 @@ nav = ('<div class="shell"><nav class="tabs" aria-label="Sections"><div class="i
        f'  <button type="button" class="navmenu" data-xmenu="1" aria-label="Show or hide screens" aria-expanded="true">{MENU_SVG}<span>Menu</span></button>\n'
        '  <div class="tl">\n' + "\n".join(
            (f'  <span class="ng" data-grp="{g}"><span class="gl">{gn}</span><span class="gs">{GROUP_SHORT.get(g, gn)}</span><i class="nb" hidden></i></span>\n' if gn != dict(TABS)[ks[0]] else "") +
-           "\n".join(f'  <button type="button" data-tab="{k}"{" aria-current=\"page\"" if k=="home" else ""}>{dict(TABS)[k]}</button>' for k in ks)
+           "\n".join(f'  <button type="button" data-tab="{k}"{" class=\"gsep\"" if j == 0 and g != "home" and gn == dict(TABS)[ks[0]] else ""}{" aria-current=\"page\"" if k=="home" else ""}>{dict(TABS)[k]}</button>' for j, k in enumerate(ks))
            for g,gn,ks in GROUPS) + '\n  </div>\n</div></nav>')
 rep(NAV_OLD, "")
 rep('<div id="banner" class="wrap" hidden style="padding-block:8px 0"><div class="banner" id="bannerText"></div></div>\n<main class="wrap" id="view"></main>',
@@ -97,6 +97,8 @@ html,body{height:100%}
 body{padding-bottom:0!important;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:none}
 header.top{position:relative!important;top:auto!important;flex:none}
 #banner{flex:none}
+/* the page area is taller than short pages: keep sections and their rows at their own height instead of stretching to fill it */
+main#view,main#view .sec{align-content:start}
 main#view{flex:1 1 auto;min-height:0;width:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:24px}
 nav.tabs{position:relative!important;flex:none;bottom:auto!important;border-top:0!important;border-bottom:1px solid var(--line);padding-bottom:0!important;z-index:5}
 body::before{display:none}
@@ -127,16 +129,20 @@ nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:0}
 nav.tabs .ng{display:block;margin:5px 6px 0;line-height:14px;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}nav.tabs .ng .gs{display:none}
 nav.tabs .tl button{width:100%;height:26px;min-height:26px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
 nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
+/* a group with no heading (Pricing, Reports) starts with a thin line, so it does not read as part of the group above */
+nav.tabs .tl button.gsep{margin-top:5px;overflow:visible}nav.tabs .tl button.gsep::before{content:"";position:absolute;inset-inline:4px;top:-3px;border-top:1px solid var(--line)}nav.tabs .tl button{position:relative}
 body.navshut nav.tabs{width:auto}}
 @media (max-width:760px){nav.tabs .in{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:5px 8px}nav.tabs .tl{display:contents}
 nav.tabs .tl button,nav.tabs .navmenu{width:100%;height:30px;min-height:30px!important;padding:0 2px;font-size:12px;justify-content:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-nav.tabs .ng{display:flex;align-items:center;justify-content:flex-end;gap:2px;height:30px;padding:0 2px;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--accent);text-align:center;line-height:11px;overflow:hidden}nav.tabs .ng[hidden]{display:none}
+nav.tabs .ng{display:flex;align-items:center;justify-content:flex-end;gap:2px;height:30px;padding:0 2px;font-size:9.5px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:var(--accent);text-align:center;line-height:11px;overflow:hidden;white-space:nowrap}nav.tabs .ng[hidden]{display:none}
 nav.tabs .ng .gl{display:none}nav.tabs .ng .gs::after{content:" ›"}html[dir=rtl] nav.tabs .ng .gs::after{content:" ‹"}nav.tabs .ng .nb{margin:0;min-width:14px;height:14px;line-height:14px;font-size:9px}nav.tabs .navmenu{gap:3px}nav.tabs .navmenu svg{width:14px;height:14px;flex:none}}
 button,.btn{min-height:44px}
 .row{min-height:52px}
 .lineedit .lh button,.list .end button{min-height:36px}
 input,select{min-height:44px}
 .chips button{min-height:40px}
+/* Home: quick buttons for the most common jobs */
+.quickacts{display:flex;flex-wrap:wrap;gap:8px;order:-1}.quickacts button{min-height:44px;padding:0 16px;border-radius:999px;font-weight:600}
 .repidx{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px}.repidx h3{margin:4px 2px 6px;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}.repidx .row{min-height:44px}html[dir=rtl] .repidx .end{transform:scaleX(-1)}
 @media (min-width:1000px){.wrap,header.top .in{max-width:1000px}.sheet .panel{max-width:900px}}
 #printArea{display:none}

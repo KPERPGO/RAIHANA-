@@ -1536,7 +1536,12 @@ homeExtras = window.homeExtras = function(){
   const dueCards = E.chronic.filter(c => !c.deleted && c.active !== false && chrStatus(c).dl <= ALERT_DAYS() && !chrStatus(c).givenThis).length;
   const td = E.sales.filter(s => !s.voided && s.date === today());
   const owed = E.customers.reduce((a,c) => a + Math.max(0, custBalance(c.id).bal), 0); // debt selling is off unless switched on in Settings: the tile shows only when it matters
-  return `<section class="kpis" aria-label="Today">
+  // quick buttons for the day's most common jobs; each only for people who may open that screen. They call the same actions as the screens do
+  const quick = [canUse("sell") && `<button type="button" class="primary" data-tab="sell">Sell</button>`, `<button type="button" data-xfind="1">Find</button>`,
+    canUse("newinv") && `<button type="button" data-act="newInv">+ Invoice</button>`, canUse("stock") && `<button type="button" data-xcount="1">Stocktaking</button>`,
+    canUse("stock") && `<button type="button" data-xreorder="1">Reorder list</button>`, canUse("stock") && `<button type="button" data-xrepgo="stock-low">Low stock</button>`].filter(Boolean);
+  return `<div class="quickacts" role="group" aria-label="Quick actions">${quick.join("")}</div>
+  <section class="kpis" aria-label="Today">
     <button type="button" class="kpi tap" data-tab="sell"><span class="l">Sales today</span><span class="v num">${iqd(td.reduce((a,s) => a + n0(s.total), 0))}</span><span class="l">${td.length} receipts · tap to sell</span></button>
     <button type="button" class="kpi tap" data-tab="chronic"><span class="l">Chronic pickups in ${ALERT_DAYS()} days</span><span class="v num">${dueCards}</span><span class="l" ${soon.length ? 'style="color:var(--bad)"' : ""}>${soon.length ? `${soon.length} medicines short` : "stock is enough"}</span></button>
     <button type="button" class="kpi tap" data-tab="stock"><span class="l">Low or out of stock</span><span class="v num" ${low ? 'style="color:var(--bad)"' : ""}>${low}</span><span class="l">tap to see</span></button>
@@ -2035,7 +2040,7 @@ function reportGo(k){
 }
 { const baseReports = window.reportsView || (() => ""); ERP_VIEWS.reports = () => reportsIndex() + baseReports(); }
 document.addEventListener("click", ev => { const t = ev.target.closest("[data-xrepgo]"); if (t) reportGo(t.dataset.xrepgo); });
-Object.assign(AR, {"All reports":"كل التقارير","Profit and accounts":"الأرباح والحسابات","Sales today: total, profit, top items, busy hours":"مبيعات اليوم: المجموع، الربح، الأكثر بيعاً، أوقات الذروة","Sales this month":"مبيعات هذا الشهر","Receipts: reprint, return or cancel":"الوصولات: إعادة طباعة، إرجاع أو إلغاء","Cash box, expenses and profit by month":"صندوق النقد، المصاريف والربح الشهري","Low and out of stock":"المواد القليلة والنافدة","Reorder list":"قائمة إعادة الطلب","Prices below cost":"أسعار أقل من الكلفة","Items with no sell price":"مواد بدون سعر بيع","Hours, salary and activity log":"الساعات، الرواتب وسجل النشاط","Supplier reports (what to pay, expiry, prices, monthly, statement check) are below.":"تقارير الموردين (ما يجب دفعه، الصلاحية، الأسعار، الشهري، مطابقة كشف الحساب) في الأسفل."});
+Object.assign(AR, {"Quick actions":"إجراءات سريعة","All reports":"كل التقارير","Profit and accounts":"الأرباح والحسابات","Sales today: total, profit, top items, busy hours":"مبيعات اليوم: المجموع، الربح، الأكثر بيعاً، أوقات الذروة","Sales this month":"مبيعات هذا الشهر","Receipts: reprint, return or cancel":"الوصولات: إعادة طباعة، إرجاع أو إلغاء","Cash box, expenses and profit by month":"صندوق النقد، المصاريف والربح الشهري","Low and out of stock":"المواد القليلة والنافدة","Reorder list":"قائمة إعادة الطلب","Prices below cost":"أسعار أقل من الكلفة","Items with no sell price":"مواد بدون سعر بيع","Hours, salary and activity log":"الساعات، الرواتب وسجل النشاط","Supplier reports (what to pay, expiry, prices, monthly, statement check) are below.":"تقارير الموردين (ما يجب دفعه، الصلاحية، الأسعار، الشهري، مطابقة كشف الحساب) في الأسفل."});
 { const baseStaff = ERP_VIEWS.staff; ERP_VIEWS.staff = () => baseStaff() + activitySection(); }
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return;
   if (t.dataset.xreorder){ reorderSheet(); return; }

@@ -1678,21 +1678,39 @@ function navGroups(){
   if (!c && scr){ c = document.createElement("span"); c.id = "crumb"; c.className = "crumb"; scr.insertBefore(c, $("#scrTitle")); const b = document.createElement("button"); b.type = "button"; b.id = "finderBtn"; b.setAttribute("aria-label", "Find a screen"); b.dataset.xfind = "1"; b.textContent = "⌕"; b.style.cssText = "min-height:28px;height:28px;padding:0 8px;margin-inline-start:8px"; scr.appendChild(b); }
   if (c){ const g = GROUP_OF[S.tab] || ""; const t = g ? g + " ›" : ""; if (c.dataset.k !== t + S.lang){ c.dataset.k = t + S.lang; c.textContent = t ? t + " " : ""; if (S.lang === "ar") translate(c); } }
 }
+/* the finder also finds records: medicines (name or barcode), customers, suppliers, invoices and receipt numbers,
+   each only when the person may open that screen. Record names are shown as typed (never translated) */
+function finderHits(q){
+  const out = [], raw = q.trim(), n = normName(raw); if (raw.length < 2) return out;
+  const has = (...v) => normName(v.join(" ")).includes(n), take = (list, max = 6) => list.slice(0, max);
+  if (canUse("stock") || canUse("sell")) out.push(...take(catalog().filter(p => (p.barcode && String(p.barcode) === raw) || has(p.name, p.strength, p.form, p.sci))).map(p =>
+    ({kind:"Medicine", t:pname(p), s:[p.strength, p.form, p.barcode].filter(Boolean).join(" · "), attr: canUse("stock") ? `data-xprod="${esc(p.id)}"` : `data-xfindsell="${esc(p.name)}"`})));
+  if (canUse("customers")) out.push(...take(E.customers.filter(c => !c.deleted && (has(c.name) || (c.phone && String(c.phone).replace(/\D/g, "").includes(raw.replace(/\D/g, "") || "-"))))).map(c => ({kind:"Customer", t:c.name, s:c.phone || "", attr:`data-xcust="${esc(c.id)}"`})));
+  if (canUse("chronic")) out.push(...take(E.chronic.filter(c => !c.deleted && has(c.name))).map(c => ({kind:"Chronic card", t:c.name, s:c.phone || "", attr:`data-xfindgo="chronic"`})));
+  if (canUse("suppliers")) out.push(...take(S.suppliers.filter(x => has(x.name, x.nameAr || ""))).map(x => ({kind:"Supplier", t:x.name, s:x.nameAr || "", attr:`data-open="sup:${esc(x.id)}"`})));
+  if (canUse("invoices")) out.push(...take(S.invoices.filter(i => String(i.invoiceNo || "").toLowerCase().includes(raw.toLowerCase()))).map(i => ({kind:"Invoice", t:`${supName(i.supplierId)} · ${i.invoiceNo}`, s:i.date || "", attr:`data-open="${esc(i.id)}"`})));
+  if (canUse("sell")) out.push(...take(E.sales.filter(x => String(x.no || "").toLowerCase().includes(raw.toLowerCase())).sort((a, b) => String(b.at).localeCompare(String(a.at)))).map(x => ({kind:"Receipt", t:x.no, s:`${x.date} · ${iqd(x.total)}${x.voided ? " · Cancelled" : ""}`, attr:`data-xsale="${esc(x.id)}"`})));
+  return out;
+}
 function finderSheet(){
   const items = [...document.querySelectorAll("nav.tabs [data-tab]")].filter(b => !b.hidden).map(b => ({tab:b.dataset.tab, name:b.textContent, grp:GROUP_OF[b.dataset.tab] || ""}));
-  openSheet("Find a screen", `<div style="display:grid;gap:8px"><input id="finderQ" type="search" autocomplete="off" placeholder="Type a screen name"><div class="list" id="finderList"></div><p class="note">Shortcut: Ctrl+K</p></div>`);
-  const draw = () => { const q = ($("#finderQ").value || "").trim().toLowerCase(), l = $("#finderList");
-    const hits = items.filter(x => !q || x.name.toLowerCase().includes(q) || x.grp.toLowerCase().includes(q) || (S.lang === "ar" && (AR[x.name] || "").includes(q)));
-    l.innerHTML = hits.length ? hits.map(x => `<button type="button" class="row" data-xfindgo="${x.tab}"><span class="main"><span class="t">${esc(x.name)}</span>${x.grp ? `<span class="s">${esc(x.grp)}</span>` : ""}</span></button>`).join("") : `<div class="empty">No screen matches.</div>`;
+  openSheet("Find", `<div style="display:grid;gap:8px"><input id="finderQ" type="search" autocomplete="off" placeholder="Screen, medicine, barcode, customer, invoice or receipt"><div class="list" id="finderList"></div><p class="note">Shortcut: Ctrl+K</p></div>`);
+  const draw = () => { const raw = $("#finderQ").value || "", q = raw.trim().toLowerCase(), l = $("#finderList");
+    const hits = items.filter(x => !q || x.name.toLowerCase().includes(q) || x.grp.toLowerCase().includes(q) || (S.lang === "ar" && (AR[x.name] || AR[x.grp] || "").includes(q)));
+    const recs = finderHits(raw);
+    l.innerHTML = hits.map(x => `<button type="button" class="row" data-xfindgo="${x.tab}"><span class="main"><span class="t">${esc(x.name)}</span>${x.grp ? `<span class="s">${esc(x.grp)}</span>` : ""}</span></button>`).join("")
+      + recs.map(r => `<button type="button" class="row" ${r.attr}><span class="main"><span class="t" data-keep="1">${esc(r.t)}</span><span class="s"><span>${esc(r.kind)}</span>${r.s ? ` · <span data-keep="1">${esc(r.s)}</span>` : ""}</span></span></button>`).join("")
+      || `<div class="empty">Nothing matches.</div>`;
     if (S.lang === "ar") translate(l); };
-  $("#finderQ").addEventListener("input", draw); $("#finderQ").addEventListener("keydown", ev => { if (ev.key === "Enter") $("#finderList [data-xfindgo]")?.click(); });
+  $("#finderQ").addEventListener("input", draw); $("#finderQ").addEventListener("keydown", ev => { if (ev.key === "Enter") $("#finderList .row")?.click(); });
   draw(); if (S.lang === "ar") translate($("#sheet")); setTimeout(() => $("#finderQ")?.focus(), 60);
 }
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return;
   if (t.dataset.xfind){ finderSheet(); return; }
-  if (t.dataset.xfindgo){ closeSheet(); document.querySelector(`nav.tabs [data-tab="${t.dataset.xfindgo}"]`)?.click(); } });
+  if (t.dataset.xfindgo){ closeSheet(); document.querySelector(`nav.tabs [data-tab="${t.dataset.xfindgo}"]`)?.click(); }
+  if (t.dataset.xfindsell){ closeSheet(); S.sellQ = t.dataset.xfindsell; document.querySelector('nav.tabs [data-tab="sell"]')?.click(); } });
 document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k" && !$("#lockScreen")){ ev.preventDefault(); finderSheet(); } });
-Object.assign(AR, {"Admin":"الإدارة","Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick \"Quick button on Sell\".":"تظهر هنا أزرار سريعة للمواد الأكثر بيعاً. يمكنك أيضاً تثبيت مادة: افتحها من المخزون وضع علامة على \"زر سريع في البيع\".","Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
+Object.assign(AR, {"Admin":"الإدارة","Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick \"Quick button on Sell\".":"تظهر هنا أزرار سريعة للمواد الأكثر بيعاً. يمكنك أيضاً تثبيت مادة: افتحها من المخزون وضع علامة على \"زر سريع في البيع\".","Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Find":"بحث","Screen, medicine, barcode, customer, invoice or receipt":"شاشة، دواء، باركود، زبون، فاتورة أو وصل","Nothing matches.":"لا توجد نتيجة.","Chronic card":"بطاقة مزمن","Invoice":"فاتورة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
 let lastTabERP = null;
 const baseRenderERP = render;
 render = window.render = function(){

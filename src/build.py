@@ -124,8 +124,8 @@ body.navshut nav.tabs .in{display:flex}
 nav.tabs{width:200px;flex:none;border-bottom:0!important;border-inline-end:1px solid var(--line);overflow-y:auto}
 nav.tabs .in{max-width:none;margin:0;flex-direction:column;align-items:stretch;gap:6px;padding:8px}
 nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:0}
-nav.tabs .ng{display:block;margin:7px 6px 1px;line-height:15px;font-size:11.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}nav.tabs .ng .gs{display:none}
-nav.tabs .tl button{width:100%;height:27px;min-height:27px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
+nav.tabs .ng{display:block;margin:5px 6px 0;line-height:14px;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}nav.tabs .ng .gs{display:none}
+nav.tabs .tl button{width:100%;height:26px;min-height:26px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
 nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
 body.navshut nav.tabs{width:auto}}
 @media (max-width:760px){nav.tabs .in{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:5px 8px}nav.tabs .tl{display:contents}

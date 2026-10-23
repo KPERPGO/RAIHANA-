@@ -137,6 +137,7 @@ button,.btn{min-height:44px}
 .lineedit .lh button,.list .end button{min-height:36px}
 input,select{min-height:44px}
 .chips button{min-height:40px}
+.repidx{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px}.repidx h3{margin:4px 2px 6px;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}.repidx .row{min-height:44px}html[dir=rtl] .repidx .end{transform:scaleX(-1)}
 @media (min-width:1000px){.wrap,header.top .in{max-width:1000px}.sheet .panel{max-width:900px}}
 #printArea{display:none}
 .tabsale{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}.tabsale::-webkit-scrollbar{display:none}

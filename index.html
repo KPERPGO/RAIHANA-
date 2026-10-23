@@ -203,6 +203,7 @@ button,.btn{min-height:44px}
 .lineedit .lh button,.list .end button{min-height:36px}
 input,select{min-height:44px}
 .chips button{min-height:40px}
+.repidx{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px}.repidx h3{margin:4px 2px 6px;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}.repidx .row{min-height:44px}html[dir=rtl] .repidx .end{transform:scaleX(-1)}
 @media (min-width:1000px){.wrap,header.top .in{max-width:1000px}.sheet .panel{max-width:900px}}
 #printArea{display:none}
 .tabsale{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}.tabsale::-webkit-scrollbar{display:none}
@@ -3942,6 +3943,34 @@ function activitySection(){
   const rows = activityRows();
   return `<section class="sec"><h2>Activity log</h2><p class="note">The newest 100 actions, who did them and when.</p><div class="list">${rows.length ? rows.map(r => `<div class="row" style="cursor:default"><span class="main"><span class="t">${r.what}</span><span class="s">${esc(r.who)} · <span class="num">${esc(localDT(r.at).replace("T", " "))}</span></span></span></div>`).join("") : `<div class="empty">Nothing yet.</div>`}</div></section>`;
 }
+/* ---- reports index: one list at the top of Reports pointing to every report the app already makes. No new sums here:
+   each link opens the screen that already works the figure out, with the right view or filter chosen ---- */
+const REPORT_LINKS = [
+  ["Sales", [["sales-today", "sell", "Sales today: total, profit, top items, busy hours"], ["sales-month", "sell", "Sales this month"], ["receipts", "sell", "Receipts: reprint, return or cancel"]]],
+  ["Profit and accounts", [["money", "money", "Cash box, expenses and profit by month"], ["pl", "books", "Profit and loss"], ["tb", "books", "Trial balance"], ["bs", "books", "Balance sheet"], ["jr", "books", "Journal"]]],
+  ["Stock", [["stock-low", "stock", "Low and out of stock"], ["stock-exp", "stock", "Expiring in 3 months"], ["stock-expired", "stock", "Expired stock"], ["reorder", "stock", "Reorder list"], ["alerts", "home", "Stock alerts"]]],
+  ["Pricing", [["below-cost", "pricing", "Prices below cost"], ["no-price", "pricing", "Items with no sell price"]]],
+  ["Staff", [["staff", "staff", "Hours, salary and activity log"]]]
+];
+function reportsIndex(){
+  const groups = REPORT_LINKS.map(([g, ls]) => [g, ls.filter(([, tab]) => canUse(tab))]).filter(([, ls]) => ls.length);
+  if (!groups.length) return "";
+  return `<section class="sec"><div class="sechead"><h2>All reports</h2></div><div class="repidx">${groups.map(([g, ls]) => `<div><h3>${esc(g)}</h3><div class="list">${ls.map(([k, , l]) => `<button type="button" class="row" data-xrepgo="${k}"><span class="main"><span class="t">${esc(l)}</span></span><span class="end">›</span></button>`).join("")}</div></div>`).join("")}</div>
+    <p class="note">Supplier reports (what to pay, expiry, prices, monthly, statement check) are below.</p></section>`;
+}
+function reportGo(k){
+  const [, tab] = REPORT_LINKS.flatMap(([, ls]) => ls).find(x => x[0] === k) || []; if (!tab || !canUse(tab)) return;
+  const sf = {"stock-low":"low", "stock-exp":"exp", "stock-expired":"expired"}[k], pf = {"below-cost":"below", "no-price":"noprice"}[k];
+  if (sf) S.stockF = sf; if (pf) S.pr.f = pf;
+  if (["pl", "tb", "bs", "jr"].includes(k)) S.bk.view = k;
+  if (k === "sales-today" || k === "sales-month"){ S.sellPeriod = k === "sales-today" ? "today" : "month"; lsSet("erp.sellPeriod", S.sellPeriod); }
+  document.querySelector(`nav.tabs [data-tab="${tab}"]`)?.click();
+  if (k === "reorder") reorderSheet(); else if (k === "alerts") alertsSheet("1");
+  else if (k === "receipts" || k.startsWith("sales")) setTimeout(() => document.querySelector(k === "receipts" ? "[data-xsale]" : "[data-xper]")?.closest(".sec")?.scrollIntoView({block:"start"}), 50);
+}
+{ const baseReports = window.reportsView || (() => ""); ERP_VIEWS.reports = () => reportsIndex() + baseReports(); }
+document.addEventListener("click", ev => { const t = ev.target.closest("[data-xrepgo]"); if (t) reportGo(t.dataset.xrepgo); });
+Object.assign(AR, {"All reports":"كل التقارير","Profit and accounts":"الأرباح والحسابات","Sales today: total, profit, top items, busy hours":"مبيعات اليوم: المجموع، الربح، الأكثر بيعاً، أوقات الذروة","Sales this month":"مبيعات هذا الشهر","Receipts: reprint, return or cancel":"الوصولات: إعادة طباعة، إرجاع أو إلغاء","Cash box, expenses and profit by month":"صندوق النقد، المصاريف والربح الشهري","Low and out of stock":"المواد القليلة والنافدة","Reorder list":"قائمة إعادة الطلب","Prices below cost":"أسعار أقل من الكلفة","Items with no sell price":"مواد بدون سعر بيع","Hours, salary and activity log":"الساعات، الرواتب وسجل النشاط","Supplier reports (what to pay, expiry, prices, monthly, statement check) are below.":"تقارير الموردين (ما يجب دفعه، الصلاحية، الأسعار، الشهري، مطابقة كشف الحساب) في الأسفل."});
 { const baseStaff = ERP_VIEWS.staff; ERP_VIEWS.staff = () => baseStaff() + activitySection(); }
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return;
   if (t.dataset.xreorder){ reorderSheet(); return; }
@@ -3950,7 +3979,7 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
     (navigator.clipboard?.writeText(txt) || Promise.reject()).then(() => toast("List copied."), () => toast("Could not copy. Select the text and copy it.")); } });
 document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key === "/" && !$("#lockScreen")){ ev.preventDefault(); keysSheet(); } });
 document.head.insertAdjacentHTML("beforeend", `<style>.linkbtn{border:0;background:none;color:var(--accent);padding:0;min-height:0;text-decoration:underline;font:inherit}</style>`);
-Object.assign(AR, {"Reorder list":"قائمة إعادة الطلب","All keys":"كل الاختصارات","Keyboard keys":"اختصارات لوحة المفاتيح","Activity log":"سجل النشاط","The newest 100 actions, who did them and when.":"أحدث 100 عملية، ومن قام بها ومتى.","Copy the list":"انسخ القائمة","List copied.":"تم نسخ القائمة.","Nothing needs ordering.":"لا شيء يحتاج إلى طلب.","Nothing yet.":"لا شيء بعد.","Search or scan":"بحث أو مسح","Move through results":"التنقل بين النتائج","Add the result":"إضافة النتيجة","Change box, strip or tablet":"تغيير علبة/شريط/حبة","More or fewer of the last item":"زيادة أو إنقاص آخر مادة","Switch to debt (if allowed)":"التحويل إلى دين (إن كان مسموحاً)","Save the sale":"حفظ البيع","Print the receipt":"طباعة الوصل","Find any screen":"ابحث عن أي شاشة","Show this list":"إظهار هذه القائمة","Shift started":"بدء دوام","Cancelled sale":"بيع ملغى","Customer payment":"دفعة زبون","Manual accounting entry":"قيد محاسبي يدوي","Sale blocked":"بيع محظور","Return":"إرجاع","Stock":"المخزون","Shift ended":"انتهاء دوام","Shift closed by the owner":"أغلقه المالك"});
+Object.assign(AR, {"All keys":"كل الاختصارات","Keyboard keys":"اختصارات لوحة المفاتيح","Activity log":"سجل النشاط","The newest 100 actions, who did them and when.":"أحدث 100 عملية، ومن قام بها ومتى.","Copy the list":"انسخ القائمة","List copied.":"تم نسخ القائمة.","Nothing needs ordering.":"لا شيء يحتاج إلى طلب.","Nothing yet.":"لا شيء بعد.","Search or scan":"بحث أو مسح","Move through results":"التنقل بين النتائج","Add the result":"إضافة النتيجة","Change box, strip or tablet":"تغيير علبة/شريط/حبة","More or fewer of the last item":"زيادة أو إنقاص آخر مادة","Switch to debt (if allowed)":"التحويل إلى دين (إن كان مسموحاً)","Save the sale":"حفظ البيع","Print the receipt":"طباعة الوصل","Find any screen":"ابحث عن أي شاشة","Show this list":"إظهار هذه القائمة","Shift started":"بدء دوام","Cancelled sale":"بيع ملغى","Customer payment":"دفعة زبون","Manual accounting entry":"قيد محاسبي يدوي","Sale blocked":"بيع محظور","Return":"إرجاع","Stock":"المخزون","Shift ended":"انتهاء دوام","Shift closed by the owner":"أغلقه المالك"});
 AR_RX.push([/^Have (.+) · sold in 30 days (.+)$/, "المتوفر $1 · المباع خلال 30 يوماً $2"], [/^Stock: (.+)$/, "المخزون: $1"], [/^Sale #(.+) · (.+)$/, "بيع #$1 · $2"], [/^Expense (.*) · (.+)$/, "مصروف $1 · $2"]);
 
 /* ==== dose engine: a general dose calculator that never needs a stock item and never changes stock.

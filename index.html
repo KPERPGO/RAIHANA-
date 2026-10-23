@@ -2306,7 +2306,7 @@ function sellView(){
   return `<section class="sec">
     <div class="tabsale" role="tablist" aria-label="Open sales">${S.tabs.map((t, i) => `<button type="button" role="tab" aria-selected="${i === S.tabAt}" data-xtab="${i}"><span>${esc(tabName(t))}</span><span class="num">${(t.lines || []).length ? iqd(Math.max(0, tabSum(t))) : "empty"}</span></button>`).join("")}<button type="button" class="add" data-xnewtab="1" aria-label="New customer">+ Customer</button></div>
     <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}${canUse("dose") ? `<button type="button" class="hbtn" data-xdosepop="1">Dose</button>` : ""}</div>
-    <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print · <button type="button" class="linkbtn" data-xkeys="1">All keys</button></p>
+    <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print <button type="button" class="linkbtn" data-xkeys="1">All keys</button></p>
     ${q ? `<div class="list">${hits.length ? hits.map(p => { const s = stockOf(p, used); return `<button type="button" class="row" data-xadd="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""} · ${esc(qtyText(p, s.good))} in stock${s.next ? ` · exp ${esc(s.next.expiry)}` : ""}</span></span><span class="end num">${p.sellBox ? iqd(p.sellBox) : `<span class="pill warn">No price</span>`}</span></button>`; }).join("") : `<div class="empty">No item matches. Items appear here once they are on a purchase invoice, or add one under Stock.</div>`}</div>` : ""}
     ${!q && quick.length ? `<div class="quick">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" ${s.good <= 0 ? 'class="out"' : ""}><b>${esc(p.name)}</b><span>${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span><span class="num">${p.sellBox ? f0(p.sellBox) : "No price"}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : ""}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
   </section>
@@ -4051,20 +4051,20 @@ function keysSheet(){
   if (S.lang === "ar") translate($("#sheet"));
 }
 function activityRows(){
-  const out = [], add = (at, who, what) => { if (at) out.push({at, who: who || "—", what}); };
-  for (const s of E.sales) add(s.at, s.staffName || s.staffByName, (s.voided ? "Cancelled sale #" : "Sale #") + (s.no || s.id) + " · " + iqd(s.total));
-  for (const x of E.expenses) add(x.at, x.staffByName, "Expense " + (x.category || "") + " · " + iqd(x.amount));
-  for (const m of E.moves) add(m.at, m.staffByName, (m.saleId ? "Return " : "Stock: ") + (m.reason || m.note || ""));
-  for (const x of E.custpays) add(x.at, x.staffByName, "Customer payment · " + iqd(x.amount));
-  for (const j of E.journal) add(j.at, j.by ? whoName(j.by) : "", "Manual accounting entry · " + (j.desc || ""));
-  for (const h of E.shifts) { add(h.start, h.staffName, "Shift started"); if (h.end) add(h.end, h.staffName, h.fixedBy ? "Shift closed by the owner" : "Shift ended"); }
-  for (const e of E.events) add(e.at, e.staffName, e.type === "blocked_sale" ? "Sale blocked: " + (e.name || "") : String(e.type));
+  const out = [], T = x => `<span>${esc(x)}</span>`, N = x => `<span class="num">${esc(x)}</span>`, add = (at, who, ...what) => { if (at) out.push({at, who: who || "—", what: what.join(" ")}); };
+  for (const s of E.sales) add(s.at, s.staffName || s.staffByName, T(s.voided ? "Cancelled sale" : "Sale"), N("#" + (s.no || s.id) + " · " + iqd(s.total)));
+  for (const x of E.expenses) add(x.at, x.staffByName, T("Expense"), T(x.category || ""), N(iqd(x.amount)));
+  for (const m of E.moves) add(m.at, m.staffByName, T(m.saleId ? "Return" : "Stock"), T(m.reason || m.note || ""));
+  for (const x of E.custpays) add(x.at, x.staffByName, T("Customer payment"), N(iqd(x.amount)));
+  for (const j of E.journal) add(j.at, j.by ? whoName(j.by) : "", T("Manual accounting entry"), T(j.desc || ""));
+  for (const h of E.shifts){ add(h.start, h.staffName, T("Shift started")); if (h.end) add(h.end, h.staffName, T(h.fixedBy ? "Shift closed by the owner" : "Shift ended")); }
+  for (const e of E.events) add(e.at, e.staffName, e.type === "blocked_sale" ? T("Sale blocked") + " " + T(e.name || "") : T(String(e.type)));
   return out.sort((a, b) => a.at < b.at ? 1 : -1).slice(0, 100);
 }
 function activitySection(){
   if (!isOwner()) return "";
   const rows = activityRows();
-  return `<section class="sec"><h2>Activity log</h2><p class="note">The newest 100 actions, who did them and when.</p><div class="list">${rows.length ? rows.map(r => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(r.what)}</span><span class="s">${esc(r.who)} · <span class="num">${esc(localDT(r.at).replace("T", " "))}</span></span></span></div>`).join("") : `<div class="empty">Nothing yet.</div>`}</div></section>`;
+  return `<section class="sec"><h2>Activity log</h2><p class="note">The newest 100 actions, who did them and when.</p><div class="list">${rows.length ? rows.map(r => `<div class="row" style="cursor:default"><span class="main"><span class="t">${r.what}</span><span class="s">${esc(r.who)} · <span class="num">${esc(localDT(r.at).replace("T", " "))}</span></span></span></div>`).join("") : `<div class="empty">Nothing yet.</div>`}</div></section>`;
 }
 { const baseStaff = ERP_VIEWS.staff; ERP_VIEWS.staff = () => baseStaff() + activitySection(); }
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return;
@@ -4074,7 +4074,7 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
     (navigator.clipboard?.writeText(txt) || Promise.reject()).then(() => toast("List copied."), () => toast("Could not copy. Select the text and copy it.")); } });
 document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key === "/" && !$("#lockScreen")){ ev.preventDefault(); keysSheet(); } });
 document.head.insertAdjacentHTML("beforeend", `<style>.linkbtn{border:0;background:none;color:var(--accent);padding:0;min-height:0;text-decoration:underline;font:inherit}</style>`);
-Object.assign(AR, {"Reorder list":"قائمة إعادة الطلب","All keys":"كل الاختصارات","Keyboard keys":"اختصارات لوحة المفاتيح","Activity log":"سجل النشاط","The newest 100 actions, who did them and when.":"أحدث 100 عملية، ومن قام بها ومتى.","Copy the list":"انسخ القائمة","List copied.":"تم نسخ القائمة.","Nothing needs ordering.":"لا شيء يحتاج إلى طلب.","Nothing yet.":"لا شيء بعد.","Search or scan":"بحث أو مسح","Move through results":"التنقل بين النتائج","Add the result":"إضافة النتيجة","Change box, strip or tablet":"تغيير علبة/شريط/حبة","More or fewer of the last item":"زيادة أو إنقاص آخر مادة","Switch to debt (if allowed)":"التحويل إلى دين (إن كان مسموحاً)","Save the sale":"حفظ البيع","Print the receipt":"طباعة الوصل","Find any screen":"ابحث عن أي شاشة","Show this list":"إظهار هذه القائمة","Shift started":"بدء دوام","Shift ended":"انتهاء دوام","Shift closed by the owner":"أغلقه المالك"});
+Object.assign(AR, {"Reorder list":"قائمة إعادة الطلب","All keys":"كل الاختصارات","Keyboard keys":"اختصارات لوحة المفاتيح","Activity log":"سجل النشاط","The newest 100 actions, who did them and when.":"أحدث 100 عملية، ومن قام بها ومتى.","Copy the list":"انسخ القائمة","List copied.":"تم نسخ القائمة.","Nothing needs ordering.":"لا شيء يحتاج إلى طلب.","Nothing yet.":"لا شيء بعد.","Search or scan":"بحث أو مسح","Move through results":"التنقل بين النتائج","Add the result":"إضافة النتيجة","Change box, strip or tablet":"تغيير علبة/شريط/حبة","More or fewer of the last item":"زيادة أو إنقاص آخر مادة","Switch to debt (if allowed)":"التحويل إلى دين (إن كان مسموحاً)","Save the sale":"حفظ البيع","Print the receipt":"طباعة الوصل","Find any screen":"ابحث عن أي شاشة","Show this list":"إظهار هذه القائمة","Shift started":"بدء دوام","Cancelled sale":"بيع ملغى","Customer payment":"دفعة زبون","Manual accounting entry":"قيد محاسبي يدوي","Sale blocked":"بيع محظور","Return":"إرجاع","Stock":"المخزون","Shift ended":"انتهاء دوام","Shift closed by the owner":"أغلقه المالك"});
 AR_RX.push([/^Have (.+) · sold in 30 days (.+)$/, "المتوفر $1 · المباع خلال 30 يوماً $2"], [/^Stock: (.+)$/, "المخزون: $1"], [/^Sale #(.+) · (.+)$/, "بيع #$1 · $2"], [/^Expense (.*) · (.+)$/, "مصروف $1 · $2"]);
 
 </script>

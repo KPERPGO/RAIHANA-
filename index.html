@@ -2812,7 +2812,9 @@ S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice
 const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["dose","Dose"],["money","Money"],["reports","Reports"],["settings","Settings"]];
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
-const canUse = k => isOwner() || (k !== "staff" && myPerms().includes(k));
+// The dose calculator is switched off for now (LTH 2026-10-23); its code and saved rules stay. Tests turn it on with window.ERP_DOSE_ON = true.
+const doseOn = () => window.ERP_DOSE_ON === true;
+const canUse = k => (k !== "dose" || doseOn()) && (isOwner() || (k !== "staff" && myPerms().includes(k)));
 // PINs are stored as a slow PBKDF2 hash ("p2$..."); older quick SHA-256 hashes still work and are upgraded at the next good login
 async function pinHash2(id, pin){ const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
   const b = await crypto.subtle.deriveBits({name:"PBKDF2", hash:"SHA-256", salt:new TextEncoder().encode("raihana|" + id), iterations:150000}, k, 256); return "p2$" + Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, "0")).join(""); }
@@ -2945,7 +2947,7 @@ function staffSheet(id){
       <div class="grid2"><label>Paid<select id="fPay">${[["hourly","Per hour"],["daily","Per day worked"],["monthly","Monthly salary"]].map(([v,l]) => `<option value="${v}" ${x.payType === v ? "selected" : ""}>${l}</option>`).join("")}</select></label><label>Rate (IQD)<input id="fRate" class="num" inputmode="numeric" value="${esc(x.rate ?? "")}"></label></div>
       <div class="grid2"><label>Expected hours per month (monthly only)<input id="fExp" class="num" inputmode="numeric" value="${esc(x.expHours ?? "")}"></label><label class="check" style="align-self:end"><input type="checkbox" id="fPro" ${x.prorate ? "checked" : ""}> Pay monthly salary by hours worked</label></div>
       <fieldset id="fPerms" class="sum" style="gap:8px" ${x.role === "owner" ? "hidden" : ""}><b>Screens this person can use</b>
-        <div class="permgrid">${PERM_SCREENS.map(([k,l]) => `<label class="check"><input type="checkbox" data-fperm="${k}" ${(Array.isArray(x.perms) ? x.perms : DEFAULT_PERMS).includes(k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
+        <div class="permgrid">${PERM_SCREENS.filter(([k]) => k !== "dose" || doseOn()).map(([k,l]) => `<label class="check"><input type="checkbox" data-fperm="${k}" ${(Array.isArray(x.perms) ? x.perms : DEFAULT_PERMS).includes(k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
         <p class="note">Staff is for the owner only.</p></fieldset>
       <label class="check"><input type="checkbox" id="fActive" ${x.active !== false ? "checked" : ""}> Can log in</label>
       <p class="err" id="fErr"></p><button type="submit" class="primary">Save</button></form>
@@ -4443,6 +4445,7 @@ function paintLabel(){
   if (stale && labelOnline() && k) fetchLabel(k).then(x => { if (S.dose.med && medLabelKey(S.dose.med) === k){ saveLabelLines(k, x); paintLabel(); } }).catch(() => { if (!e && $("#doseLabel") && S.dose.med) set(`<p class="note">Could not reach the FDA label service. Try again later.</p>`); });
 }
 async function syncDrugData(manual){
+  if (!doseOn()) return;
   if (!extOn()){ if (manual) toast("Offline. Nothing was refreshed. It will run when you are online."); return; }
   let ok = 0, bad = 0; const c = labelCache(), seen = new Set();
   for (const r of doseRules().filter(ruleUsable)){ const k = labelKey(r); if (!k || seen.has(k)) continue; seen.add(k); const e = c[k];

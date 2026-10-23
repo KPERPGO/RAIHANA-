@@ -10,6 +10,7 @@ const LABEL = { set_id: 'abc-123', effective_time: '20240101', openfda: { generi
     else { res.statusCode = 404; res.end('{"error":{"code":"NOT_FOUND"}}'); } }).listen(8766);
   const b = await chromium.launch(); let fails = 0; const ok = (c, name, got) => { console.log((c ? 'PASS' : 'FAIL') + ' - ' + name + (c ? '' : '  :: ' + JSON.stringify(got))); if (!c) fails++; };
   const ctx = await b.newContext({ viewport: { width: 390, height: 800 } }), page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message));
+  await ctx.addInitScript(() => { window.ERP_DOSE_ON = true; }); // the dose screen is off in the app for now
   await ctx.addInitScript(() => { window.ERP_FDA = 'http://localhost:8766'; });
   await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(1200);
   await page.click('nav.tabs [data-tab="staff"]'); await page.click('[data-xstaff="__new"]'); await page.fill('#fName', 'Owner'); await page.fill('#fPin', '1234'); await page.click('#staffForm button[type=submit]'); await page.waitForTimeout(700);

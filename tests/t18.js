@@ -34,7 +34,7 @@ const server = http.createServer((req, res) => {
 (async () => {
   const b = await chromium.launch(), URL_ = 'http://localhost:8766';
   const dev = async () => { const c = await b.newContext({ viewport: { width: 390, height: 800 } }), p = await c.newPage(); p.errs = []; p.on('pageerror', e => p.errs.push(e.message)); await p.goto('http://localhost:8765/index.html'); await p.waitForTimeout(800); return p; };
-  const run = async (p) => { await p.evaluate(() => ERP_SYNC.run()); await p.waitForTimeout(400); };
+  const run = async (p) => { await p.evaluate(async () => { while (ERP_SYNC.busy) await new Promise(r => setTimeout(r, 50)); await ERP_SYNC.run(); }); await p.waitForTimeout(400); }; // a background sync may be running: wait for it, then sync
   const A = await dev(), B = await dev();
   const put = (p, path, v) => p.evaluate(([a, c]) => ERP_LOCAL.put(a, c), [path, v]);
   const get = (p, path) => p.evaluate(async path => { const all = await ERP_LOCAL.all(); return (all.find(([k]) => k === path) || [])[1]; }, path);

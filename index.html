@@ -2306,7 +2306,7 @@ function sellView(){
   return `<section class="sec">
     <div class="tabsale" role="tablist" aria-label="Open sales">${S.tabs.map((t, i) => `<button type="button" role="tab" aria-selected="${i === S.tabAt}" data-xtab="${i}"><span>${esc(tabName(t))}</span><span class="num">${(t.lines || []).length ? iqd(Math.max(0, tabSum(t))) : "empty"}</span></button>`).join("")}<button type="button" class="add" data-xnewtab="1" aria-label="New customer">+ Customer</button></div>
     <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}${canUse("dose") ? `<button type="button" class="hbtn" data-xdosepop="1">Dose</button>` : ""}</div>
-    <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print</p>
+    <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print · <button type="button" class="linkbtn" data-xkeys="1">All keys</button></p>
     ${q ? `<div class="list">${hits.length ? hits.map(p => { const s = stockOf(p, used); return `<button type="button" class="row" data-xadd="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""} · ${esc(qtyText(p, s.good))} in stock${s.next ? ` · exp ${esc(s.next.expiry)}` : ""}</span></span><span class="end num">${p.sellBox ? iqd(p.sellBox) : `<span class="pill warn">No price</span>`}</span></button>`; }).join("") : `<div class="empty">No item matches. Items appear here once they are on a purchase invoice, or add one under Stock.</div>`}</div>` : ""}
     ${!q && quick.length ? `<div class="quick">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" ${s.good <= 0 ? 'class="out"' : ""}><b>${esc(p.name)}</b><span>${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span><span class="num">${p.sellBox ? f0(p.sellBox) : "No price"}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : ""}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
   </section>
@@ -2353,7 +2353,7 @@ function stockView(){
   const value = rows.reduce((a,r) => a + r.s.value, 0);
   return `<section class="kpis"><div class="kpi lead"><span class="l">Stock value at cost (after discounts and bonus)</span><span class="v num">${iqd(value)}</span></div>
     <div class="kpi"><span class="l">Items</span><span class="v num">${cat.length}</span></div><div class="kpi"><span class="l">Low or out of stock</span><span class="v num" style="color:var(--bad)">${cnt("low")}</span></div></section>
-  <section class="sec"><div class="sechead"><h2>Stock</h2><div class="actions"><button type="button" class="primary" data-xcount="1">Stocktaking</button><button type="button" data-xprod="__new">+ Item</button></div></div>
+  <section class="sec"><div class="sechead"><h2>Stock</h2><div class="actions"><button type="button" data-xreorder="1">Reorder list</button><button type="button" class="primary" data-xcount="1">Stocktaking</button><button type="button" data-xprod="__new">+ Item</button></div></div>
     <input id="stockQ" type="search" placeholder="Name, dose, barcode" value="${esc(S.stockQ)}">
     <div class="chips">${[["all","All"],["out","Out of stock"],["low","Low"],["exp","Expiring 3 months"],["expired","Expired"],["noexp","No expiry date"],["fridge","Refrigerated"],["noprice","No sell price"]].map(([k,l]) => `<button type="button" data-xsf="${k}" aria-pressed="${f === k}">${l} · ${cnt(k)}</button>`).join("")}</div>
     <div class="list">${list.length ? list.map(({p, s}) => `<button type="button" class="row" data-xprod="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""}${s.next ? ` · next expiry ${esc(s.next.expiry)}` : ""}${s.exp ? ` · ${esc(qtyText(p, s.exp))} expired` : ""}${p.shelf ? ` · shelf ${esc(p.shelf)}` : ""}</span></span><span class="end"><span class="num">${esc(qtyText(p, s.good))}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : p.min !== null && s.good < p.min * p.sub ? `<span class="pill warn">Low</span>` : ""}${p.sellBox ? `<span class="s num">${iqd(p.sellBox)}</span>` : `<span class="pill">No price</span>`}</span></button>`).join("") : `<div class="empty">No items here.</div>`}</div>
@@ -3949,9 +3949,10 @@ function bkTB(en){ const b = bkBal(en, null, S.bk.to); let dt = 0, ct = 0;
     <p class="note">${Math.round(dt) === Math.round(ct) ? "Debit and credit are equal." : "Debit and credit differ. Tell the developer."}</p>`; }
 function bkPL(en){ const b = bkBal(en, S.bk.from, S.bk.to), net = a => bkNet(b, a), sales = net("4000"), ret = net("4090"), cogs = net("5000"), disc = net("4200"), loss = net("5300");
   const tags = {}; for (const e of en) if (e.date >= S.bk.from && e.date <= S.bk.to) for (const l of e.lines) if (l.acct === "5100") tags[l.tag] = (tags[l.tag] || 0) + l.dr - l.cr;
+  const lossTags = {}; for (const e of en) if (e.date >= S.bk.from && e.date <= S.bk.to) for (const l of e.lines) if (l.acct === "5300") lossTags[l.tag] = (lossTags[l.tag] || 0) + l.dr - l.cr;
   const exp = net("5100"), gross = sales - ret - cogs, profit = gross + disc - exp - loss, r = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td>${bkN(v)}</td></tr>`;
   return bkTable([r("Sales", sales), r("Sales returns", -ret), r("Cost of goods sold", -cogs), r("Gross profit", gross, "tot"), r("Discounts received from suppliers", disc),
-    ...Object.entries(tags).sort().map(([k, v]) => r("Expense: " + esc(k), -v)), r("Stock losses and count differences", -loss), r("Net profit", profit, "tot")], ["Profit and loss", "IQD"]); }
+    ...Object.entries(tags).sort().map(([k, v]) => r("Expense: " + esc(k), -v)), ...Object.entries(lossTags).sort().map(([k, v]) => r("Stock: " + esc(k), -v)), r("Net profit", profit, "tot")], ["Profit and loss", "IQD"]); }
 function bkBS(en){ const b = bkBal(en, null, S.bk.to), a = c => bkNet(b, c), r = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td>${bkN(v)}</td></tr>`;
   const assets = a("1000") + a("1010") + a("1100") + a("1200"), liab = a("2000"), profit = a("4000") - a("4090") - a("5000") + a("4200") - a("5100") - a("5300"), eq = a("3000") + profit;
   return bkTable([r("Cash box", a("1000")), r("Card and bank", a("1010")), r("Customer debts", a("1100")), r("Stock at cost", a("1200")), r("Total assets", assets, "tot"),
@@ -4027,6 +4028,54 @@ Object.assign(AR, {"Accounts":"الحسابات","Cash box":"صندوق النق
   "Trial balance":"ميزان المراجعة","Profit and loss":"الأرباح والخسائر","Balance sheet":"الميزانية","Journal":"قيد اليومية","Manual entries":"قيود يدوية","Lock period":"إغلاق الفترة","Code":"الرمز","Account":"الحساب","Debit":"مدين","Credit":"دائن","Total":"المجموع","Gross profit":"إجمالي الربح","Net profit":"صافي الربح","Total assets":"مجموع الأصول","Total liabilities and capital":"مجموع الخصوم ورأس المال","Profit to date":"الربح حتى الآن","Up to":"حتى","Balances of every account up to the date.":"أرصدة كل حساب حتى التاريخ.","Debit and credit are equal.":"المدين يساوي الدائن.","Assets equal liabilities plus capital.":"الأصول تساوي الخصوم زائد رأس المال.","+ Manual entry":"+ قيد يدوي","Manual entry":"قيد يدوي","Account (optional)":"الحساب (اختياري)","Save entry (owner PIN)":"حفظ القيد (رمز المالك)","Entry saved.":"تم حفظ القيد.","Entry cancelled.":"تم إلغاء القيد.","Cancel":"إلغاء","No manual entries yet.":"لا قيود يدوية بعد.","Export journal (CSV)":"تصدير اليومية (CSV)","Export trial balance (CSV)":"تصدير ميزان المراجعة (CSV)","Locked up to":"مغلق حتى","not locked":"غير مغلق","Lock everything up to":"أغلق كل شيء حتى","Lock this period":"أغلق هذه الفترة","Remove the lock":"إزالة الإغلاق","Period locked.":"تم إغلاق الفترة.","Lock removed.":"تمت إزالة الإغلاق.","Nothing in the locked period has changed.":"لم يتغير شيء في الفترة المغلقة.","Only the owner can see the accounts.":"المالك فقط يرى الحسابات.","Choose a date that is not in the future.":"اختر تاريخاً ليس في المستقبل.","Add at least two lines.":"أضف سطرين على الأقل.","Each line needs an account and either a debit or a credit.":"كل سطر يحتاج حساباً ومدين أو دائن.","Type what this entry is for.":"اكتب سبب هذا القيد.","No entries in these dates.":"لا قيود في هذه التواريخ.","Records inside the locked period changed. Open Lock period to see what.":"تغيرت سجلات داخل الفترة المغلقة. افتح إغلاق الفترة لمعرفة ما تغير.",
   "Sale":"بيع","Return":"إرجاع","Purchase":"شراء","Supplier payment":"دفعة لمورد","Purchase return":"إرجاع للمورد","Customer payment":"دفعة زبون","Expense":"مصروف","Stock":"المخزون","Manual":"يدوي","Sale paid in cash":"بيع نقدي","Sale paid by card":"بيع بالبطاقة","Sale on debt":"بيع بالدين","Customer return":"إرجاع زبون","Debt paid by customer":"سداد دين من زبون","Goods returned to supplier":"بضاعة مرجعة للمورد"});
 AR_RX.push([/^Expense: (.+)$/, "مصروف: $1"], [/^(\d+) entries shown \(newest 200\)\. The export has all of them\.$/, "$1 قيد معروض (أحدث 200). الملف المصدّر فيه الكل."], [/^(\d+) stock changes have no cost and count as zero\.$/, "$1 تغيير في المخزون بلا كلفة ويُحسب صفراً."]);
+
+/* ---- stage 3: reorder list, all-keys sheet, activity log. All worked out from records already in the app ---- */
+function reorderRows(){
+  const cat = catalog(), used = usedMap(), since = addDays(today(), -30), keyPid = {};
+  for (const p of cat) for (const {inv, k} of p.lines) keyPid[lineKey(inv, k)] = p.id;
+  const sold = {}; for (const s of E.sales) if (!s.voided && s.date >= since) for (const ln of s.lines || []) for (const a of ln.alloc || []){ const pid = keyPid[a.key]; if (pid) sold[pid] = (sold[pid] || 0) + n0(a.q); }
+  return lowStock(cat, used).map(p => { const st = stockOf(p, used), good = Math.max(0, st.good), sd = sold[p.id] || 0, target = Math.max(p.min !== null ? p.min * p.sub : 0, sd), boxes = Math.max(1, Math.ceil((target - good) / p.sub - 1e-9));
+    const last = p.lines.slice().sort((a, b) => (b.inv.date || "").localeCompare(a.inv.date || ""))[0], sup = last ? supplier(last.inv.supplierId)?.name || "Unknown supplier" : "No supplier yet";
+    return {p, good, sd, boxes, sup}; }).sort((a, b) => a.sup.localeCompare(b.sup) || pname(a.p).localeCompare(pname(b.p)));
+}
+function reorderSheet(){
+  const rows = reorderRows(), by = {}; rows.forEach(r => (by[r.sup] = by[r.sup] || []).push(r));
+  openSheet("Reorder list", `<div style="display:grid;gap:10px"><p class="note">Items that are out or below your minimum. The suggested number of boxes is what you sold in the last 30 days (or your minimum, whichever is more) minus what you have, rounded up. You decide what to order.</p>
+    ${rows.length ? Object.entries(by).map(([sup, list]) => `<div class="list"><div class="row" style="cursor:default"><span class="main"><span class="t">${esc(sup)}</span></span></div>${list.map(r => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(pname(r.p))}</span><span class="s">Have ${esc(qtyText(r.p, r.good))} · sold in 30 days ${esc(qtyText(r.p, r.sd))}</span></span><span class="num">${r.boxes} ${unitW(r.boxes === 1 ? "box" : "boxes")}</span></div>`).join("")}</div>`).join("") : `<div class="empty">Nothing needs ordering.</div>`}
+    ${rows.length ? `<button type="button" class="primary" data-xreorderCopy="1">Copy the list</button>` : ""}</div>`);
+  if (S.lang === "ar") translate($("#sheet"));
+}
+function keysSheet(){
+  const k = (a, b) => `<div class="r"><span class="num">${a}</span><span>${b}</span></div>`;
+  openSheet("Keyboard keys", `<div class="sum">${k("F2", "Search or scan")}${k("↑ ↓", "Move through results")}${k("Enter", "Add the result")}${k("F4", "Change box, strip or tablet")}${k("+ −", "More or fewer of the last item")}${k("F8", "Switch to debt (if allowed)")}${k("F9", "Save the sale")}${k("F10", "Print the receipt")}${k("Ctrl+K", "Find any screen")}${k("Ctrl+/", "Show this list")}</div>`);
+  if (S.lang === "ar") translate($("#sheet"));
+}
+function activityRows(){
+  const out = [], add = (at, who, what) => { if (at) out.push({at, who: who || "—", what}); };
+  for (const s of E.sales) add(s.at, s.staffName || s.staffByName, (s.voided ? "Cancelled sale #" : "Sale #") + (s.no || s.id) + " · " + iqd(s.total));
+  for (const x of E.expenses) add(x.at, x.staffByName, "Expense " + (x.category || "") + " · " + iqd(x.amount));
+  for (const m of E.moves) add(m.at, m.staffByName, (m.saleId ? "Return " : "Stock: ") + (m.reason || m.note || ""));
+  for (const x of E.custpays) add(x.at, x.staffByName, "Customer payment · " + iqd(x.amount));
+  for (const j of E.journal) add(j.at, j.by ? whoName(j.by) : "", "Manual accounting entry · " + (j.desc || ""));
+  for (const h of E.shifts) { add(h.start, h.staffName, "Shift started"); if (h.end) add(h.end, h.staffName, h.fixedBy ? "Shift closed by the owner" : "Shift ended"); }
+  for (const e of E.events) add(e.at, e.staffName, e.type === "blocked_sale" ? "Sale blocked: " + (e.name || "") : String(e.type));
+  return out.sort((a, b) => a.at < b.at ? 1 : -1).slice(0, 100);
+}
+function activitySection(){
+  if (!isOwner()) return "";
+  const rows = activityRows();
+  return `<section class="sec"><h2>Activity log</h2><p class="note">The newest 100 actions, who did them and when.</p><div class="list">${rows.length ? rows.map(r => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(r.what)}</span><span class="s">${esc(r.who)} · <span class="num">${esc(localDT(r.at).replace("T", " "))}</span></span></span></div>`).join("") : `<div class="empty">Nothing yet.</div>`}</div></section>`;
+}
+{ const baseStaff = ERP_VIEWS.staff; ERP_VIEWS.staff = () => baseStaff() + activitySection(); }
+document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return;
+  if (t.dataset.xreorder){ reorderSheet(); return; }
+  if (t.dataset.xkeys){ keysSheet(); return; }
+  if (t.dataset.xreordercopy){ const txt = reorderRows().map(r => `${r.sup}: ${pname(r.p)} x ${r.boxes}`).join("\n");
+    (navigator.clipboard?.writeText(txt) || Promise.reject()).then(() => toast("List copied."), () => toast("Could not copy. Select the text and copy it.")); } });
+document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key === "/" && !$("#lockScreen")){ ev.preventDefault(); keysSheet(); } });
+document.head.insertAdjacentHTML("beforeend", `<style>.linkbtn{border:0;background:none;color:var(--accent);padding:0;min-height:0;text-decoration:underline;font:inherit}</style>`);
+Object.assign(AR, {"Reorder list":"قائمة إعادة الطلب","All keys":"كل الاختصارات","Keyboard keys":"اختصارات لوحة المفاتيح","Activity log":"سجل النشاط","The newest 100 actions, who did them and when.":"أحدث 100 عملية، ومن قام بها ومتى.","Copy the list":"انسخ القائمة","List copied.":"تم نسخ القائمة.","Nothing needs ordering.":"لا شيء يحتاج إلى طلب.","Nothing yet.":"لا شيء بعد.","Search or scan":"بحث أو مسح","Move through results":"التنقل بين النتائج","Add the result":"إضافة النتيجة","Change box, strip or tablet":"تغيير علبة/شريط/حبة","More or fewer of the last item":"زيادة أو إنقاص آخر مادة","Switch to debt (if allowed)":"التحويل إلى دين (إن كان مسموحاً)","Save the sale":"حفظ البيع","Print the receipt":"طباعة الوصل","Find any screen":"ابحث عن أي شاشة","Show this list":"إظهار هذه القائمة","Shift started":"بدء دوام","Shift ended":"انتهاء دوام","Shift closed by the owner":"أغلقه المالك"});
+AR_RX.push([/^Have (.+) · sold in 30 days (.+)$/, "المتوفر $1 · المباع خلال 30 يوماً $2"], [/^Stock: (.+)$/, "المخزون: $1"], [/^Sale #(.+) · (.+)$/, "بيع #$1 · $2"], [/^Expense (.*) · (.+)$/, "مصروف $1 · $2"]);
 
 </script>
 <script>

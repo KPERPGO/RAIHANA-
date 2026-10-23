@@ -1,7 +1,7 @@
 /* ---------- Raihana ERP modules (2026-10-21): stock by batch, cashier, customers on debt,
    chronic patient cards with shortage alerts, money (cash box, expenses, profit), settings.
    Stock is worked out from the purchase invoices: what came in, minus returns, sales and write-offs. ---------- */
-const E = {staff:[], shifts:[], doserules:[], prods:[], sales:[], moves:[], customers:[], custpays:[], chronic:[], expenses:[], closes:[], counts:[], events:[], cfg:{}};
+const E = {staff:[], shifts:[], doserules:[], journal:[], prods:[], sales:[], moves:[], customers:[], custpays:[], chronic:[], expenses:[], closes:[], counts:[], events:[], cfg:{}};
 /* several sales open at once: one tab per customer at the counter */
 S.tabs = lsGet("erp.tabs", null) || [{n:1, lines:lsGet("erp.cart", []), meta:lsGet("erp.cartMeta", {})}];
 S.tabAt = Math.min(lsGet("erp.tabAt", 0), S.tabs.length - 1); S.sellPeriod = lsGet("erp.sellPeriod", "today");
@@ -875,7 +875,7 @@ document.addEventListener("change", ev => { const t = ev.target, d = t.dataset;
 S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice(0,7);
 /* screen permissions: the owner ticks which screens each employee may use. "newinv" is the + Invoice / Scan buttons.
    Staff stays owner-only, so nobody can give themselves more screens */
-const PERM_SCREENS = [["newinv","New purchase invoice"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["dose","Dose"],["money","Money"],["reports","Reports"],["settings","Settings"]];
+const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["dose","Dose"],["money","Money"],["reports","Reports"],["settings","Settings"]];
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
 const canUse = k => isOwner() || (k !== "staff" && myPerms().includes(k));
@@ -1260,18 +1260,18 @@ async function cancelRecord(coll, id, what, after){
 async function backupAll(btn){
   if (!S.dl){ toast("Download isn't available here."); return; } btn.disabled = true;
   try {
-    const data = {app:"Raihana ERP", version:1, exportedAt:nowIso(), collections:{suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})), products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, doserules:E.doserules}};
+    const data = {app:"Raihana ERP", version:1, exportedAt:nowIso(), collections:{suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})), products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, doserules:E.doserules, journal:E.journal}};
     await S.dl.save({filename:`Raihana_ERP_Backup_${today()}.json`, data:new Blob([JSON.stringify(data)], {type:"application/json"})});
     toast("Backup saved."); window.markBackup?.();
   } catch(e){ toast(e?.code === "declined" ? "Download cancelled." : "Backup failed. Try again."); } finally { btn.disabled = false; }
 }
 /* restore (audit F-03): shows what will change first, adds records that are missing, and replaces a record only when the
    file's copy is newer. A record changed or cancelled on this device after the backup is always kept as it is. */
-const RESTORE_COLLS = ["doserules","suppliers","invoices","payments","credits","meta","products","sales","moves","customers","custpays","chronic","expenses","closes","counts","staff","shifts","events"];
+const RESTORE_COLLS = ["doserules","journal","suppliers","invoices","payments","credits","meta","products","sales","moves","customers","custpays","chronic","expenses","closes","counts","staff","shifts","events"];
 const recStamp = d => [d?.lastAt, d?.updatedAt, d?.voidedAt, d?.deletedAt, d?.staffAt, d?.at, d?.createdAt].filter(x => typeof x === "string").sort().pop() || "";
 function deviceColl(coll){
   return ({suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits || S.credits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})),
-    products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, doserules:E.doserules})[coll] || [];
+    products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, doserules:E.doserules, journal:E.journal})[coll] || [];
 }
 function restorePlan(j){
   const plan = {add:[], replace:[], keep:0, same:0};
@@ -1657,7 +1657,7 @@ write = async function(path, data, merge){ clearMemo(); if (data && typeof data 
 // pages scroll inside the middle area now, so "go to top" scrolls that area
 window.scrollTo = function(){ const v = document.getElementById("view"); if (v) v.scrollTop = 0; };
 /* ---- grouped menu: group headings with an alert count, a "Screen > group" crumb in the top bar and a screen finder (Ctrl+K, or the search button) ---- */
-const GROUP_OF = {sell:"Dispensing and sales", dose:"Dispensing and sales", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Inventory", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", staff:"Administration", settings:"Administration"};
+const GROUP_OF = {sell:"Dispensing and sales", dose:"Dispensing and sales", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Inventory", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", books:"Finance", staff:"Administration", settings:"Administration"};
 let navCount = {at:0, v:{}};
 function navAlerts(){
   if (Date.now() - navCount.at < 4000) return navCount.v; navCount.at = Date.now();
@@ -1726,7 +1726,7 @@ if (document.readyState === "loading") document.addEventListener("DOMContentLoad
 let renderQueued = false;
 const queueRender = () => { if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); };
 (function start(){
-  const map = {staff:"staff", shifts:"shifts", counts:"counts", products:"prods", sales:"sales", moves:"moves", customers:"customers", custpays:"custpays", chronic:"chronic", expenses:"expenses", closes:"closes", events:"events", doserules:"doserules"};
+  const map = {staff:"staff", shifts:"shifts", counts:"counts", products:"prods", sales:"sales", moves:"moves", customers:"customers", custpays:"custpays", chronic:"chronic", expenses:"expenses", closes:"closes", events:"events", doserules:"doserules", journal:"journal"};
   const total = Object.keys(map).length, got = new Set();
   const progress = () => { const B = window.BOOT; if (!B || B.done) return; B.set(15 + (S.ready ? 35 : 0) + 50 * got.size / total);
     if (S.ready && (got.size === total || !S.db)){ staffAfterData(); render(); B.finish(); } };
@@ -1911,7 +1911,7 @@ document.addEventListener("input", doseLive); document.addEventListener("change"
 /* ---- FDA drug label alerts: for each approved rule the app downloads the official FDA label (openFDA) when online and keeps a
    saved copy for offline use. Boxed warnings, contraindications and the pregnancy, children and elderly sections show as
    alerts, each with a link to the source. The text is shown as the label wrote it. UpToDate is licensed, so it is only a link ---- */
-const FDA_BASE = () => window.ERP_FDA || "https://api.fda.gov", LABEL_DAYS = 7, LABEL_KEYS = ["boxed_warning", "contraindications", "warnings", "pregnancy", "pediatric_use", "geriatric_use"];
+const FDA_BASE = () => window.ERP_FDA || "https://api.fda.gov", LABEL_DAYS = 7, LABEL_KEYS = ["dosage_and_administration", "boxed_warning", "contraindications", "warnings", "pregnancy", "pediatric_use", "geriatric_use"];
 const labelCache = () => lsGet("erp.labels", {}), labelKey = r => (r.labelName || r.drug || "").trim().toLowerCase();
 const labelOnline = () => navigator.onLine !== false && ERP_MODE === "device";
 async function fetchLabel(name){
@@ -1924,7 +1924,7 @@ async function fetchLabel(name){
     const hit = list.find(x => (x.openfda?.generic_name || []).some(g => g.toLowerCase() === want) && x.dosage_and_administration) || list.find(x => (x.openfda?.generic_name || []).some(g => g.toLowerCase() === want));
     if (!hit) entry = {found:false, at:now};
     else { entry = {found:true, at:now, setid:hit.set_id || "", date:hit.effective_time || "", title:(hit.openfda?.brand_name || [name])[0]};
-      for (const k of LABEL_KEYS) if (hit[k]) entry[k] = [].concat(hit[k]).join(" ").replace(/\s+/g, " ").trim().slice(0, 4000); }
+      for (const k of LABEL_KEYS) if (hit[k]) entry[k] = [].concat(hit[k]).join(" ").replace(/\s+/g, " ").trim().slice(0, 6000); }
   }
   const c = labelCache(); c[name.toLowerCase()] = entry; lsSet("erp.labels", c); return entry;
 }
@@ -1940,6 +1940,7 @@ function labelHtml(r, e){
   const link = src ? ` <a href="${esc(src)}" target="_blank" rel="noopener">Open the source</a>` : "";
   const box = (cls, title, txt, open) => `<details class="banner ${cls}" style="border:0" ${open ? "open" : ""}><summary><b>${title}</b>${link}</summary><p data-keep style="margin:6px 0 0;white-space:pre-wrap">${esc(txt)}</p></details>`;
   let h = "";
+  if (e.dosage_and_administration) h += box("", "Dosing in the FDA label", e.dosage_and_administration, false);
   if (e.boxed_warning) h += box("bad", "Boxed warning", e.boxed_warning, true);
   if (e.contraindications) h += box("", "Do not use if (contraindications)", e.contraindications, true);
   if (d.preg && e.pregnancy) h += box("", "Pregnancy and breastfeeding", e.pregnancy, true);
@@ -1961,10 +1962,134 @@ function paintLabel(){
   if (stale && labelOnline() && k) fetchLabel(k).then(() => { if (S.dose.rid === r.id) paintLabel(); }).catch(() => { if (!e && $("#doseLabel") && S.dose.rid === r.id) set(`<p class="note">Could not reach the FDA label service. Try again later.</p>`); });
 }
 window.addEventListener("online", prefetchLabels); setTimeout(prefetchLabels, 8000);
-Object.assign(AR, {"English generic name for the FDA label":"الاسم العلمي بالإنجليزية لنشرة FDA","Boxed warning":"تحذير الإطار الأسود","Do not use if (contraindications)":"لا يُستعمل في حال (موانع الاستعمال)","Pregnancy and breastfeeding":"الحمل والرضاعة","Use in children":"الاستعمال عند الأطفال","Use in the elderly":"الاستعمال عند كبار السن","Warnings and precautions":"تحذيرات واحتياطات","Open the source":"افتح المصدر","Search UpToDate":"ابحث في UpToDate","FDA label alerts work in the installed app.":"تنبيهات نشرة FDA تعمل في التطبيق المثبت.","Could not reach the FDA label service. Try again later.":"تعذر الوصول إلى خدمة نشرة FDA. حاول لاحقاً.","Loading the FDA label...":"جارٍ تحميل نشرة FDA...","Offline and no saved FDA label for this medicine yet. Connect to the internet once to download it.":"لا يوجد اتصال ولا نشرة محفوظة لهذا الدواء. اتصل بالإنترنت مرة واحدة لتنزيلها."});
+Object.assign(AR, {"English generic name for the FDA label":"الاسم العلمي بالإنجليزية لنشرة FDA","Boxed warning":"تحذير الإطار الأسود","Dosing in the FDA label":"الجرعات في نشرة FDA","Do not use if (contraindications)":"لا يُستعمل في حال (موانع الاستعمال)","Pregnancy and breastfeeding":"الحمل والرضاعة","Use in children":"الاستعمال عند الأطفال","Use in the elderly":"الاستعمال عند كبار السن","Warnings and precautions":"تحذيرات واحتياطات","Open the source":"افتح المصدر","Search UpToDate":"ابحث في UpToDate","FDA label alerts work in the installed app.":"تنبيهات نشرة FDA تعمل في التطبيق المثبت.","Could not reach the FDA label service. Try again later.":"تعذر الوصول إلى خدمة نشرة FDA. حاول لاحقاً.","Loading the FDA label...":"جارٍ تحميل نشرة FDA...","Offline and no saved FDA label for this medicine yet. Connect to the internet once to download it.":"لا يوجد اتصال ولا نشرة محفوظة لهذا الدواء. اتصل بالإنترنت مرة واحدة لتنزيلها."});
 AR_RX.push([/^FDA label, checked ([\d-]+)\.$/, "نشرة FDA، آخر فحص $1."], [/^Offline\. Showing the saved FDA label from ([\d-]+)\.$/, "بلا اتصال. تُعرض نشرة FDA المحفوظة بتاريخ $1."], [/^No FDA label was found for "(.+)"\. Check the name in the rule, or look at the full label yourself\.$/, "لم تُوجد نشرة FDA لـ \"$1\". تحقق من الاسم في القاعدة أو راجع النشرة الكاملة بنفسك."]);
 TIPS.dose = "Choose the medicine, type the age and weight, and read the dose with its source. Only rules the owner approved appear here.";
 Object.assign(AR, {"Dose":"الجرعة","Dose calculator":"حاسبة الجرعات","Dose rules":"قواعد الجرعات","+ Rule":"+ قاعدة","Medicine and patient group":"الدواء وفئة المريض","Age (years)":"العمر (سنوات)","Plus months":"مع أشهر","Weight (kg)":"الوزن (كغم)","Kidney problem":"مشكلة في الكلى","Liver problem":"مشكلة في الكبد","Pregnant or breastfeeding":"حامل أو مرضعة","Choose a medicine.":"اختر دواءً.","Type the weight in kg.":"اكتب الوزن بالكيلوغرام.","Type the age.":"اكتب العمر.","Dose each time":"الجرعة في كل مرة","As liquid":"كشراب","As tablets":"كأقراص","Times a day":"عدد المرات في اليوم","Do not give more than, in 24 hours":"لا تعطِ أكثر من ذلك خلال 24 ساعة","Limited to the largest single dose in the rule.":"تم تحديدها بأكبر جرعة مفردة في القاعدة.","This rule has no advice for this. Check the full label before giving it.":"لا توجد نصيحة في هذه القاعدة لهذه الحالة. راجع النشرة الكاملة قبل الإعطاء.","This is an aid. The pharmacist checks it and decides.":"هذه أداة مساعدة. الصيدلي يراجعها ويقرر.","No approved dose rules yet. Ask the owner to add and approve the rules.":"لا توجد قواعد جرعات معتمدة بعد. اطلب من المالك إضافتها واعتمادها.","No approved dose rules yet. Add a rule below from an official label, then approve it.":"لا توجد قواعد جرعات معتمدة بعد. أضف قاعدة أدناه من نشرة رسمية ثم اعتمدها.","Copy each rule from an official label (FDA or EMA). Every rule must name its source. A rule is only used after you approve it, and changing a rule puts it back to draft.":"انسخ كل قاعدة من نشرة رسمية (FDA أو EMA). يجب أن تذكر كل قاعدة مصدرها. لا تُستعمل القاعدة إلا بعد اعتمادك لها، وتعديلها يعيدها إلى مسودة.","No rules yet.":"لا توجد قواعد بعد.","Approved":"معتمدة","Draft":"مسودة","Edit dose rule":"تعديل قاعدة جرعة","New dose rule":"قاعدة جرعة جديدة","Medicine":"الدواء","Patient group":"فئة المريض","Age from (months)":"العمر من (أشهر)","Age to (months)":"العمر إلى (أشهر)","Weight from (kg)":"الوزن من (كغم)","Weight to (kg)":"الوزن إلى (كغم)","Dose is":"الجرعة هي","mg per kg of body weight":"ملغ لكل كغم من وزن الجسم","a fixed number of mg":"عدد ثابت من الملغ","Dose from (mg)":"الجرعة من (ملغ)","Dose to (mg)":"الجرعة إلى (ملغ)","Times a day (most)":"المرات في اليوم (الأكثر)","Largest single dose (mg)":"أكبر جرعة مفردة (ملغ)","Most per day (mg)":"الأكثر في اليوم (ملغ)","Most per day (mg per kg)":"الأكثر في اليوم (ملغ لكل كغم)","Liquid: mg in 5 mL":"الشراب: ملغ في 5 مل","Tablet: mg each":"القرص: ملغ لكل قرص","Kidney advice":"نصيحة للكلى","Liver advice":"نصيحة للكبد","Pregnancy and breastfeeding advice":"نصيحة للحمل والرضاعة","Other notes":"ملاحظات أخرى","Source (FDA or EMA document)":"المصدر (وثيقة FDA أو EMA)","Document title or link":"عنوان الوثيقة أو رابطها","Label date":"تاريخ النشرة","Save as draft":"حفظ كمسودة","Approve this rule":"اعتماد هذه القاعدة","Type the medicine and its source (document, title or link, date).":"اكتب الدواء ومصدره (الوثيقة والعنوان أو الرابط والتاريخ).","Type the dose from and to, with the largest not smaller than the smallest.":"اكتب الجرعة من وإلى، على ألا تكون الكبرى أصغر من الصغرى.","Type how many times a day (1 to 24).":"اكتب عدد المرات في اليوم (من 1 إلى 24).","Rule saved as a draft. Approve it to use it.":"تم حفظ القاعدة كمسودة. اعتمدها لاستعمالها.","Rule approved.":"تم اعتماد القاعدة.","Rule deleted.":"تم حذف القاعدة.","Tap again to delete":"اضغط مرة أخرى للحذف","Choose the medicine, type the age and weight, and read the dose with its source. Only rules the owner approved appear here.":"اختر الدواء، اكتب العمر والوزن، واقرأ الجرعة مع مصدرها. تظهر هنا فقط القواعد التي اعتمدها المالك."});
 AR_RX.push([/^([\d,.]+) to ([\d,.]+) (mg|mL|tablet)$/, "$1 إلى $2 $3"], [/^([\d,.]+) (mg|mL|tablet)$/, "$1 $2"], [/^(\d+), about every ([\d,.]+) hours$/, "$1، تقريباً كل $2 ساعة"], [/^\(([\d,.]+) mg per 5 mL\)$/, "($1 ملغ في 5 مل)"], [/^\(([\d,.]+) mg each\)$/, "($1 ملغ لكل قرص)"], [/^Source: (.+?)( · approved by (.+))?$/, (m, a, b, c) => "المصدر: " + a + (c ? " · اعتمدها " + c : "")],
   [/^Age is outside this rule \((\d+) to (\d+|any) months\)\. Do not use this rule\.$/, "العمر خارج نطاق هذه القاعدة ($1 إلى $2 شهراً). لا تستعمل هذه القاعدة."], [/^Weight is outside this rule \(([\d.]+) to ([\d.]+|any) kg\)\. Do not use this rule\.$/, "الوزن خارج نطاق هذه القاعدة ($1 إلى $2 كغم). لا تستعمل هذه القاعدة."]);
 document.head.insertAdjacentHTML("beforeend", `<style>.dv{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:end}</style>`);
+
+/* ---- accounts (double entry). Nothing is typed twice: every journal entry is worked out from the sales, returns, invoices,
+   supplier payments, customer payments, expenses and stock write-offs already in the app. Only opening balances and
+   corrections are typed by the owner, as manual entries with a PIN. Every entry has equal debit and credit by construction ---- */
+const CHART = [["1000", "Cash box", "A"], ["1010", "Card and bank", "A"], ["1100", "Customer debts", "A"], ["1200", "Stock at cost", "A"], ["2000", "Supplier balances", "L"], ["3000", "Owner capital and opening balances", "E"],
+  ["4000", "Sales", "I"], ["4090", "Sales returns", "I"], ["4200", "Discounts received from suppliers", "I"], ["5000", "Cost of goods sold", "X"], ["5100", "Expenses", "X"], ["5300", "Stock losses and count differences", "X"]];
+const ACCT = Object.fromEntries(CHART.map(([c, n, t]) => [c, {name:n, type:t}])), debitSide = c => "AX".includes(ACCT[c].type);
+S.bk = {view:"tb", from:today().slice(0, 8) + "01", to:today()};
+function bkEntries(){
+  const out = [], bank = m => /cash/i.test(m || "") ? "1000" : "1010", unpriced = {n:0};
+  const add = (date, src, ref, desc, lines, tag) => { const ls = [];
+    for (const l of lines){ let dr = n0(l.dr), cr = n0(l.cr); if (dr < 0){ cr -= dr; dr = 0; } if (cr < 0){ dr -= cr; cr = 0; } if (dr || cr) ls.push({acct:l.acct, dr, cr, tag:l.tag || ""}); }
+    if (ls.length) out.push({date:date || "", src, ref, desc, lines:ls, id:src + ref + out.length}); };
+  for (const s of E.sales) if (!s.voided){ const a = s.method === "card" ? "1010" : s.method === "debt" ? "1100" : "1000", c = saleCost(s);
+    add(s.date, "Sale", "#" + (s.no || s.id), s.method === "debt" ? "Sale on debt" : s.method === "card" ? "Sale paid by card" : "Sale paid in cash", [{acct:a, dr:s.total}, {acct:"4000", cr:s.total}, {acct:"5000", dr:c}, {acct:"1200", cr:c}]); }
+  for (const m of refundsWhere(() => true)){ const a = m.refundBy === "card" ? "1010" : m.refundBy === "debt" ? "1100" : "1000", v = -n0(m.q) * n0(m.cost);
+    add(m.date, "Return", "#" + (m.saleNo || m.saleId), "Customer return", [{acct:"4090", dr:m.refund}, {acct:a, cr:m.refund}, {acct:"1200", dr:v}, {acct:"5000", cr:v}]); }
+  for (const inv of S.invoices) if (BOOKED.includes(inv.status)){ const t = calc(inv).total, sp = supplier(inv.supplierId);
+    add(inv.date, "Purchase", inv.invoiceNo || inv.id, "Invoice from " + (sp?.name || "supplier"), [{acct:"1200", dr:t}, {acct:"2000", cr:t}]); }
+  for (const p of S.payments) if (p.verified){ const a = n0(p.amount), d = n0(p.discount);
+    add(p.date, "Supplier payment", p.invoiceId || p.id, "Payment to " + (supplier(p.supplierId)?.name || "supplier"), [{acct:"2000", dr:a + d}, {acct:bank(p.method), cr:a}, {acct:"4200", cr:d}]); }
+  for (const c of S.credits) if (c.verified) add(c.date, "Purchase return", c.invoiceId || c.id, "Goods returned to supplier", [{acct:"2000", dr:c.amount}, {acct:"1200", cr:c.amount}]);
+  for (const x of E.custpays) if (!x.voided) add(x.date, "Customer payment", x.id, "Debt paid by customer", [{acct:"1000", dr:x.amount}, {acct:"1100", cr:x.amount}]);
+  for (const x of E.expenses) if (!x.voided) add(x.date, "Expense", x.id, x.category || "Expense", [{acct:"5100", dr:x.amount, tag:x.category || "Other"}, {acct:x.fromCash !== false ? "1000" : "1010", cr:x.amount}]);
+  for (const m of E.moves) if (!m.saleId && !m.voided){ if (m.cost == null) unpriced.n++; const v = n0(m.q) * n0(m.cost);
+    add(m.date, "Stock", m.id, m.reason || "Stock change", [{acct:"5300", dr:v, tag:m.reason || "Other"}, {acct:"1200", cr:v}]); }
+  for (const j of E.journal) if (!j.voided) add(j.date, "Manual", j.ref || j.id, j.desc || "Manual entry", (j.lines || []).map(l => ({acct:l.acct, dr:l.dr, cr:l.cr})));
+  out.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0); out.unpriced = unpriced.n; return out;
+}
+function bkBal(entries, from, to){ const b = {};
+  for (const e of entries) if ((!from || e.date >= from) && (!to || e.date <= to)) for (const l of e.lines){ const r = b[l.acct] || (b[l.acct] = {dr:0, cr:0}); r.dr += l.dr; r.cr += l.cr; }
+  return b; }
+const bkNet = (b, a) => { const r = b[a] || {dr:0, cr:0}; return debitSide(a) ? r.dr - r.cr : r.cr - r.dr; };
+const bkN = v => `<span class="num">${Math.round(v).toLocaleString("en-US")}</span>`;
+function bkLockDiff(entries){ const lk = E.cfg.lockTo; if (!lk || !E.cfg.lockSnap) return [];
+  const b = bkBal(entries, null, lk), out = [];
+  for (const [c] of CHART){ const was = n0(E.cfg.lockSnap[c]), now = bkNet(b, c); if (Math.round(was) !== Math.round(now)) out.push({c, was, now}); }
+  return out; }
+function bkTable(rows, head){ return `<div style="overflow-x:auto"><table class="bk"><thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`; }
+function bkTB(en){ const b = bkBal(en, null, S.bk.to); let dt = 0, ct = 0;
+  const rows = CHART.filter(([c]) => b[c]).map(([c, n]) => { const net = (b[c].dr - b[c].cr), dr = net > 0 ? net : 0, cr = net < 0 ? -net : 0; dt += dr; ct += cr;
+    return `<tr><td class="num">${c}</td><td>${n}</td><td>${dr ? bkN(dr) : ""}</td><td>${cr ? bkN(cr) : ""}</td></tr>`; });
+  return `<p class="note">Balances of every account up to the date.</p>${bkTable(rows.concat(`<tr class="tot"><td></td><td>Total</td><td>${bkN(dt)}</td><td>${bkN(ct)}</td></tr>`), ["Code", "Account", "Debit", "Credit"])}
+    <p class="note">${Math.round(dt) === Math.round(ct) ? "Debit and credit are equal." : "Debit and credit differ. Tell the developer."}</p>`; }
+function bkPL(en){ const b = bkBal(en, S.bk.from, S.bk.to), net = a => bkNet(b, a), sales = net("4000"), ret = net("4090"), cogs = net("5000"), disc = net("4200"), loss = net("5300");
+  const tags = {}; for (const e of en) if (e.date >= S.bk.from && e.date <= S.bk.to) for (const l of e.lines) if (l.acct === "5100") tags[l.tag] = (tags[l.tag] || 0) + l.dr - l.cr;
+  const exp = net("5100"), gross = sales - ret - cogs, profit = gross + disc - exp - loss, r = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td>${bkN(v)}</td></tr>`;
+  return bkTable([r("Sales", sales), r("Sales returns", -ret), r("Cost of goods sold", -cogs), r("Gross profit", gross, "tot"), r("Discounts received from suppliers", disc),
+    ...Object.entries(tags).sort().map(([k, v]) => r("Expense: " + esc(k), -v)), r("Stock losses and count differences", -loss), r("Net profit", profit, "tot")], ["Profit and loss", "IQD"]); }
+function bkBS(en){ const b = bkBal(en, null, S.bk.to), a = c => bkNet(b, c), r = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td>${bkN(v)}</td></tr>`;
+  const assets = a("1000") + a("1010") + a("1100") + a("1200"), liab = a("2000"), profit = a("4000") - a("4090") - a("5000") + a("4200") - a("5100") - a("5300"), eq = a("3000") + profit;
+  return bkTable([r("Cash box", a("1000")), r("Card and bank", a("1010")), r("Customer debts", a("1100")), r("Stock at cost", a("1200")), r("Total assets", assets, "tot"),
+    r("Supplier balances", liab), r("Owner capital and opening balances", a("3000")), r("Profit to date", profit), r("Total liabilities and capital", liab + eq, "tot")], ["Balance sheet", "IQD"])
+    + `<p class="note">${Math.round(assets) === Math.round(liab + eq) ? "Assets equal liabilities plus capital." : "Assets and liabilities plus capital differ. Tell the developer."}</p>`
+    + (a("1200") < 0 ? `<p class="banner">Stock at cost is below zero. You have sold stock that was never entered through an approved invoice. Add your opening stock value as a manual entry.</p>` : ""); }
+function bkJournal(en){ const list = en.filter(e => e.date >= S.bk.from && e.date <= S.bk.to).slice(-200).reverse();
+  return `<p class="note">${list.length} entries shown (newest 200). The export has all of them.</p>` + (list.length ? list.map(e => `<div class="list" style="margin-bottom:8px"><div class="row" style="cursor:default"><span class="main"><span class="t">${esc(e.date)} · ${esc(e.src)} ${esc(String(e.ref))}</span><span class="s">${esc(e.desc)}</span></span></div>
+    ${e.lines.map(l => `<div class="row" style="cursor:default;padding-block:4px"><span class="main"><span class="s">${esc(l.acct)} ${esc(ACCT[l.acct]?.name || "")}</span></span><span class="num">${l.dr ? Math.round(l.dr).toLocaleString("en-US") : ""}</span><span class="num" style="min-width:90px;text-align:end">${l.cr ? Math.round(l.cr).toLocaleString("en-US") : ""}</span></div>`).join("")}</div>`).join("") : `<div class="empty">No entries in these dates.</div>`); }
+function bkManual(){ const mine = E.journal.filter(j => !j.voided).sort((a, b) => b.date < a.date ? -1 : 1);
+  return `<p class="note">Use a manual entry only for opening balances (cash in the box, stock value, owner capital) and corrections. Everything else is worked out from your records.</p>
+    <button type="button" class="primary" data-xbkadd="1">+ Manual entry</button>
+    <div class="list" style="margin-top:10px">${mine.length ? mine.map(j => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(j.date)} · ${esc(j.desc || "")}</span><span class="s">${(j.lines || []).map(l => esc(l.acct) + (l.dr ? " Dr " : " Cr ") + Math.round(l.dr || l.cr).toLocaleString("en-US")).join(" · ")}</span></span><button type="button" data-xbkvoid="${esc(j.id)}">Cancel</button></div>`).join("") : `<div class="empty">No manual entries yet.</div>`}</div>`; }
+function bkLock(en){ const lk = E.cfg.lockTo, diff = bkLockDiff(en);
+  return `<p class="note">Locking a period stops manual entries on or before that date, and the app remembers the balances at that moment. If an older record changes later, it is listed here.</p>
+    <div class="sum" style="gap:10px"><div class="r"><span>Locked up to</span><span class="num">${lk ? esc(lk) : "not locked"}</span></div>
+    ${diff.length ? `<div class="banner bad" style="border:0"><b>Records in the locked period changed:</b> ${diff.map(d => esc(ACCT[d.c].name) + " " + Math.round(d.was).toLocaleString("en-US") + " to " + Math.round(d.now).toLocaleString("en-US")).join(" · ")}</div>` : lk ? `<p class="note">Nothing in the locked period has changed.</p>` : ""}
+    <label>Lock everything up to<input id="bkLockDate" type="date" value="${esc(lk || "")}" max="${today()}"></label>
+    <div class="actions"><button type="button" class="primary" data-xbklock="1">Lock this period</button>${lk ? `<button type="button" data-xbkunlock="1">Remove the lock</button>` : ""}</div><p class="err" id="bkErr"></p></div>`; }
+function booksView(){
+  if (!isOwner()) return `<div class="empty">Only the owner can see the accounts.</div>`;
+  const en = bkEntries(), v = S.bk.view, tabs = [["tb", "Trial balance"], ["pl", "Profit and loss"], ["bs", "Balance sheet"], ["jr", "Journal"], ["man", "Manual entries"], ["lock", "Lock period"]];
+  const needFrom = v === "pl" || v === "jr", body = v === "tb" ? bkTB(en) : v === "pl" ? bkPL(en) : v === "bs" ? bkBS(en) : v === "jr" ? bkJournal(en) : v === "man" ? bkManual() : bkLock(en);
+  const diff = v === "lock" ? [] : bkLockDiff(en);
+  return `<section class="sec"><h2>Accounts</h2>
+    ${diff.length ? `<div class="banner bad" style="border:0">Records inside the locked period changed. Open Lock period to see what.</div>` : ""}
+    ${en.unpriced ? `<div class="banner" style="margin-bottom:8px">${en.unpriced} stock changes have no cost and count as zero.</div>` : ""}
+    <div class="chips" style="margin-bottom:8px">${tabs.map(([k, l]) => `<button type="button" class="chip${v === k ? " on" : ""}" data-xbkview="${k}" ${v === k ? 'aria-pressed="true"' : ""}>${l}</button>`).join("")}</div>
+    ${v === "man" || v === "lock" ? "" : `<div class="grid2 stack">${needFrom ? `<label>From<input id="bkFrom" type="date" value="${esc(S.bk.from)}"></label>` : ""}<label>${needFrom ? "To" : "Up to"}<input id="bkTo" type="date" value="${esc(S.bk.to)}"></label></div>`}
+    <div class="sum" style="gap:10px;margin-top:8px">${body}</div>
+    <div class="actions" style="margin-top:10px"><button type="button" data-xbkcsv="jr">Export journal (CSV)</button><button type="button" data-xbkcsv="tb">Export trial balance (CSV)</button></div></section>`;
+}
+function bkSheet(){
+  openSheet("Manual entry", `<form id="bkForm" style="display:grid;gap:10px"><div class="grid2 stack"><label>Date<input id="bkDate" type="date" value="${today()}" max="${today()}" required></label><label>Description<input id="bkDesc" required placeholder="Opening cash in the box"></label></div>
+    ${[0, 1, 2, 3].map(i => `<div class="grid2 stack"><label>${i < 2 ? "Account" : "Account (optional)"}<select id="bkA${i}"><option value=""></option>${CHART.map(([c, n]) => `<option value="${c}">${c} ${n}</option>`).join("")}</select></label><div class="grid2 stack"><label>Debit<input id="bkD${i}" class="num" inputmode="decimal"></label><label>Credit<input id="bkC${i}" class="num" inputmode="decimal"></label></div></div>`).join("")}
+    <p class="err" id="bkFErr"></p><button type="submit" class="primary">Save entry (owner PIN)</button></form>`);
+  if (S.lang === "ar") translate($("#sheet"));
+}
+document.addEventListener("submit", async ev => { if (ev.target.id !== "bkForm") return; ev.preventDefault();
+  const err = m => { $("#bkFErr").textContent = m; }, date = $("#bkDate").value, desc = $("#bkDesc").value.trim(); if (!isOwner()) return;
+  const lines = [0, 1, 2, 3].map(i => ({acct:$("#bkA" + i).value, dr:wIQD(parseNum($("#bkD" + i).value)), cr:wIQD(parseNum($("#bkC" + i).value))})).filter(l => l.acct || l.dr || l.cr);
+  if (lines.some(l => !l.acct || (l.dr && l.cr) || (!l.dr && !l.cr) || l.dr < 0 || l.cr < 0)) return err("Each line needs an account and either a debit or a credit.");
+  const dt = lines.reduce((a, l) => a + l.dr, 0), ct = lines.reduce((a, l) => a + l.cr, 0);
+  if (lines.length < 2 || !dt) return err("Add at least two lines.");
+  if (dt !== ct) return err(`Debit ${dt.toLocaleString("en-US")} and credit ${ct.toLocaleString("en-US")} must be equal.`);
+  if (!date || date > today()) return err("Choose a date that is not in the future."); if (E.cfg.lockTo && date <= E.cfg.lockTo) return err("That period is locked (up to " + E.cfg.lockTo + ").");
+  if (!desc) return err("Type what this entry is for.");
+  const by = await ownerOK([`Manual accounting entry: ${desc} (${dt.toLocaleString("en-US")} IQD)`], {always:true}); if (!by) return;
+  const id = newId("JE"); try { await write("journal/" + id, {id, date, desc, lines, by, at:nowIso(), voided:false}); closeSheet(); toast("Entry saved."); render(); } catch(x){ err(x.message); } });
+document.addEventListener("click", async ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
+  if (d.xbkview){ S.bk.view = d.xbkview; render(); return; }
+  if (d.xbkadd){ bkSheet(); return; }
+  if (d.xbkvoid){ if (!isOwner()) return; const j = E.journal.find(x => x.id === d.xbkvoid); if (!j) return;
+    if (E.cfg.lockTo && j.date <= E.cfg.lockTo){ toast("That period is locked."); return; }
+    const by = await ownerOK([`Cancel manual entry: ${j.desc}`], {always:true}); if (!by) return;
+    try { await write("journal/" + j.id, {voided:true, voidedBy:by, voidedAt:nowIso()}, true); toast("Entry cancelled."); render(); } catch(x){ toast(x.message); } return; }
+  if (d.xbklock){ if (!isOwner()) return; const date = $("#bkLockDate").value, err = m => { $("#bkErr").textContent = m; };
+    if (!date || date > today()) return err("Choose a date that is not in the future.");
+    const by = await ownerOK([`Lock the accounts up to ${date}`], {always:true}); if (!by) return;
+    const b = bkBal(bkEntries(), null, date), snap = Object.fromEntries(CHART.map(([c]) => [c, Math.round(bkNet(b, c))]));
+    try { await write("meta/erp", {...E.cfg, lockTo:date, lockSnap:snap, lockBy:by, lockAt:nowIso()}); toast("Period locked."); render(); } catch(x){ err(x.message); } return; }
+  if (d.xbkunlock){ if (!isOwner()) return; const by = await ownerOK(["Remove the accounts lock"], {always:true}); if (!by) return;
+    try { await write("meta/erp", {...E.cfg, lockTo:null, lockSnap:null}); toast("Lock removed."); render(); } catch(x){ toast(x.message); } return; }
+  if (d.xbkcsv){ if (!S.dl){ toast("Download isn't available here."); return; } const en = bkEntries(), q = v => '"' + String(v ?? "").replace(/"/g, '""') + '"', rows = [];
+    if (d.xbkcsv === "jr"){ rows.push(["Date", "Entry", "Source", "Description", "Account code", "Account", "Debit", "Credit"]); for (const e of en) for (const l of e.lines) rows.push([e.date, e.ref, e.src, e.desc, l.acct, ACCT[l.acct]?.name, l.dr || "", l.cr || ""]); }
+    else { const b = bkBal(en, null, S.bk.to); rows.push(["Code", "Account", "Debit", "Credit"]); for (const [c, n] of CHART) if (b[c]){ const net = b[c].dr - b[c].cr; rows.push([c, n, net > 0 ? net : "", net < 0 ? -net : ""]); } }
+    try { await S.dl.save({filename:`Raihana_${d.xbkcsv === "jr" ? "Journal" : "TrialBalance"}_${today()}.csv`, data:new Blob(["﻿" + rows.map(r => r.map(q).join(",")).join("\r\n")], {type:"text/csv"})}); toast("File saved."); } catch(e){ toast(e?.code === "declined" ? "Download cancelled." : "Export failed. Try again."); } } });
+document.addEventListener("change", ev => { const i = ev.target.id; if (i === "bkFrom" || i === "bkTo"){ S.bk[i === "bkFrom" ? "from" : "to"] = ev.target.value || S.bk[i === "bkFrom" ? "from" : "to"]; render(); } });
+window.ERP_VIEWS.books = booksView;
+TIPS.books = "Accounts are worked out from your sales, invoices, payments and expenses. Type only opening balances and corrections.";
+document.head.insertAdjacentHTML("beforeend", `<style>table.bk{border-collapse:collapse;width:100%;font-size:13.5px}table.bk th,table.bk td{padding:7px 8px;text-align:start;border-bottom:1px solid var(--line)}table.bk td.num,table.bk td:last-child:not(:first-child){text-align:end}table.bk tr.tot td{font-weight:600;background:var(--sunk)}.chip.on{background:var(--accent);color:var(--accent-ink)}</style>`);
+Object.assign(AR, {"Accounts":"الحسابات","Cash box":"صندوق النقد","Card and bank":"البطاقة والمصرف","Customer debts":"ديون الزبائن","Stock at cost":"المخزون بسعر الكلفة","Supplier balances":"أرصدة الموردين","Owner capital and opening balances":"رأس المال والأرصدة الافتتاحية","Sales returns":"مرتجعات المبيعات","Discounts received from suppliers":"خصومات من الموردين","Cost of goods sold":"كلفة البضاعة المباعة","Expenses":"المصاريف","Stock losses and count differences":"خسائر المخزون وفروقات الجرد",
+  "Trial balance":"ميزان المراجعة","Profit and loss":"الأرباح والخسائر","Balance sheet":"الميزانية","Journal":"قيد اليومية","Manual entries":"قيود يدوية","Lock period":"إغلاق الفترة","Code":"الرمز","Account":"الحساب","Debit":"مدين","Credit":"دائن","Total":"المجموع","Gross profit":"إجمالي الربح","Net profit":"صافي الربح","Total assets":"مجموع الأصول","Total liabilities and capital":"مجموع الخصوم ورأس المال","Profit to date":"الربح حتى الآن","Up to":"حتى","Balances of every account up to the date.":"أرصدة كل حساب حتى التاريخ.","Debit and credit are equal.":"المدين يساوي الدائن.","Assets equal liabilities plus capital.":"الأصول تساوي الخصوم زائد رأس المال.","+ Manual entry":"+ قيد يدوي","Manual entry":"قيد يدوي","Account (optional)":"الحساب (اختياري)","Save entry (owner PIN)":"حفظ القيد (رمز المالك)","Entry saved.":"تم حفظ القيد.","Entry cancelled.":"تم إلغاء القيد.","Cancel":"إلغاء","No manual entries yet.":"لا قيود يدوية بعد.","Export journal (CSV)":"تصدير اليومية (CSV)","Export trial balance (CSV)":"تصدير ميزان المراجعة (CSV)","Locked up to":"مغلق حتى","not locked":"غير مغلق","Lock everything up to":"أغلق كل شيء حتى","Lock this period":"أغلق هذه الفترة","Remove the lock":"إزالة الإغلاق","Period locked.":"تم إغلاق الفترة.","Lock removed.":"تمت إزالة الإغلاق.","Nothing in the locked period has changed.":"لم يتغير شيء في الفترة المغلقة.","Only the owner can see the accounts.":"المالك فقط يرى الحسابات.","Choose a date that is not in the future.":"اختر تاريخاً ليس في المستقبل.","Add at least two lines.":"أضف سطرين على الأقل.","Each line needs an account and either a debit or a credit.":"كل سطر يحتاج حساباً ومدين أو دائن.","Type what this entry is for.":"اكتب سبب هذا القيد.","No entries in these dates.":"لا قيود في هذه التواريخ.","Records inside the locked period changed. Open Lock period to see what.":"تغيرت سجلات داخل الفترة المغلقة. افتح إغلاق الفترة لمعرفة ما تغير.",
+  "Sale":"بيع","Return":"إرجاع","Purchase":"شراء","Supplier payment":"دفعة لمورد","Purchase return":"إرجاع للمورد","Customer payment":"دفعة زبون","Expense":"مصروف","Stock":"المخزون","Manual":"يدوي","Sale paid in cash":"بيع نقدي","Sale paid by card":"بيع بالبطاقة","Sale on debt":"بيع بالدين","Customer return":"إرجاع زبون","Debt paid by customer":"سداد دين من زبون","Goods returned to supplier":"بضاعة مرجعة للمورد"});
+AR_RX.push([/^Expense: (.+)$/, "مصروف: $1"], [/^(\d+) entries shown \(newest 200\)\. The export has all of them\.$/, "$1 قيد معروض (أحدث 200). الملف المصدّر فيه الكل."], [/^(\d+) stock changes have no cost and count as zero\.$/, "$1 تغيير في المخزون بلا كلفة ويُحسب صفراً."]);

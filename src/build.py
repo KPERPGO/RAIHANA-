@@ -68,7 +68,7 @@ rep("""function returnedQty(invId, k){ return S.credits.filter(x => x.invoiceId 
   return S.credits.filter(x => x.invoiceId === invId && x.lines).reduce((a,x) => a + n0(x.lines.find(y => String(y.lid ?? y.k) === lid)?.qty), 0); }""")
 rep("""return {k:+k, desc:l?.desc || "",""", """return {k:+k, lid:String(l?.lid ?? +k), desc:l?.desc || "",""")
 NAV_OLD = re.search(r'<nav class="tabs".*?</nav>', base, re.S).group(0)
-TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("money","Money"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
+TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("dose","Dose"),("money","Money"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
 MENU_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 # The screen bar sits right under the top bar: Menu first, then one small button per screen
 # .shell holds the screen bar and the page; on wide screens it turns into a side list (see CSS)

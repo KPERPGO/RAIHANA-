@@ -370,11 +370,11 @@ function sellView(){
   const tabSum = t => cartTotals(t.lines || [], t.meta).total;
   const quick = quickItems(cat, used);
   return `<section class="sec">
-    <div class="tabsale" role="tablist" aria-label="Open sales">${S.tabs.map((t, i) => `<button type="button" role="tab" aria-selected="${i === S.tabAt}" data-xtab="${i}"><span>${esc(tabName(t))}</span><span class="num">${(t.lines || []).length ? iqd(Math.max(0, tabSum(t))) : "empty"}</span></button>`).join("")}<button type="button" class="add" data-xnewtab="1" aria-label="New customer">+ Customer</button></div>
+    <div class="tabsale" role="tablist" aria-label="Open sales">${S.tabs.map((t, i) => `<button type="button" role="tab" aria-selected="${i === S.tabAt}" data-xtab="${i}"><span>${esc(tabName(t))}</span>${(t.lines || []).length ? `<span class="num">${iqd(Math.max(0, tabSum(t)))}</span>` : `<span>empty</span>`}</button>`).join("")}<button type="button" class="add" data-xnewtab="1" aria-label="New customer">+ Customer</button></div>
     <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}${canUse("dose") ? `<button type="button" class="hbtn" data-xdosepop="1">Dose</button>` : ""}</div>
     <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print <button type="button" class="linkbtn" data-xkeys="1">All keys</button></p>
     ${q ? `<div class="list">${hits.length ? hits.map(p => { const s = stockOf(p, used); return `<button type="button" class="row" data-xadd="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""} · ${esc(qtyText(p, s.good))} in stock${s.next ? ` · exp ${esc(s.next.expiry)}` : ""}</span></span><span class="end num">${p.sellBox ? iqd(p.sellBox) : `<span class="pill warn">No price</span>`}</span></button>`; }).join("") : `<div class="empty">No item matches. Items appear here once they are on a purchase invoice, or add one under Stock.</div>`}</div>` : ""}
-    ${!q && quick.length ? `<div class="quick">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" ${s.good <= 0 ? 'class="out"' : ""}><b>${esc(p.name)}</b><span>${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span><span class="num">${p.sellBox ? f0(p.sellBox) : "No price"}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : ""}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
+    ${!q && quick.length ? `<div class="quick">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" ${s.good <= 0 ? 'class="out"' : ""}><b>${esc(p.name)}</b><span>${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span>${p.sellBox ? `<span class="num">${f0(p.sellBox)}</span>` : `<span>No price</span>`}${s.good <= 0 ? `<span class="pill bad">Out</span>` : ""}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
   </section>
   <section class="sec"><div class="sechead"><h2>${esc(tabName(actTab()))}</h2><div class="actions">${lines.length ? `<button type="button" data-xclear="1">Clear</button>` : ""}${S.tabs.length > 1 ? `<button type="button" class="danger" data-xclosetab="1">Close</button>` : ""}</div></div>
     ${chr ? `<div class="banner">Chronic card: <b>${esc(chr.name)}</b>. Saving this sale marks this month as given.</div>` : ""}
@@ -875,7 +875,7 @@ document.addEventListener("change", ev => { const t = ev.target, d = t.dataset;
 S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice(0,7);
 /* screen permissions: the owner ticks which screens each employee may use. "newinv" is the + Invoice / Scan buttons.
    Staff stays owner-only, so nobody can give themselves more screens */
-const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["dose","Dose"],["money","Money"],["reports","Reports"],["settings","Settings"]];
+const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["dose","Dose"],["money","Cash box"],["reports","Reports"],["settings","Settings"]];
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
 const canUse = k => isOwner() || (k !== "staff" && myPerms().includes(k));
@@ -1533,11 +1533,12 @@ homeExtras = window.homeExtras = function(){
   const used = usedMap(), cat = catalog(), low = lowStock(cat, used).length, soon = chronicNeeds(ALERT_DAYS()).filter(n => n.short > 0);
   const dueCards = E.chronic.filter(c => !c.deleted && c.active !== false && chrStatus(c).dl <= ALERT_DAYS() && !chrStatus(c).givenThis).length;
   const td = E.sales.filter(s => !s.voided && s.date === today());
+  const owed = E.customers.reduce((a,c) => a + Math.max(0, custBalance(c.id).bal), 0); // debt selling is off unless switched on in Settings: the tile shows only when it matters
   return `<section class="kpis" aria-label="Today">
     <button type="button" class="kpi tap" data-tab="sell"><span class="l">Sales today</span><span class="v num">${iqd(td.reduce((a,s) => a + n0(s.total), 0))}</span><span class="l">${td.length} receipts · tap to sell</span></button>
     <button type="button" class="kpi tap" data-tab="chronic"><span class="l">Chronic pickups in ${ALERT_DAYS()} days</span><span class="v num">${dueCards}</span><span class="l" ${soon.length ? 'style="color:var(--bad)"' : ""}>${soon.length ? `${soon.length} medicines short` : "stock is enough"}</span></button>
     <button type="button" class="kpi tap" data-tab="stock"><span class="l">Low or out of stock</span><span class="v num" ${low ? 'style="color:var(--bad)"' : ""}>${low}</span><span class="l">tap to see</span></button>
-    <button type="button" class="kpi tap" data-tab="customers"><span class="l">Customers owe you</span><span class="v num">${iqd(E.customers.reduce((a,c) => a + Math.max(0, custBalance(c.id).bal), 0))}</span><span class="l">tap to see</span></button>
+    ${owed || E.cfg.debtOn ? `<button type="button" class="kpi tap" data-tab="customers"><span class="l">Customers owe you</span><span class="v num">${iqd(owed)}</span><span class="l">tap to see</span></button>` : ""}
   </section>
   ${alertsHome()}
   ${soon.length ? `<section class="sec"><div class="sechead"><h2>Chronic patients: order now</h2></div><div class="list">${soon.slice(0,5).map(n => `<button type="button" class="alert row" data-xprod="${esc(n.p.id)}"><span class="dot ${n.missing ? "bad" : ""}"></span><span><b>${esc(pname(n.p))}</b> ${n.missing ? "is missing" : "is short"}: need ${esc(qtyText(n.p, n.q))}, have ${esc(qtyText(n.p, n.have))}.</span></button>`).join("")}</div></section>` : ""}
@@ -1657,7 +1658,7 @@ write = async function(path, data, merge){ clearMemo(); if (data && typeof data 
 // pages scroll inside the middle area now, so "go to top" scrolls that area
 window.scrollTo = function(){ const v = document.getElementById("view"); if (v) v.scrollTop = 0; };
 /* ---- grouped menu: group headings with an alert count, a "Screen > group" crumb in the top bar and a screen finder (Ctrl+K, or the search button) ---- */
-const GROUP_OF = {sell:"Dispensing and sales", dose:"Dispensing and sales", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Inventory", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", books:"Finance", staff:"Administration", settings:"Administration"};
+const GROUP_OF = {sell:"Dispensing and sales", dose:"Dispensing and sales", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Purchasing", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", books:"Finance", staff:"Administration", settings:"Administration"};
 let navCount = {at:0, v:{}};
 function navAlerts(){
   if (Date.now() - navCount.at < 4000) return navCount.v; navCount.at = Date.now();
@@ -1691,7 +1692,7 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (t.dataset.xfind){ finderSheet(); return; }
   if (t.dataset.xfindgo){ closeSheet(); document.querySelector(`nav.tabs [data-tab="${t.dataset.xfindgo}"]`)?.click(); } });
 document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k" && !$("#lockScreen")){ ev.preventDefault(); finderSheet(); } });
-Object.assign(AR, {"Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
+Object.assign(AR, {"Admin":"الإدارة","Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick \"Quick button on Sell\".":"تظهر هنا أزرار سريعة للمواد الأكثر بيعاً. يمكنك أيضاً تثبيت مادة: افتحها من المخزون وضع علامة على \"زر سريع في البيع\".","Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
 let lastTabERP = null;
 const baseRenderERP = render;
 render = window.render = function(){

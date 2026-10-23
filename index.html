@@ -1983,7 +1983,7 @@ const saveCart = () => { lsSet("erp.tabs", S.tabs); lsSet("erp.tabAt", S.tabAt);
 
 /* ---- catalogue: one product per name + dose + form + pack, built from every invoice line, plus your own settings ---- */
 /* catalog and stock use are worked out once per screen draw and reused (cleared on every draw, data change and save) */
-const MEMO = {}; const clearMemo = () => { MEMO.cat = MEMO.used = null; };
+const MEMO = {}; const clearMemo = () => { MEMO.cat = MEMO.used = MEMO.use = null; };
 function catalog(){ return MEMO.cat || (MEMO.cat = buildCatalog()); }
 function buildCatalog(){
   const map = new Map();
@@ -2095,7 +2095,57 @@ function qtyText(p, q){
   return (neg ? "−" : "") + parts.filter(Boolean).join(" + ") || "0";
 }
 const pname = p => `${p.name}${p.strength ? " " + p.strength : ""}`;
-function lowStock(cat, used){ return cat.filter(p => { const s = stockOf(p, used); return p.min !== null ? s.good < p.min * p.sub : s.good <= 0 && p.lines.length; }); }
+/* ---- USAGE: how fast each item sells, from the receipts (owner's request, 23 Oct 2026). An item sold down to zero stays
+   in the catalogue. Every item gets its use per day, week and month, a safe level to keep so it never runs out, and flags
+   for low, fast-moving and stagnant stock. Worked out fresh from the records already in the app; nothing new is saved.
+     Per day     = smallest units sold in the last 90 days ÷ the days of that window the item has been here (at least 7)
+     Safe level  = per day × (supplier delivery days + extra safety days), rounded up to whole boxes
+     Order up to = per day × days to order for (at least the safe level); the shortage list suggests that minus what you have
+     Fast-moving = sold on at least 10 of the last 30 days. Stagnant = in stock, here and not sold for N days (default 60)
+   "Alert when below" typed on an item wins over the worked-out safe level. ---- */
+const FC_DEF = {fcLead:2, fcSafety:5, fcOrder:30, fcSlow:60};
+const fcCfg = k => isNum(E.cfg[k]) && E.cfg[k] >= 0 ? E.cfg[k] : FC_DEF[k];
+const FAST_DAYS = 10;
+const fcSaved = () => Object.fromEntries([["fcLead", "#sLead", 60], ["fcSafety", "#sSafety", 60], ["fcOrder", "#sOrder", 180], ["fcSlow", "#sSlow", 730]].map(([k, id, max]) => { const v = parseNum($(id)?.value ?? ""); return [k, isNum(v) && v >= 0 ? Math.min(max, Math.round(v)) : FC_DEF[k]]; }));
+const dayGap = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
+function usageMap(){ return MEMO.use || (MEMO.use = buildUsage()); }
+function buildUsage(){
+  const t = today(), d90 = addDays(t, -89), d30 = addDays(t, -29), d7 = addDays(t, -6), byId = Object.fromEntries(catalog().map(p => [p.id, p])), u = {};
+  for (const s of E.sales){ if (s.voided || !s.date) continue;
+    for (const ln of s.lines || []){ const p = byId[ln.pid]; if (!p) continue;
+      const x = u[p.id] || (u[p.id] = {q90:0, q30:0, q7:0, days30:new Set(), first:s.date, last:s.date});
+      if (s.date < x.first) x.first = s.date; if (s.date > x.last) x.last = s.date;
+      if (s.date < d90) continue;
+      // same sum as the stock: each batch taken is q smallest units of a box that held "per" of them then
+      const q = (ln.alloc || []).reduce((a, y) => a + n0(y.q) / (isNum(y.per) && y.per > 0 ? y.per : p.legacyPer) * p.sub, 0);
+      x.q90 += q; if (s.date >= d30){ x.q30 += q; x.days30.add(s.date); } if (s.date >= d7) x.q7 += q; } }
+  return u;
+}
+function usageOf(p, s){
+  const t = today(), x = usageMap()[p.id] || {q90:0, q30:0, q7:0, days30:new Set(), first:"", last:""};
+  const here = [x.first, ...p.lines.map(l => l.inv.date)].filter(Boolean).sort()[0] || t, age = Math.max(0, dayGap(here, t));
+  const span = Math.max(7, Math.min(90, age + 1)), day = x.q90 / span;
+  const auto = day > 0 ? Math.ceil(day * (fcCfg("fcLead") + fcCfg("fcSafety")) / p.sub - 1e-9) * p.sub : null;
+  const safe = p.min !== null ? p.min * p.sub : auto, upTo = Math.max(safe || 0, day * fcCfg("fcOrder"));
+  const idle = x.last ? dayGap(x.last, t) : age, slow = fcCfg("fcSlow");
+  return {day, week:day * 7, month:day * 30, sold30:x.q30, sold7:x.q7, days30:x.days30.size, last:x.last, auto, safe, own:p.min !== null, upTo,
+    daysLeft: day > 0 ? Math.max(0, s.good) / day : null, fast: x.days30.size >= FAST_DAYS, stagnant: s.good > 0 && age >= slow && idle >= slow, idle};
+}
+// out, low (below the safe level) or "" for one item
+const stockLevel = (p, s, u) => s.good <= 0 ? (p.lines.length || p.min !== null || u.day > 0 ? "out" : "") : isNum(u.safe) && s.good < u.safe - 1e-9 ? "low" : "";
+function lowStock(cat, used){ return cat.filter(p => { const s = stockOf(p, used); return !!stockLevel(p, s, usageOf(p, s)); }); }
+// a rate of use as stock words, to one decimal of the smallest unit ("2.5 tablets", "1 box + 3 tablets")
+const rateTxt = (p, q) => qtyText(p, Math.round(q * 10) / 10);
+const daysTxt = d => d === null ? "—" : d < 1 ? "less than 1 day" : `${Math.floor(d)} day${Math.floor(d) === 1 ? "" : "s"}`;
+function usageHtml(p, s){
+  const u = usageOf(p, s), r = (l, v, word) => `<div class="r"><span>${l}</span><span${word ? "" : ` class="num"`}>${esc(v)}</span></div>`;
+  return `<div class="sum" id="pUsage"><b>Sales and safe stock</b>
+    ${u.day > 0 ? r("Sold per day (average)", rateTxt(p, u.day)) + r("Per week", rateTxt(p, u.week)) + r("Per month", rateTxt(p, u.month)) + r("Sold in the last 30 days", rateTxt(p, u.sold30)) + r("Stock lasts about", daysTxt(u.daysLeft), true) : `<p class="note">No sales in the last 90 days yet, so there is no average.</p>`}
+    ${u.last ? r("Last sold", u.last) : r("Last sold", "never", true)}
+    ${isNum(u.safe) ? r(u.own ? "Safe level (set by you)" : "Safe level (worked out)", qtyText(p, u.safe)) + r("Order up to", qtyText(p, Math.ceil(u.upTo / p.sub - 1e-9) * p.sub)) : ""}
+    <div class="chips">${u.fast ? `<span class="pill good">Fast-moving</span>` : ""}${u.stagnant ? `<span class="pill warn">Stagnant: not sold for ${u.idle} days</span>` : ""}</div>
+    <p class="note">Safe level = sold per day × ${fcCfg("fcLead") + fcCfg("fcSafety")} days (delivery ${fcCfg("fcLead")} + safety ${fcCfg("fcSafety")}), rounded up to whole boxes. "Alert when below" wins when you fill it in. Change the days in Settings.</p></div>`;
+}
 
 /* every movement of one item, newest first: what came in, what was sold, written off, returned and counted, by whom */
 function stockHistory(p, s){
@@ -2115,13 +2165,14 @@ function stockHistoryHtml(p, s){
 }
 
 /* ---- stock alerts: each names the item, how much, when, and what to do. The owner can switch types off in Settings ---- */
-const ALERT_TYPES = [["neg","Stock below zero"],["out","Out of stock"],["low","Low stock"],["expired","Expired stock"],["expiring","Expiring in 3 months"],["blocked","Sales blocked"],["override","Sold past the stock"],["diff","Stocktake differences"],["dup","Possible duplicate items"],["unapproved","Stock changes without approval"],["sync","Cloud sync failed"]];
+const ALERT_TYPES = [["neg","Stock below zero"],["out","Out of stock"],["low","Low stock"],["expired","Expired stock"],["expiring","Expiring in 3 months"],["stagnant","Stagnant stock (not selling)"],["blocked","Sales blocked"],["override","Sold past the stock"],["diff","Stocktake differences"],["dup","Possible duplicate items"],["unapproved","Stock changes without approval"],["sync","Cloud sync failed"]];
 function stockAlerts(){
   const off = new Set(E.cfg.alertsOff || []), cat = catalog(), used = usedMap(), out = [], since = addDays(today(), -7), add = (type, sev, p, what, qty, when, act) => { if (!off.has(type)) out.push({type, sev, pid:p?.id || "", name: p ? pname(p) : "", what, qty, when, act}); };
-  for (const p of cat){ const s = stockOf(p, used);
+  for (const p of cat){ const s = stockOf(p, used), u = usageOf(p, s), lv = stockLevel(p, s, u);
     if (s.good < -1e-6 || s.bs.some(b => b.left < -1e-6)) add("neg", 3, p, "Stock below zero", qtyText(p, Math.min(s.good, ...s.bs.map(b => b.left))), "", "Do a stocktake for this item.");
-    else if (s.good <= 0 && (p.lines.length || p.min !== null)) add("out", 2, p, "Out of stock", "0", p.lastDate ? `last bought ${p.lastDate}` : "", "Restock it, or remove it from open sales.");
-    else if (p.min !== null && s.good < p.min * p.sub) add("low", 1, p, "Low stock", qtyText(p, s.good), `alert below ${p.min} boxes`, "Order more.");
+    else if (lv === "out") add("out", u.fast ? 3 : 2, p, u.fast ? "Out of stock · fast-moving" : "Out of stock", "0", p.lastDate ? `last bought ${p.lastDate}` : "", "Restock it, or remove it from open sales.");
+    else if (lv === "low") add("low", u.fast ? 2 : 1, p, u.fast ? "Low stock · fast-moving" : "Low stock", qtyText(p, s.good), `safe level ${qtyText(p, u.safe)}${u.daysLeft !== null ? ` · about ${Math.floor(u.daysLeft)} days left` : ""}`, "Order more.");
+    if (u.stagnant) add("stagnant", 1, p, "Stagnant stock", qtyText(p, s.good), u.last ? `not sold for ${u.idle} days` : `never sold in ${u.idle} days`, "Put it in front, return it to the supplier, or stop ordering it.");
     for (const b of s.bs){ if (b.left <= 1e-6) continue;
       if (b.expired) add("expired", 2, p, "Expired stock", qtyText(p, b.left), `batch ${b.batch || "—"} · ${b.expiry}`, "Write it off or return it to the supplier.");
       else if (b.ml !== null && b.ml <= 3) add("expiring", 1, p, "Expiring in 3 months", qtyText(p, b.left), `batch ${b.batch || "—"} · ${b.expiry}`, "Sell it first or return it to the supplier."); } }
@@ -2147,7 +2198,7 @@ function alertsHome(){
 function alertsSheet(type){ const all = stockAlerts().filter(a => type === "1" || a.type === type);
   openSheet("Stock alerts", `<div class="list">${all.slice(0, 300).map(alertRow).join("") || `<div class="empty">No alerts.</div>`}</div>${all.length > 300 ? `<p class="note">Showing the first 300.</p>` : ""}`); }
 function alertSettings(){ const off = new Set(E.cfg.alertsOff || []);
-  return `<fieldset style="border:0;padding:0;margin:0;display:grid;gap:6px"><b style="font-size:14px">Stock alerts on Home</b><div class="permgrid">${ALERT_TYPES.map(([k, l]) => `<label class="check"><input type="checkbox" data-xalert="${k}" ${off.has(k) ? "" : "checked"}> ${esc(l)}</label>`).join("")}</div><p class="note">Low stock uses "Alert when below" on each item.</p></fieldset>`; }
+  return `<fieldset style="border:0;padding:0;margin:0;display:grid;gap:6px"><b style="font-size:14px">Stock alerts on Home</b><div class="permgrid">${ALERT_TYPES.map(([k, l]) => `<label class="check"><input type="checkbox" data-xalert="${k}" ${off.has(k) ? "" : "checked"}> ${esc(l)}</label>`).join("")}</div><p class="note">Low stock uses "Alert when below" on each item, or the safe level worked out from its sales when that is empty.</p></fieldset>`; }
 
 /* ---- STOCK: the one stock check. Every save that takes stock out (sale, write-off, return to the supplier, invoice
    edit, receiving) asks it right before writing, with stock worked out fresh at that moment, not what the screen showed.
@@ -2360,9 +2411,9 @@ function saleRow(s){
 }
 function stockView(){
   const cat = catalog(), used = usedMap(), q = S.stockQ.trim().toLowerCase();
-  const rows = cat.map(p => ({p, s: stockOf(p, used)}));
+  const rows = cat.map(p => { const s = stockOf(p, used), u = usageOf(p, s); return {p, s, u, lv:stockLevel(p, s, u)}; });
   const f = S.stockF;
-  const passK = (f, {p, s}) => f === "out" ? s.good <= 0 : f === "low" ? (p.min !== null ? s.good < p.min * p.sub : s.good <= 0) : f === "noexp" ? s.bs.some(b => b.left > 1e-6 && !b.expiry) : f === "exp" ? s.bs.some(b => b.left > 0 && b.ml !== null && b.ml >= 0 && b.ml <= 3) : f === "expired" ? s.exp > 0 : f === "fridge" ? p.fridge : f === "noprice" ? !p.sellBox : true;
+  const passK = (f, {p, s, u, lv}) => f === "out" ? s.good <= 0 : f === "low" ? !!lv : f === "fast" ? u.fast : f === "stagnant" ? u.stagnant : f === "noexp" ? s.bs.some(b => b.left > 1e-6 && !b.expiry) : f === "exp" ? s.bs.some(b => b.left > 0 && b.ml !== null && b.ml >= 0 && b.ml <= 3) : f === "expired" ? s.exp > 0 : f === "fridge" ? p.fridge : f === "noprice" ? !p.sellBox : true;
   const pass = r => passK(f, r);
   const list = rows.filter(pass).filter(({p}) => !q || [p.name, p.strength, p.form, p.sci, p.barcode, p.desc].join(" ").toLowerCase().includes(q));
   const cnt = k => rows.filter(r => passK(k, r)).length;
@@ -2371,15 +2422,15 @@ function stockView(){
     <div class="kpi"><span class="l">Items</span><span class="v num">${cat.length}</span></div><div class="kpi"><span class="l">Low or out of stock</span><span class="v num" style="color:var(--bad)">${cnt("low")}</span></div></section>
   <section class="sec"><div class="sechead"><h2>Stock</h2><div class="actions"><button type="button" data-xreorder="1">Reorder list</button><button type="button" class="primary" data-xcount="1">Stocktaking</button><button type="button" data-xprod="__new">+ Item</button></div></div>
     <input id="stockQ" type="search" placeholder="Name, dose, barcode" value="${esc(S.stockQ)}">
-    <div class="chips">${[["all","All"],["out","Out of stock"],["low","Low"],["exp","Expiring 3 months"],["expired","Expired"],["noexp","No expiry date"],["fridge","Refrigerated"],["noprice","No sell price"]].map(([k,l]) => `<button type="button" data-xsf="${k}" aria-pressed="${f === k}">${l} · ${cnt(k)}</button>`).join("")}</div>
-    <div class="list">${list.length ? list.map(({p, s}) => `<button type="button" class="row" data-xprod="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""}${s.next ? ` · next expiry ${esc(s.next.expiry)}` : ""}${s.exp ? ` · ${esc(qtyText(p, s.exp))} expired` : ""}${p.shelf ? ` · shelf ${esc(p.shelf)}` : ""}</span></span><span class="end"><span class="num">${esc(qtyText(p, s.good))}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : p.min !== null && s.good < p.min * p.sub ? `<span class="pill warn">Low</span>` : ""}${p.sellBox ? `<span class="s num">${iqd(p.sellBox)}</span>` : `<span class="pill">No price</span>`}</span></button>`).join("") : `<div class="empty">No items here.</div>`}</div>
+    <div class="chips">${[["all","All"],["out","Out of stock"],["low","Low"],["fast","Fast-moving"],["stagnant","Stagnant"],["exp","Expiring 3 months"],["expired","Expired"],["noexp","No expiry date"],["fridge","Refrigerated"],["noprice","No sell price"]].map(([k,l]) => `<button type="button" data-xsf="${k}" aria-pressed="${f === k}">${l} · ${cnt(k)}</button>`).join("")}</div>
+    <div class="list">${list.length ? list.map(({p, s, u, lv}) => `<button type="button" class="row" data-xprod="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""}${u.day > 0 ? ` · sells ${esc(rateTxt(p, u.week))} a week` : ""}${s.next ? ` · next expiry ${esc(s.next.expiry)}` : ""}${s.exp ? ` · ${esc(qtyText(p, s.exp))} expired` : ""}${p.shelf ? ` · shelf ${esc(p.shelf)}` : ""}</span></span><span class="end"><span class="num">${esc(qtyText(p, s.good))}</span>${lv === "out" || s.good <= 0 ? `<span class="pill bad">Out</span>` : lv === "low" ? `<span class="pill warn">Low</span>` : ""}${u.fast ? `<span class="pill good">Fast</span>` : u.stagnant ? `<span class="pill warn">Stagnant</span>` : ""}${p.sellBox ? `<span class="s num">${iqd(p.sellBox)}</span>` : `<span class="pill">No price</span>`}</span></button>`).join("") : `<div class="empty">No items here.</div>`}</div>
     <p class="note">Stock comes from your purchase invoices (paid + bonus, or what you counted in Receiving), minus returns to suppliers, sales and write-offs. Expired batches are not sold.</p></section>`;
 }
 function prodSheet(id){
   const cat = catalog(), p = id === "__new" ? {id:"__new", name:"", strength:"", form:"", sub:1, subName:"piece", lines:[], fridge:false} : cat.find(x => x.id === id); if (!p) return;
   const used = usedMap(), s = id === "__new" ? null : stockOf(p, used), m = p.m || {};
   openSheet(id === "__new" ? "Add item" : pname(p), `
-    ${s ? `<div class="sum"><div class="r big"><span>In stock</span><span class="num">${esc(qtyText(p, s.good))}</span></div>${s.exp ? `<div class="r"><span>Expired, not for sale</span><span class="num">${esc(qtyText(p, s.exp))}</span></div>` : ""}<div class="r"><span>Value at cost</span><span class="num">${iqd(s.value)}</span></div></div>` : ""}
+    ${s ? `<div class="sum"><div class="r big"><span>In stock</span><span class="num">${esc(qtyText(p, s.good))}</span></div>${s.exp ? `<div class="r"><span>Expired, not for sale</span><span class="num">${esc(qtyText(p, s.exp))}</span></div>` : ""}<div class="r"><span>Value at cost</span><span class="num">${iqd(s.value)}</span></div></div>${usageHtml(p, s)}` : ""}
     <form id="prodForm" data-id="${esc(p.id)}" style="display:grid;gap:12px">
       <div class="grid2 stack"><label>Name<input id="pName" value="${esc(m.name || p.name || "")}" required></label><label>Dose<input id="pStr" value="${esc(m.strength || p.strength || "")}"></label></div>
       <div class="grid2"><label>Dosage form<input id="pForm" list="formList" value="${esc(m.form || p.form || "")}"></label><label>Scientific name<input id="pSci" value="${esc(m.sci || "")}"></label></div>
@@ -2392,7 +2443,7 @@ function prodSheet(id){
         <div class="grid2"><label>Smallest unit<select id="pSubName">${["","tablet","capsule","piece","ampoule","vial","pen","syringe","suppository","pessary","sachet","needle","strip"].map(u => `<option value="${u}" ${(p.sub > 1 ? p.subName : "") === u ? "selected" : ""}>${u || "None"}</option>`).join("")}</select></label><label>How many in one ${p.midName ? "middle unit" : "box"}<input id="pSubCount" class="num" inputmode="numeric" value="${p.sub > 1 ? (p.midName ? p.midN : p.sub) : ""}"></label></div>
         <div class="grid2"><label>Price per smallest unit (IQD)<input id="pSellSub" class="num" inputmode="numeric" value="${esc(m.sellSub ?? "")}" placeholder="${p.sellSub && !isNum(m.sellSub) ? "auto " + f0(p.sellSub) : ""}"></label><span></span></div>
         <p class="note">Example for tablets: box → strip (3 in a box) → tablet (10 in a strip). For syrup or cream, leave both as None. Stock already sold or counted stays exact if you change this later.</p></div>
-      <div class="grid2"><label>Alert when below (boxes)<input id="pMin" class="num" inputmode="numeric" value="${esc(m.min ?? "")}"></label><label class="check" style="align-self:end"><input type="checkbox" id="pCold" ${p.fridge ? "checked" : ""}> Refrigerated (براد)</label></div>
+      <div class="grid2"><label>Alert when below (boxes)<input id="pMin" class="num" inputmode="numeric" value="${esc(m.min ?? "")}" placeholder="${s && isNum(usageOf(p, s).auto) ? "auto " + usageOf(p, s).auto / p.sub : "auto"}"></label><label class="check" style="align-self:end"><input type="checkbox" id="pCold" ${p.fridge ? "checked" : ""}> Refrigerated (براد)</label></div>
       <label class="check"><input type="checkbox" id="pQuick" ${m.quick ? "checked" : ""}> Quick button on Sell</label>
       ${s && s.bs.length && s.bs.some(b => b.left !== b.in) && p.sub !== (isNum(m.sub) ? m.sub : 1) ? "" : ""}
       <p class="err" id="pErr"></p><button type="submit" class="primary">Save item</button></form>
@@ -2488,6 +2539,10 @@ function settingsView(){
     <form id="cfgForm" class="sum" style="gap:10px"><div class="grid2 stack"><label>Pharmacy name on receipts<input id="cfgName" value="${esc(E.cfg.name || "صيدلية ريحانة · Raihana Pharmacy")}"></label><label>Phone on receipts<input id="cfgPhone" value="${esc(E.cfg.phone || "")}"></label></div>
       <label>Warn about chronic pickups this many days ahead<input id="sDays" class="num" inputmode="numeric" value="${ALERT_DAYS()}"></label>
       <label class="check"><input type="checkbox" id="sDebt" ${debtOn() ? "checked" : ""}> Allow selling on debt (دين)</label>
+      <fieldset style="border:0;padding:0;margin:0;display:grid;gap:6px"><b style="font-size:14px">Safe stock and shortage list</b><div class="grid2 stack">
+        <label>Days the supplier takes to deliver<input id="sLead" class="num" inputmode="numeric" value="${fcCfg("fcLead")}"></label><label>Extra safety days<input id="sSafety" class="num" inputmode="numeric" value="${fcCfg("fcSafety")}"></label>
+        <label>Order enough for this many days<input id="sOrder" class="num" inputmode="numeric" value="${fcCfg("fcOrder")}"></label><label>Stagnant after this many days without a sale<input id="sSlow" class="num" inputmode="numeric" value="${fcCfg("fcSlow")}"></label></div>
+        <p class="note">Each item's safe level = what it sells per day (average of the last 90 days) × (delivery days + safety days). Below that it goes on the shortage list, and it leaves the list once enough stock comes in.</p></fieldset>
       <label>Discount staff may give without your PIN (% of the receipt)<input id="sDisc" class="num" inputmode="decimal" value="${esc(n0(E.cfg.staffDiscPct))}"></label>
       <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}<button type="submit">Save settings</button></form></section>
   <section class="sec"><h2>Where your data is</h2><div class="sum">
@@ -3078,8 +3133,9 @@ function ownerOK(why, o = {}){ // o.always: ask the PIN even when the owner is t
 const NEED_OWNER = "Not saved: this needs the owner's approval.";
 
 /* ---------- actions ---------- */
-function addToCart(pid){
+function addToCart(pid, keep){
   const p = catalog().find(x => x.id === pid); if (!p) return;
+  if (!keep && !S.cart.some(c => c.pid === pid)){ const alt = soonerSame(p); if (alt && !S.cart.some(c => c.pid === alt.q.id)){ soonerSheet(p, alt); return; } }
   const ex = S.cart.find(c => c.pid === pid && c.mode === "box");
   if (ex) ex.qty = n0(ex.qty) + 1; else S.cart.push({pid, mode:"box", qty:1, price:p.sellBox});
   S.sellQ = ""; saveCart(); render(); setTimeout(() => $("#sellQ")?.focus(), 0);
@@ -3469,7 +3525,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked}); toast("Settings saved."); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, ...fcSaved()}); toast("Settings saved."); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -3505,7 +3561,7 @@ const baseExtraSheets = window.extraSheets;
 window.extraSheets = function(add){
   baseExtraSheets?.(add);
   const cat = catalog(), used = usedMap();
-  add("Stock", cat.map(p => { const s = stockOf(p, used); return {"Item":p.name, "Dose":p.strength || "", "Form":p.form || "", "Barcode":p.barcode, "Packaging":levelText(p), "Sell price middle unit (IQD)":p.m?.sellMid ?? "", "Sell price smallest unit (IQD)":p.m?.sellSub ?? "", "In stock":qtyText(p, s.good), "In stock (small units)":s.good, "Expired":s.exp, "Next expiry":s.next?.expiry || "", "Sell price box (IQD)":p.sellBox ?? "", "Cost per box (IQD)":(c => isNum(c) ? Math.round(c) : "")(lastCostBox(p)), "Markup %":(c => { const v = PRICING.markupPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Margin %":(c => { const v = PRICING.marginPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Value at cost (IQD)":Math.round(s.value), "Refrigerated":p.fridge ? "Yes" : "No"}; }));
+  add("Stock", cat.map(p => { const s = stockOf(p, used), u = usageOf(p, s); return {"Item":p.name, "Dose":p.strength || "", "Form":p.form || "", "Barcode":p.barcode, "Packaging":levelText(p), "Sell price middle unit (IQD)":p.m?.sellMid ?? "", "Sell price smallest unit (IQD)":p.m?.sellSub ?? "", "In stock":qtyText(p, s.good), "In stock (small units)":s.good, "Expired":s.exp, "Next expiry":s.next?.expiry || "", "Sold per day (small units)":Math.round(u.day * 100) / 100, "Sold in 30 days (small units)":r6(u.sold30), "Safe level (small units)":u.safe ?? "", "Fast-moving":u.fast ? "yes" : "", "Stagnant":u.stagnant ? "yes" : "", "Sell price box (IQD)":p.sellBox ?? "", "Cost per box (IQD)":(c => isNum(c) ? Math.round(c) : "")(lastCostBox(p)), "Markup %":(c => { const v = PRICING.markupPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Margin %":(c => { const v = PRICING.marginPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Value at cost (IQD)":Math.round(s.value), "Refrigerated":p.fridge ? "Yes" : "No"}; }));
   add("Sales", E.sales.flatMap(s => (s.lines || []).map(l => ({"Receipt":s.no, "Date":s.date, "Time":hm(s.at), "Pharmacist":s.staffName || "", "Item":l.name, "Qty":l.qty, "Unit":l.unit, "Price (IQD)":l.price, "Line total (IQD)":l.total, "Cost (IQD)":Math.round((l.alloc || []).reduce((a,x) => a + n0(x.q) * n0(x.cost), 0)), "Batches":(l.alloc || []).map(a => `${a.batch || "-"} × ${a.q}`).join("; "), "Receipt discount (IQD)":s.discount, "Receipt total (IQD)":s.total, "Payment":s.method === "debt" ? "Debt" : "Cash", "Customer":E.customers.find(c => c.id === s.customerId)?.name || "", "Cancelled":s.voided ? "Yes" : ""}))));
   add("Customers", E.customers.filter(c => !c.deleted).map(c => { const b = custBalance(c.id); return {"Name":c.name, "Phone":c.phone || "", "Bought on debt (IQD)":b.debt, "Paid (IQD)":b.paid, "Owes (IQD)":b.bal}; }));
   add("Chronic cards", E.chronic.filter(c => !c.deleted).flatMap(c => (c.meds || []).map(m => { const p = cat.find(x => x.id === m.pid); return {"Patient":c.name, "Phone":c.phone || "", "Day each month":c.day, "Next pickup":chrDate(c), "Active":c.active !== false ? "Yes" : "No", "Medicine":p ? pname(p) : m.pid, "Qty per month":m.qty, "Unit":p ? unitName(p, m.mode || "box") : "box", "In stock":p ? qtyText(p, stockOf(p, used).good) : ""}; })));
@@ -3744,12 +3800,13 @@ const TOUR = [
 ];
 function dayCard(){
   const sh = S.staff && curShift(); if (!sh || (S.tab !== "sell" && S.tab !== "home")) return "";
-  const counted = isNum(sh.openCount);
+  const counted = isNum(sh.openCount), nc = S.nearN && Date.now() - S.nearN.at < 6e4 ? S.nearN : (S.nearN = {at:Date.now(), n:nearExpiry().length}), ne = nc.n; // counted at most once a minute, not on every key typed in Sell
+  const first = ne ? `<div class="r" style="align-items:center"><span>${ne} batch${ne === 1 ? "" : "es"} expire within ${NEAR_MONTHS} months: sell them first</span><button type="button" data-xstartlist="1">See the list</button></div>` : "";
   const started = `<span>✓ Shift started</span> <span class="num">${esc(hm(sh.start))}</span>`, endBtn = `<button type="button" data-xgd="end">Count cash and end shift</button>`;
-  return counted ? `<section class="sum" id="dayCard"><div class="r" style="flex-wrap:wrap;align-items:center">${started}<span>✓ Cash counted at the start</span>${endBtn}</div></section>`
+  return counted ? `<section class="sum" id="dayCard"><div class="r" style="flex-wrap:wrap;align-items:center">${started}<span>✓ Cash counted at the start</span>${endBtn}</div>${first}</section>`
     : `<section class="sum" id="dayCard"><div class="r">${started}</div>
     <div class="r" style="align-items:center"><span>○ Count the cash before you sell</span><button type="button" class="primary" data-xgd="open">Count the cash</button></div>
-    <div class="r" style="align-items:center"><span>○ End of the day</span>${endBtn}</div></section>`;
+    <div class="r" style="align-items:center"><span>○ End of the day</span>${endBtn}</div>${first}</section>`;
 }
 function tipCard(){
   const k = S.tab, seen = lsGet("erp.hints", {}); if (!TIPS[k] || seen[k]) return "";
@@ -3769,6 +3826,7 @@ render = window.render = function(){
     const html = dayCard() + tipCard();
     if (html){ v.insertAdjacentHTML("afterbegin", html); if (S.lang === "ar") [$("#dayCard"), $("#tipCard")].forEach(e => e && translate(e)); }
     if (!lsGet("erp.tourDone", false) && (S.staff || !E.staff.length) && $("#sheet").hidden){ lsSet("erp.tourDone", true); setTimeout(() => { if ($("#sheet").hidden) tourSheet(0); }, 400); }
+    else startCheck();
   }
   return r;
 };
@@ -3933,21 +3991,116 @@ Object.assign(AR, {"Accounts":"الحسابات","Cash box":"صندوق النق
 AR_RX.push([/^Expense: (.+)$/, "مصروف: $1"], [/^(\d+) entries shown \(newest 200\)\. The export has all of them\.$/, "$1 قيد معروض (أحدث 200). الملف المصدّر فيه الكل."], [/^(\d+) stock changes have no cost and count as zero\.$/, "$1 تغيير في المخزون بلا كلفة ويُحسب صفراً."]);
 
 /* ---- stage 3: reorder list, all-keys sheet, activity log. All worked out from records already in the app ---- */
+// the shortage list: every item out or below its safe level, grouped by the supplier it last came from. An item drops off
+// by itself once enough stock comes in, and comes back when it runs low again
 function reorderRows(){
-  const cat = catalog(), used = usedMap(), since = addDays(today(), -30), keyPid = {};
-  for (const p of cat) for (const {inv, k} of p.lines) keyPid[lineKey(inv, k)] = p.id;
-  const sold = {}; for (const s of E.sales) if (!s.voided && s.date >= since) for (const ln of s.lines || []) for (const a of ln.alloc || []){ const pid = keyPid[a.key]; if (pid) sold[pid] = (sold[pid] || 0) + n0(a.q); }
-  return lowStock(cat, used).map(p => { const st = stockOf(p, used), good = Math.max(0, st.good), sd = sold[p.id] || 0, target = Math.max(p.min !== null ? p.min * p.sub : 0, sd), boxes = Math.max(1, Math.ceil((target - good) / p.sub - 1e-9));
+  const cat = catalog(), used = usedMap();
+  return lowStock(cat, used).map(p => { const st = stockOf(p, used), u = usageOf(p, st), good = Math.max(0, st.good), boxes = Math.max(1, Math.ceil((u.upTo - good) / p.sub - 1e-9));
     const last = p.lines.slice().sort((a, b) => (b.inv.date || "").localeCompare(a.inv.date || ""))[0], sup = last ? supplier(last.inv.supplierId)?.name || "Unknown supplier" : "No supplier yet";
-    return {p, good, sd, boxes, sup}; }).sort((a, b) => a.sup.localeCompare(b.sup) || pname(a.p).localeCompare(pname(b.p)));
+    return {p, u, good, sd:u.sold30, boxes, sup, out: good <= 0}; }).sort((a, b) => a.sup.localeCompare(b.sup) || b.out - a.out || b.u.fast - a.u.fast || pname(a.p).localeCompare(pname(b.p)));
+}
+const reorderNote = () => `Items that are out or below their safe level. The suggested boxes fill ${fcCfg("fcOrder")} days of sales (or your minimum), minus what you have, rounded up. You decide what to order. An item leaves this list by itself once its stock comes in.`;
+function reorderListHtml(rows){
+  const by = {}; rows.forEach(r => (by[r.sup] = by[r.sup] || []).push(r));
+  return rows.length ? Object.entries(by).map(([sup, list]) => `<div class="list"><div class="row" style="cursor:default"><span class="main"><span class="t">${esc(sup)}</span></span></div>${list.map(r => `<button type="button" class="row" data-xprod="${esc(r.p.id)}"><span class="main"><span class="t">${esc(pname(r.p))}${r.out ? ` <span class="pill bad">Out</span>` : ""}${r.u.fast ? ` <span class="pill good">Fast</span>` : ""}</span><span class="s">Have ${esc(qtyText(r.p, r.good))} · sold in 30 days ${esc(rateTxt(r.p, r.sd))}</span></span><span class="num">${r.boxes} ${unitW(r.boxes === 1 ? "box" : "boxes")}</span></button>`).join("")}</div>`).join("") : `<div class="empty">Nothing needs ordering.</div>`;
 }
 function reorderSheet(){
-  const rows = reorderRows(), by = {}; rows.forEach(r => (by[r.sup] = by[r.sup] || []).push(r));
-  openSheet("Reorder list", `<div style="display:grid;gap:10px"><p class="note">Items that are out or below your minimum. The suggested number of boxes is what you sold in the last 30 days (or your minimum, whichever is more) minus what you have, rounded up. You decide what to order.</p>
-    ${rows.length ? Object.entries(by).map(([sup, list]) => `<div class="list"><div class="row" style="cursor:default"><span class="main"><span class="t">${esc(sup)}</span></span></div>${list.map(r => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(pname(r.p))}</span><span class="s">Have ${esc(qtyText(r.p, r.good))} · sold in 30 days ${esc(qtyText(r.p, r.sd))}</span></span><span class="num">${r.boxes} ${unitW(r.boxes === 1 ? "box" : "boxes")}</span></div>`).join("")}</div>`).join("") : `<div class="empty">Nothing needs ordering.</div>`}
+  const rows = reorderRows();
+  openSheet("Reorder list", `<div style="display:grid;gap:10px"><p class="note">${esc(reorderNote())}</p>${reorderListHtml(rows)}
     ${rows.length ? `<button type="button" class="primary" data-xreorderCopy="1">Copy the list</button>` : ""}</div>`);
   if (S.lang === "ar") translate($("#sheet"));
 }
+/* ---- start of every shift (or, with no staff set up, the first opening of each day): the batches to sell first because
+   they expire soonest, and, for the owner and anyone given the Stock screen, today's shortage list. Shown once per shift on
+   this device; the same lists stay on Home, in Stock and in the Reorder list. The installed app also sends it to the phone ---- */
+const NEAR_MONTHS = 3;
+function nearExpiry(){ const used = usedMap(), out = [];
+  for (const p of catalog()) for (const b of stockOf(p, used).bs) if (b.left > 1e-6 && !b.expired && b.ml !== null && b.ml <= NEAR_MONTHS) out.push({p, b});
+  return out.sort((a, b) => a.b.expiry.localeCompare(b.b.expiry) || pname(a.p).localeCompare(pname(b.p))); }
+const seesShortage = () => isOwner() || canUse("stock");
+const startKey = () => { const sh = S.staff && curShift(); return sh ? sh.id : E.staff.some(x => !x.deleted) ? "" : today(); };
+function startLists(){ return {ne: canUse("sell") || isOwner() ? nearExpiry() : [], rows: seesShortage() ? reorderRows() : []}; }
+function startSheet(){
+  const {ne, rows} = startLists(); if (!ne.length && !rows.length) return false;
+  openSheet("Start of shift", `<div style="display:grid;gap:14px">
+    ${ne.length ? `<div style="display:grid;gap:8px" id="stNear"><h3 style="margin:0">Sell these first</h3><p class="note">These batches expire within ${NEAR_MONTHS} months. The till always takes the nearest expiry of an item first. When a customer asks by scientific name, give these.</p>
+      <div class="list">${ne.slice(0, 40).map(({p, b}) => `<button type="button" class="row" data-xprod="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s"><span>batch</span> <span class="num">${esc(b.batch || "—")}</span> · <span class="num">${esc(qtyText(p, b.left))}</span> <span>left</span></span></span><span class="end"><span class="num">${esc(b.expiry)}</span><span class="pill warn">${b.ml <= 0 ? "This month" : b.ml === 1 ? "Next month" : `In ${b.ml} months`}</span></span></button>`).join("")}</div>
+      ${ne.length > 40 ? `<p class="note">Showing the nearest 40. Stock, "Expiring 3 months", has all of them.</p>` : ""}</div>` : ""}
+    ${rows.length ? `<div style="display:grid;gap:8px" id="stShort"><h3 style="margin:0">Today's shortage list</h3><p class="note">${esc(reorderNote())}</p>${reorderListHtml(rows)}<button type="button" data-xreorderCopy="1">Copy the list</button></div>` : ""}
+    ${notifyAsk()}<button type="button" class="primary" data-xstartok="1">OK</button></div>`);
+  if (S.lang === "ar") translate($("#sheet"));
+  return true;
+}
+function startCheck(){
+  if (lsGet("erp.startAuto", true) === false || S.readOnly) return; // the tests switch it off; they open it themselves
+  const k = startKey(); if (!k || lsGet("erp.startSeen", "") === k || !$("#sheet").hidden || $("#lockScreen:not([hidden])")) return;
+  clearTimeout(startCheck.h); startCheck.h = setTimeout(() => { // the data is still arriving right after the app opens
+    if (startKey() !== k || !$("#sheet").hidden || $("#lockScreen:not([hidden])")) return;
+    lsSet("erp.startSeen", k); startSheet(); dailyPhoneNote(); }, 1200);
+}
+/* phone notifications, free and with nothing to set up: the installed app asks once for permission, then sends the day's
+   lists as a notification the first time it opens each day. On Android (Chrome) the installed app also gets a daily
+   notification while it is closed, from the lists it saved at its last use. Not in the claude.ai version */
+const canNotify = () => window.ERP_MODE === "device" && "Notification" in window && "serviceWorker" in navigator;
+const notifyAsk = () => canNotify() && Notification.permission === "default" ? `<div class="sum" style="gap:6px"><span>Get this list as a notification on this phone every day.</span><button type="button" data-xnotify="1">Turn on phone notifications</button></div>` : "";
+function phoneSummary(){
+  const {ne, rows} = startLists(), out = rows.filter(r => r.out).length, parts = [];
+  if (rows.length) parts.push(`${rows.length} to order${out ? ` (${out} out of stock)` : ""}: ${rows.slice(0, 6).map(r => `${pname(r.p)} x ${r.boxes}`).join(", ")}${rows.length > 6 ? "…" : ""}`);
+  if (ne.length) parts.push(`${ne.length} batch${ne.length === 1 ? "" : "es"} to sell first: ${ne.slice(0, 4).map(x => `${pname(x.p)} ${x.b.expiry}`).join(", ")}${ne.length > 4 ? "…" : ""}`);
+  return parts.length ? {title:"Raihana: today's stock list", body:parts.join("\n"), date:today()} : null;
+}
+async function dailyPhoneNote(){
+  if (!canNotify()) return; const note = phoneSummary();
+  try { const c = await caches.open("raihana-notes"); await c.put("./daily-note.json", new Response(JSON.stringify(note || {}), {headers:{"content-type":"application/json"}})); } catch(e){}
+  if (Notification.permission !== "granted") return;
+  try { const r = await navigator.serviceWorker.ready;
+    if (r.periodicSync){ const st = await navigator.permissions.query({name:"periodic-background-sync"}).catch(() => null); if (st?.state === "granted") await r.periodicSync.register("raihana-daily", {minInterval:864e5}); }
+    if (note && lsGet("erp.noteDay", "") !== today()){ lsSet("erp.noteDay", today()); await r.showNotification(note.title, {body:note.body, tag:"raihana-daily", icon:"icon-192.png"}); }
+  } catch(e){ /* a notification problem never stops the app */ }
+}
+
+/* ---- same medicine, other brand (owner's rule, 23 Oct 2026): when another item has the same scientific name, dose and
+   form and its stock expires sooner (or this one is out), the till offers it first. The cashier keeps the brand picked
+   when the customer asked for it by name. Within one item the till already sells the nearest expiry batch first ---- */
+const sciKey = p => String(p.sci || "").toLowerCase().split(/\s*(?:[+\/,&،]|\band\b|\bwith\b)\s*/).map(x => x.replace(/[^\p{L}\p{N}]+/gu, "")).filter(Boolean).sort().join("+");
+const doseKey = p => String(p.strength || "").toLowerCase().replace(/\s+/g, "").replace(/,/g, ".");
+function soonerSame(p){
+  const k = sciKey(p), dk = doseKey(p); if (!k || !dk) return null;
+  const used = usedMap(), mine = stockOf(p, used).next, fk = String(p.form || "").toLowerCase().trim(); let best = null;
+  for (const q of catalog()){ if (q.id === p.id || sciKey(q) !== k || doseKey(q) !== dk || String(q.form || "").toLowerCase().trim() !== fk) continue;
+    const n = stockOf(q, used).next; if (!n || !n.expiry) continue;
+    if (mine && n.expiry >= (mine.expiry || "9999")) continue;
+    if (!best || n.expiry < best.n.expiry) best = {q, n}; }
+  return best;
+}
+function soonerSheet(p, {q, n}){
+  const mine = stockOf(p, usedMap()).next, line = (x, b) => `<div class="r"><span><b data-keep>${esc(pname(x))}</b></span><span>${b ? `<span>expires</span> <span class="num">${esc(b.expiry || "—")}</span>` : `<span>Out of stock</span>`}${x.sellBox ? ` · <span class="num">${iqd(x.sellBox)}</span>` : ""}</span></div>`;
+  openSheet("Same medicine, sell first", `<div style="display:grid;gap:12px">
+    <p><span>Same scientific name, dose and form:</span> <b data-keep>${esc(p.sci)} ${esc(p.strength || "")}</b>. <span>This one expires sooner, so sell it first unless the customer asked for the brand by name.</span></p>
+    <div class="sum">${line(q, n)}${line(p, mine)}</div>
+    <button type="button" class="primary" data-xsooner="${esc(q.id)}"><span>Sell</span> <span data-keep>${esc(pname(q))}</span></button>
+    <button type="button" data-xsooner="${esc(p.id)}"><span>The customer asked for</span> <span data-keep>${esc(pname(p))}</span></button></div>`);
+  if (S.lang === "ar") translate($("#sheet"));
+}
+document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
+  if (d.xsooner){ closeSheet(); addToCart(d.xsooner, true); return; }
+  if (d.xstartok){ closeSheet(); return; }
+  if (d.xstartlist){ if (!startSheet()) toast("Nothing to sell first or to order."); return; }
+  if (d.xnotify){ Notification.requestPermission().then(r => { toast(r === "granted" ? "Phone notifications are on." : "Phone notifications are off. You can allow them in the phone's settings."); t.closest(".sum")?.remove(); if (r === "granted"){ lsSet("erp.noteDay", ""); dailyPhoneNote(); } }).catch(() => {}); } });
+Object.assign(AR, {"Sales and safe stock":"المبيعات والمخزون الآمن","Sold per day (average)":"المباع يومياً (المعدل)","Per week":"أسبوعياً","Per month":"شهرياً","Sold in the last 30 days":"المباع خلال آخر 30 يوماً","Stock lasts about":"يكفي المخزون نحو","less than 1 day":"أقل من يوم","Last sold":"آخر بيع","never":"لم يُبع","No sales in the last 90 days yet, so there is no average.":"لا مبيعات خلال آخر 90 يوماً، فلا يوجد معدل بعد.",
+  "Safe level (set by you)":"الحد الآمن (حددته أنت)","Safe level (worked out)":"الحد الآمن (محسوب)","Order up to":"اطلب حتى","Fast-moving":"سريع الحركة","fast-moving":"سريع الحركة","Fast":"سريع","Stagnant":"راكد","Stagnant stock":"مخزون راكد","Stagnant stock (not selling)":"مخزون راكد (لا يُباع)",
+  "Put it in front, return it to the supplier, or stop ordering it.":"ضعه في الواجهة، أو أرجعه للمورد، أو توقف عن طلبه.","Low stock uses \"Alert when below\" on each item, or the safe level worked out from its sales when that is empty.":"المخزون القليل يعتمد على \"نبّه عندما يقل عن\" في كل مادة، أو على الحد الآمن المحسوب من مبيعاتها إذا كان فارغاً.",
+  "Safe stock and shortage list":"المخزون الآمن وقائمة النواقص","Days the supplier takes to deliver":"أيام توصيل المورد","Extra safety days":"أيام أمان إضافية","Order enough for this many days":"اطلب ما يكفي لهذا العدد من الأيام","Stagnant after this many days without a sale":"يُعد راكداً بعد هذه الأيام بلا بيع",
+  "Each item's safe level = what it sells per day (average of the last 90 days) × (delivery days + safety days). Below that it goes on the shortage list, and it leaves the list once enough stock comes in.":"الحد الآمن لكل مادة = ما يُباع منها يومياً (معدل آخر 90 يوماً) × (أيام التوصيل + أيام الأمان). إذا قل المخزون عنه تدخل قائمة النواقص، وتخرج منها عندما يصل مخزون كافٍ.",
+  "Start of shift":"بداية الدوام","Sell these first":"بيع هذه أولاً","These batches expire within 3 months. The till always takes the nearest expiry of an item first. When a customer asks by scientific name, give these.":"هذه التشغيلات تنتهي خلال 3 أشهر. الكاشير يأخذ دائماً الأقرب انتهاءً من كل مادة أولاً. عندما يطلب الزبون بالاسم العلمي، أعطه هذه.",
+  "batch":"تشغيلة","left":"متبقي","This month":"هذا الشهر","Next month":"الشهر القادم","Showing the nearest 40. Stock, \"Expiring 3 months\", has all of them.":"تظهر أقرب 40. في المخزون، \"تنتهي خلال 3 أشهر\" فيها الكل.","Today's shortage list":"قائمة النواقص اليوم",
+  "Get this list as a notification on this phone every day.":"استلم هذه القائمة كإشعار على هذا الهاتف كل يوم.","Turn on phone notifications":"تشغيل إشعارات الهاتف","Phone notifications are on.":"إشعارات الهاتف مفعلة.","Phone notifications are off. You can allow them in the phone's settings.":"إشعارات الهاتف متوقفة. يمكنك السماح بها من إعدادات الهاتف.",
+  "See the list":"اعرض القائمة","Nothing to sell first or to order.":"لا شيء للبيع أولاً أو للطلب.","Same medicine, sell first":"نفس الدواء، بِع هذا أولاً","Same scientific name, dose and form:":"نفس الاسم العلمي والجرعة والشكل:",
+  "This one expires sooner, so sell it first unless the customer asked for the brand by name.":"هذا ينتهي أسرع، فبِعه أولاً إلا إذا طلب الزبون الماركة بالاسم.","expires":"ينتهي","The customer asked for":"الزبون طلب"});
+AR_RX.push([/^Stagnant: not sold for (\d+) days$/, "راكد: لم يُبع منذ $1 يوماً"], [/^not sold for (\d+) days$/, "لم يُبع منذ $1 يوماً"], [/^never sold in (\d+) days$/, "لم يُبع أبداً خلال $1 يوماً"], [/^(\d+) days?$/, "$1 يوم"],
+  [/^safe level (.+)$/, "الحد الآمن $1"], [/^about (\d+) days left$/, "يكفي نحو $1 يوم"], [/^sells (.+) a week$/, "يُباع $1 أسبوعياً"], [/^In (\d+) months$/, "خلال $1 أشهر"], [/^(\d+) batch(?:es)? expire within (\d+) months: sell them first$/, "$1 تشغيلة تنتهي خلال $2 أشهر: بِعها أولاً"],
+  [/^Safe level = sold per day × (\d+) days \(delivery (\d+) \+ safety (\d+)\), rounded up to whole boxes\. "Alert when below" wins when you fill it in\. Change the days in Settings\.$/, "الحد الآمن = المباع يومياً × $1 يوم (توصيل $2 + أمان $3)، مقرباً لأعلى إلى علب كاملة. \"نبّه عندما يقل عن\" له الأولوية إذا ملأته. غيّر الأيام من الإعدادات."],
+  [/^Items that are out or below their safe level\. The suggested boxes fill (\d+) days of sales \(or your minimum\), minus what you have, rounded up\. You decide what to order\. An item leaves this list by itself once its stock comes in\.$/, "المواد النافدة أو الأقل من حدها الآمن. العلب المقترحة تكفي مبيعات $1 يوماً (أو حدك الأدنى) ناقص ما عندك، مقربة لأعلى. أنت تقرر ماذا تطلب. تخرج المادة من القائمة وحدها عندما يصل مخزونها."]);
 function keysSheet(){
   const k = (a, b) => `<div class="r"><span class="num">${a}</span><span>${b}</span></div>`;
   openSheet("Keyboard keys", `<div class="sum">${k("F2", "Search or scan")}${k("↑ ↓", "Move through results")}${k("Enter", "Add the result")}${k("F4", "Change box, strip or tablet")}${k("+ −", "More or fewer of the last item")}${k("F8", "Switch to debt (if allowed)")}${k("F9", "Save the sale")}${k("F10", "Print the receipt")}${k("Ctrl+K", "Find any screen")}${k("Ctrl+/", "Show this list")}</div>`);

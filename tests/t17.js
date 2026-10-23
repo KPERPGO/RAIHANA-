@@ -63,7 +63,7 @@ let fails = 0; const ok = (m, c, x) => { console.log(c ? 'ok  ' : 'FAIL', m, x =
     r = await sell(p, [{n:'Beta'}], {given:10000});
     ok('P-07 cash and change are kept on the sale and the receipt', r.saved === 1 && r.last.given === 10000 && r.last.change === 5000 && await p.evaluate(() => /Change\s*5,000/.test(document.getElementById('receipt')?.innerText || '')));
     // debt hidden by default
-    const dv = await p.evaluate(() => { closeSheet(); S.cart = [{pid:catalog()[0].id, mode:'box', qty:1, price:5000}]; render(); return {select: document.querySelector('select#xMethod') ? 1 : 0, debtOpt: document.body.innerText.includes('On debt (دين)')}; });
+    const dv = await p.evaluate(() => { closeSheet(); S.cart = [{pid:catalog()[0].id, mode:'box', qty:1, price:5000}]; render(); return {select: document.querySelector('[data-xpay="cash"]') && document.querySelector('[data-xpay="card"]') ? 1 : 0, debtOpt: document.body.innerText.includes('On debt (دين)')}; });
     ok('Debt: Cash and Card are offered, but no "On debt" choice while debt is switched off', dv.select === 1 && !dv.debtOpt, dv);
     // P-11 customer on a cash sale
     await p.evaluate(async () => { await write('customers/CU-1', {id:'CU-1', name:'Sara', phone:''}); }); await p.waitForTimeout(150);
@@ -128,7 +128,7 @@ let fails = 0; const ok = (m, c, x) => { console.log(c ? 'ok  ' : 'FAIL', m, x =
     await p.evaluate(async () => { await write('meta/erp', {...E.cfg, debtOn:true}); }); await p.waitForTimeout(200);
     await p.evaluate(() => { S.cart = [{pid:catalog()[0].id, mode:'box', qty:1, price:5000}]; render(); document.activeElement?.blur(); });
     await p.keyboard.press('F8'); await p.waitForTimeout(100);
-    ok('Debt switched on: the choice is back and F8 switches to debt', await p.evaluate(() => !!document.querySelector('select#xMethod') && S.cartMeta.method === 'debt'));
+    ok('Debt switched on: the choice is back and F8 switches to debt', await p.evaluate(() => !!document.querySelector('[data-xpay="debt"][aria-pressed="true"]') && S.cartMeta.method === 'debt'));
     await p.close(); }
 
   { const p = await fresh('en');

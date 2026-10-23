@@ -274,6 +274,10 @@ const saleReturns = sid => E.moves.filter(m => !m.voided && m.saleId === sid);
 const returnedOf = (sid, li) => saleReturns(sid).filter(m => m.saleLine === li).reduce((a, m) => a + n0(m.rq), 0);
 const refundsWhere = f => E.moves.filter(m => !m.voided && m.saleId && f(m));
 const debtOn = () => E.cfg.debtOn === true; // owner's rule (22 Oct 2026): no selling on debt unless switched on in Settings
+// how a sale was paid. "split" = part card, part cash: the card part is kept on the sale, the rest is cash
+const payOf = s => { const t = n0(s.total); if (s.method === "debt") return {cash:0, card:0, debt:t};
+  const card = s.method === "card" ? t : s.method === "split" ? Math.min(t, n0(s.card)) : 0; return {cash:t - card, card, debt:0}; };
+const payText = s => { const p = payOf(s); return s.method === "debt" ? "On debt" : s.method === "split" ? `Cash ${f0(p.cash)} + card ${f0(p.card)}` : s.method === "card" ? "Card" : "Cash"; };
 function custBalance(cid){
   const debt = E.sales.filter(s => !s.voided && s.method === "debt" && s.customerId === cid).reduce((a,s) => a + n0(s.total), 0)
     - refundsWhere(m => m.refundBy === "debt" && m.customerId === cid).reduce((a, m) => a + n0(m.refund), 0);
@@ -282,11 +286,11 @@ function custBalance(cid){
 }
 function cashParts(d, keep){ // d = null: any date (a shift can run past midnight); keep() then picks the time window
   const sum = (arr, f) => arr.reduce((a, x) => a + n0(f(x)), 0), on = x => d == null || x.date === d;
-  const sales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "cash"), s => s.total);
+  const sales = sum(E.sales.filter(s => keep(s) && on(s)), s => payOf(s).cash);
   const cin = sum(E.custpays.filter(x => keep(x) && on(x)), x => x.amount);
   const sup = sum(S.payments.filter(p => p.verified && (d == null ? keep(p) : p.date === d) && /cash/i.test(p.method || "")), p => p.amount);
   const exp = sum(E.expenses.filter(x => keep(x) && on(x) && x.fromCash !== false), x => x.amount);
-  const debtSales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "debt"), s => s.total), cardSales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "card"), s => s.total);
+  const debtSales = sum(E.sales.filter(s => keep(s) && on(s)), s => payOf(s).debt), cardSales = sum(E.sales.filter(s => keep(s) && on(s)), s => payOf(s).card);
   const ref = sum(E.moves.filter(m => keep(m) && m.saleId && on(m) && m.refundBy === "cash"), m => m.refund); // cash given back for returns
   return {sales, cin, sup, exp, ref, debtSales, cardSales, expected: sales + cin - sup - exp - ref};
 }
@@ -326,14 +330,23 @@ function salesStats(k){
   const items = {}; ss.forEach(s => (s.lines || []).forEach(l => { const x = items[l.pid] || (items[l.pid] = {pid:l.pid, name:l.name, qty:0, total:0, unit:l.unit}); x.total += n0(l.total); x.qty += n0(l.qty); }));
   const hours = Array(24).fill(0); ss.forEach(s => { const h = new Date(s.at || s.date).getHours(); if (isFinite(h)) hours[h] += n0(s.total); });
   const days = {}; ss.forEach(s => days[s.date] = (days[s.date] || 0) + n0(s.total));
-  return {from, to, count:ss.length, total, cash:ss.filter(s => s.method !== "debt" && s.method !== "card").reduce((a,s) => a + n0(s.total), 0) - cashRef, card:ss.filter(s => s.method === "card").reduce((a,s) => a + n0(s.total), 0) - cardRef, debt:ss.filter(s => s.method === "debt").reduce((a,s) => a + n0(s.total), 0) - (refunds - cashRef - cardRef), refunds, disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
+  return {from, to, count:ss.length, total, cash:ss.reduce((a,s) => a + payOf(s).cash, 0) - cashRef, card:ss.reduce((a,s) => a + payOf(s).card, 0) - cardRef, debt:ss.reduce((a,s) => a + payOf(s).debt, 0) - (refunds - cashRef - cardRef), refunds, disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
     byStaff:Object.values(ss.reduce((m, s) => { const id = s.staffId || "-", x = m[id] || (m[id] = {id, name:s.staffName || "No login", count:0, total:0}); x.count++; x.total += n0(s.total); return m; }, {})).sort((a,b) => b.total - a.total)};
 }
+/* quick buttons on Sell: the owner's pinned items come first and always keep their place. The other places go to the
+   best sellers (how many receipts an item was on), worked out once per period (by default the week, from Saturday) from the
+   sales before it, so the buttons stay put while staff learn them. Out-of-stock best sellers are skipped. */
+const QUICK_N = () => [8, 12, 16].includes(E.cfg.quickN) ? E.cfg.quickN : 12;
+const QUICK_EVERY = () => ["day", "week", "month", "pinned"].includes(E.cfg.quickEvery) ? E.cfg.quickEvery : "week";
 function quickItems(cat, used){
-  const since = addDays(today(), -30), score = {};
-  E.sales.filter(s => !s.voided && s.date >= since).forEach(s => (s.lines || []).forEach(l => score[l.pid] = (score[l.pid] || 0) + 1));
-  const pinned = cat.filter(p => p.m?.quick), top = cat.filter(p => !p.m?.quick && score[p.id]).sort((a,b) => score[b.id] - score[a.id]);
-  return [...pinned, ...top].slice(0, 12).map(p => ({p, s:stockOf(p, used)}));
+  const every = QUICK_EVERY(), start = every === "day" ? today() : every === "month" ? today().slice(0, 8) + "01" : periodRange("week")[0];
+  const pinned = cat.filter(p => p.m?.quick).sort((a, b) => pname(a).localeCompare(pname(b)));
+  const rank = (from, to) => { const score = {}; E.sales.filter(s => !s.voided && s.date >= from && s.date < to).forEach(s => new Set((s.lines || []).map(l => l.pid)).forEach(pid => score[pid] = (score[pid] || 0) + 1)); return score; };
+  let score = {};
+  if (every !== "pinned"){ score = rank(addDays(start, every === "month" ? -30 : -7), start);
+    if (!Object.keys(score).length) score = rank(addDays(start, -30), addDays(today(), 1)); } // a new pharmacy: use what has been sold so far
+  const top = cat.filter(p => !p.m?.quick && score[p.id] && stockOf(p, used).good > 0).sort((a, b) => score[b.id] - score[a.id] || pname(a).localeCompare(pname(b)));
+  return [...pinned, ...top].slice(0, QUICK_N()).map(p => ({p, s:stockOf(p, used)}));
 }
 function sellDash(){
   const k = S.sellPeriod, st = salesStats(k), f = v => Math.round(v).toLocaleString("en-US");
@@ -359,28 +372,31 @@ function sellDash(){
     </div>
     ${st.byStaff.length > 1 || (st.byStaff[0] && st.byStaff[0].id !== "-") ? `<div class="list"><div class="row" style="cursor:default"><span class="main"><span class="t">By pharmacist</span></span></div>${st.byStaff.map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.name)}</span><span class="s"><span class="num">${x.count}</span> receipts</span></span><span class="end num">${iqd(x.total)}</span></div>`).join("")}</div>` : ""}` : `<p class="note">No sales ${k === "today" ? "today" : k === "week" ? "this week" : "this month"} yet.</p>`}</section>`;
 }
+/* Sell is the till (POS). Two parts: the inputs (open sales, search, quick buttons, payment) and the invoice (items and totals).
+   Phone: inputs on top, invoice under them. Tablet and computer: invoice on the left, inputs on the right (see .pos in build.py). */
 function sellView(){
   const cat = catalog(), used = usedMap(), q = S.sellQ.trim().toLowerCase();
   const hits = q ? cat.filter(p => (p.barcode && p.barcode === S.sellQ.trim()) || [p.name, p.strength, p.form, p.sci, p.desc, p.barcode].join(" ").toLowerCase().includes(q)).slice(0, 12) : [];
   const byId = Object.fromEntries(cat.map(p => [p.id, p]));
   const lines = S.cart.map((c, i) => ({c, i, p: byId[c.pid]})).filter(x => x.p);
-  const {sub, total} = cartTotals(lines.map(x => x.c), S.cartMeta);
+  const {sub, disc, total} = cartTotals(lines.map(x => x.c), S.cartMeta), pay = cartPay(total);
   const chr = S.cartMeta.chronicId ? E.chronic.find(c => c.id === S.cartMeta.chronicId) : null;
   const tabName = t => { const ch = t.meta?.chronicId && E.chronic.find(c => c.id === t.meta.chronicId); const cu = t.meta?.customerId && E.customers.find(c => c.id === t.meta.customerId); return ch ? ch.name : cu ? cu.name : t.meta?.newName || `Customer ${t.n}`; };
   const tabSum = t => cartTotals(t.lines || [], t.meta).total;
   const quick = quickItems(cat, used);
-  return `<section class="sec">
+  const inputs = `<section class="sec posin">
     <div class="tabsale" role="tablist" aria-label="Open sales">${S.tabs.map((t, i) => `<button type="button" role="tab" aria-selected="${i === S.tabAt}" data-xtab="${i}"><span>${esc(tabName(t))}</span>${(t.lines || []).length ? `<span class="num">${iqd(Math.max(0, tabSum(t)))}</span>` : `<span>empty</span>`}</button>`).join("")}<button type="button" class="add" data-xnewtab="1" aria-label="New customer">+ Customer</button></div>
     <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}${canUse("dose") ? `<button type="button" class="hbtn" data-xdosepop="1">Dose</button>` : ""}</div>
     <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print <button type="button" class="linkbtn" data-xkeys="1">All keys</button></p>
     ${q ? `<div class="list">${hits.length ? hits.map(p => { const s = stockOf(p, used); return `<button type="button" class="row" data-xadd="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""} · ${esc(qtyText(p, s.good))} in stock${s.next ? ` · exp ${esc(s.next.expiry)}` : ""}</span></span><span class="end num">${p.sellBox ? iqd(p.sellBox) : `<span class="pill warn">No price</span>`}</span></button>`; }).join("") : `<div class="empty">No item matches. Items appear here once they are on a purchase invoice, or add one under Stock.</div>`}</div>` : ""}
-    ${!q && quick.length ? `<div class="quick">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" ${s.good <= 0 ? 'class="out"' : ""}><b>${esc(p.name)}</b><span>${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span>${p.sellBox ? `<span class="num">${f0(p.sellBox)}</span>` : `<span>No price</span>`}${s.good <= 0 ? `<span class="pill bad">Out</span>` : ""}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
-  </section>
-  <section class="sec"><div class="sechead"><h2>${esc(tabName(actTab()))}</h2><div class="actions">${lines.length ? `<button type="button" data-xclear="1">Clear</button>` : ""}${S.tabs.length > 1 ? `<button type="button" class="danger" data-xclosetab="1">Close</button>` : ""}</div></div>
+    ${!q && quick.length ? `<div class="quick" role="group" aria-label="Quick buttons">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" class="${[s.good <= 0 ? "out" : "", p.m?.quick ? "pin" : ""].join(" ").trim()}" title="${esc(pname(p))}"><b>${esc(p.name)}</b><span class="qs">${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : p.sellBox ? `<span class="num">${f0(p.sellBox)}</span>` : `<span class="qs">No price</span>`}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
+    ${lines.length ? payForm(sub, total, pay) : ""}
+  </section>`;
+  const bill = `<section class="sec posbill" aria-label="Invoice"><div class="sechead"><h2>${esc(tabName(actTab()))}</h2><div class="actions">${lines.length ? `<button type="button" data-xclear="1">Clear</button>` : ""}${S.tabs.length > 1 ? `<button type="button" class="danger" data-xclosetab="1">Close</button>` : ""}</div></div>
     ${chr ? `<div class="banner">Chronic card: <b>${esc(chr.name)}</b>. Saving this sale marks this month as given.</div>` : ""}
     ${closeOf(today()) ? `<div class="banner">Today's cash box is already closed. Sales saved now show under "Changes after closing" in Money.</div>` : ""}
     <div class="list">${lines.length ? lines.map(({c, i, p}) => { const s = stockOf(p, used), needQ = n0(c.qty) * unitPer(p, c.mode);
-      return `<div class="lineedit" style="border:0;border-top:1px solid var(--line);border-radius:0">
+      return `<div class="lineedit">
         <div class="lh"><b style="color:var(--fg)">${esc(pname(p))}</b><button type="button" class="danger" data-xrm="${i}" style="padding:4px 10px">Remove</button></div>
         <div class="stepper"><button type="button" data-xstep="${i}" data-d="-1" aria-label="One less">−</button><input class="num" inputmode="decimal" data-xq="${i}" value="${esc(c.qty)}" aria-label="Quantity"><button type="button" data-xstep="${i}" data-d="1" aria-label="One more">+</button>
           <select data-xmode="${i}" aria-label="Sell by">${unitOpts(p, c.mode)}</select></div>
@@ -388,25 +404,52 @@ function sellView(){
           <label>Line total<input class="num" value="${lineTot(c).toLocaleString("en-US")}" disabled></label></div>
         ${needQ > s.good ? `<span class="err">${esc(s.good <= 0 ? STOCK.shortText(p, 0) : `Only ${qtyText(p, s.good)} in stock.`)}</span>` : ""}${!isNum(c.price) ? `<span class="err">Enter a price. Set the usual price under Stock so it fills in next time.</span>` : ""}
       </div>`; }).join("") : `<div class="empty">Tap a quick button, scan, or search an item to start this sale.</div>`}</div>
-    ${lines.length ? `<form id="sellForm" class="sum" style="gap:10px">
+    ${lines.length ? `<div class="sum billsum">
       <div class="r"><span>Subtotal</span><span class="num">${iqd(sub)}</span></div>
-      <div class="grid2"><label>Discount (IQD)<input id="xDisc" class="num" inputmode="numeric" value="${esc(S.cartMeta.disc ?? "")}"></label>
-      <label>Payment<select id="xMethod"><option value="cash" ${!S.cartMeta.method || S.cartMeta.method === "cash" ? "selected" : ""}>Cash</option><option value="card" ${S.cartMeta.method === "card" ? "selected" : ""}>Card</option>${debtOn() ? `<option value="debt" ${S.cartMeta.method === "debt" ? "selected" : ""}>On debt (دين)</option>` : ""}</select></label></div>
-      ${`<label>${S.cartMeta.method === "debt" ? "Customer" : "Customer (optional)"}<select id="xCust"><option value="">${S.cartMeta.method === "debt" ? "Choose customer" : "No customer"}</option>${E.customers.filter(c => !c.deleted).map(c => `<option value="${esc(c.id)}" ${S.cartMeta.customerId === c.id ? "selected" : ""}>${esc(c.name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("")}<option value="__new" ${S.cartMeta.customerId === "__new" ? "selected" : ""}>+ New customer</option></select></label>
-      ${S.cartMeta.customerId === "__new" ? `<div class="grid2"><label>Customer name<input id="xCName" value="${esc(S.cartMeta.newName || "")}"></label><label>Phone<input id="xCPhone" inputmode="tel" value="${esc(S.cartMeta.newPhone || "")}"></label></div>` : ""}`}
-      ${(S.cartMeta.method || "cash") === "cash" ? `<div class="grid2"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(S.cartMeta.given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(S.cartMeta.given) && S.cartMeta.given >= total ? (S.cartMeta.given - total).toLocaleString("en-US") : ""}" disabled></label></div>` : ""}
+      ${disc ? `<div class="r"><span>Discount</span><span class="num">−${iqd(disc)}</span></div>` : ""}
       <div class="r big"><span>Total</span><span class="num">${iqd(total)}</span></div>
-      <p class="err" id="xErr">${S.sellErr && S.sellErr.cart === JSON.stringify(S.cart) ? S.sellErr.html : ""}</p>
-      <button type="submit" class="primary paybtn">Save sale · ${iqd(total)}</button></form>` : ""}
-  </section>
+      ${pay.method === "debt" ? `<div class="r"><span>On debt</span><span class="num">${iqd(total)}</span></div>` : `<div class="r" id="billCardRow" ${pay.card ? "" : "hidden"}><span>Card</span><span class="num" id="billCard">${iqd(pay.card)}</span></div><div class="r"><span>Cash</span><span class="num" id="billCash">${iqd(pay.cash)}</span></div>`}
+    </div>` : ""}
+  </section>`;
+  return `<div class="pos">${inputs}${bill}</div>
   ${sellDash()}
   <section class="sec"><div class="sechead"><h2>Receipts</h2><span class="note">${esc(S.sellPeriod === "custom" ? [S.sellFrom, S.sellTo].filter(Boolean).join(" to ").replace(/T/g, " ") : periodRange(S.sellPeriod).join(" to "))}</span></div>
     <div class="list">${E.sales.filter(s => inPeriod(s, S.sellPeriod)).sort((a,b) => (b.at || "").localeCompare(a.at || "")).slice(0, 50).map(saleRow).join("") || `<div class="empty">No receipts yet.</div>`}</div></section>`;
 }
+/* payment: by default the whole total is cash. The pharmacist types what goes on the card and the rest is cash,
+   or taps All cash / All card. Cash received and change are for the cash part only. */
+function cartPay(total){
+  const m = S.cartMeta.method;
+  if (m === "debt" && debtOn()) return {method:"debt", card:0, cash:0, over:false};
+  const typed = wIQD(n0(S.cartMeta.card)), card = m === "card" ? total : Math.max(0, Math.min(total, typed));
+  return {method: total > 0 && card >= total ? "card" : card > 0 ? "split" : "cash", card, cash:total - card, over: m !== "card" && typed > total};
+}
+function payForm(sub, total, pay){
+  const debt = pay.method === "debt", m = S.cartMeta.method, given = S.cartMeta.given;
+  return `<form id="sellForm" class="sum paybox" style="gap:10px">
+      <div class="chips paykind" role="group" aria-label="Payment"><button type="button" data-xpay="cash" aria-pressed="${!debt && pay.method === "cash"}">All cash</button><button type="button" data-xpay="card" aria-pressed="${!debt && m === "card"}">All card</button>${debtOn() ? `<button type="button" data-xpay="debt" aria-pressed="${debt}">On debt (دين)</button>` : ""}</div>
+      ${debt ? "" : `<div class="grid2"><label>Card amount (IQD)<input id="xCard" class="num" inputmode="numeric" placeholder="0" value="${esc(m === "card" ? total : S.cartMeta.card ?? "")}"></label><label>Cash part<input id="xCashPart" class="num" value="${f0(pay.cash)}" disabled></label></div>
+      <p class="err" id="xCardErr">${pay.over ? `The card amount is more than the total (${esc(f0(total))} IQD).` : ""}</p>
+      <div class="grid2" ${pay.cash > 0 ? "" : "hidden"} id="xCashRow"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(given) && given >= pay.cash ? (given - pay.cash).toLocaleString("en-US") : ""}" disabled></label></div>`}
+      <label>Discount (IQD)<input id="xDisc" class="num" inputmode="numeric" value="${esc(S.cartMeta.disc ?? "")}"></label>
+      <label>${debt ? "Customer" : "Customer (optional)"}<select id="xCust"><option value="">${debt ? "Choose customer" : "No customer"}</option>${E.customers.filter(c => !c.deleted).map(c => `<option value="${esc(c.id)}" ${S.cartMeta.customerId === c.id ? "selected" : ""}>${esc(c.name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("")}<option value="__new" ${S.cartMeta.customerId === "__new" ? "selected" : ""}>+ New customer</option></select></label>
+      ${S.cartMeta.customerId === "__new" ? `<div class="grid2"><label>Customer name<input id="xCName" value="${esc(S.cartMeta.newName || "")}"></label><label>Phone<input id="xCPhone" inputmode="tel" value="${esc(S.cartMeta.newPhone || "")}"></label></div>` : ""}
+      <div class="r big"><span>Total</span><span class="num">${iqd(total)}</span></div>
+      <p class="err" id="xErr">${S.sellErr && S.sellErr.cart === JSON.stringify(S.cart) ? S.sellErr.html : ""}</p>
+      <button type="submit" class="primary paybtn">Save sale · ${iqd(total)}</button></form>`;
+}
+// card amount or cash received typed: only the numbers next to them change, so the box keeps the keyboard
+function payLive(){
+  const total = cartTotals(S.cart, S.cartMeta).total, pay = cartPay(total), set = (id, v) => { const el = $(id); if (el) el.value = v; };
+  set("#xCashPart", f0(pay.cash)); const row = $("#xCashRow"); if (row) row.hidden = !(pay.cash > 0);
+  const g = S.cartMeta.given; set("#xChange", isNum(g) && g >= pay.cash ? (g - pay.cash).toLocaleString("en-US") : "");
+  const e = $("#xCardErr"); if (e) e.textContent = pay.over ? `The card amount is more than the total (${f0(total)} IQD).` : "";
+  const bc = $("#billCash"), bk = $("#billCard"), br = $("#billCardRow"); if (bc) bc.textContent = iqd(pay.cash); if (bk) bk.textContent = iqd(pay.card); if (br) br.hidden = !pay.card;
+}
 const f0 = v => Math.round(v).toLocaleString("en-US");
 function saleRow(s){
   const cu = E.customers.find(c => c.id === s.customerId);
-  return `<button type="button" class="row" data-xsale="${esc(s.id)}"><span class="main"><span class="t">Receipt <span class="num">${esc(s.no || s.id)}</span>${cu ? " · " + esc(cu.name) : ""}</span><span class="s">${esc(s.date)} ${esc(hm(s.at))} · ${(s.lines || []).length} items${s.staffName ? " · " + esc(s.staffName) : ""} · ${s.method === "debt" ? "On debt" : "Cash"}</span></span><span class="end"><span class="num">${iqd(s.total)}</span>${s.voided ? `<span class="pill bad">Cancelled</span>` : ""}</span></button>`;
+  return `<button type="button" class="row" data-xsale="${esc(s.id)}"><span class="main"><span class="t">Receipt <span class="num">${esc(s.no || s.id)}</span>${cu ? " · " + esc(cu.name) : ""}</span><span class="s">${esc(s.date)} ${esc(hm(s.at))} · ${(s.lines || []).length} items${s.staffName ? " · " + esc(s.staffName) : ""} · ${esc(payText(s))}</span></span><span class="end"><span class="num">${iqd(s.total)}</span>${s.voided ? `<span class="pill bad">Cancelled</span>` : ""}</span></button>`;
 }
 function stockView(){
   const cat = catalog(), used = usedMap(), q = S.stockQ.trim().toLowerCase();
@@ -532,6 +575,14 @@ function moneyView(){
     <div class="list">${exps.length ? exps.map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.category)}</span><span class="s">${esc(x.date)}${x.note ? " · " + esc(x.note) : ""}${x.fromCash === false ? " · not from cash box" : ""}</span></span><span class="end"><span class="num">${iqd(x.amount)}</span><button type="button" class="danger" data-xexpvoid="${esc(x.id)}" style="padding:4px 10px">Cancel</button></span></div>`).join("") : `<div class="empty">No expenses this month.</div>`}</div>
     ${Object.keys(mm.byCat).length ? `<p class="note">${Object.entries(mm.byCat).map(([k,v]) => `${esc(k)}: <span class="num">${iqd(v)}</span>`).join(" · ")}</p>` : ""}</section>`;
 }
+function quickSettings(){
+  const pins = catalog().filter(p => p.m?.quick).sort((a, b) => pname(a).localeCompare(pname(b)));
+  return `<div class="sum" style="gap:10px"><b>Quick buttons on Sell</b>
+    <div class="grid2"><label>How many buttons<select id="sQuickN">${[8, 12, 16].map(n => `<option value="${n}" ${QUICK_N() === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+    <label>Change the best sellers<select id="sQuickEvery">${[["week", "Every week (Saturday)"], ["day", "Every day"], ["month", "Every month"], ["pinned", "Never: only my pinned items"]].map(([v, l]) => `<option value="${v}" ${QUICK_EVERY() === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+    <p class="note">Pinned items always come first and stay in the same place every day. To pin or unpin an item, open it under Stock and tick "Quick button on Sell". The other buttons go to the items on the most receipts, and stay put until the next change.</p>
+    ${pins.length ? `<p class="note"><span>Pinned now:</span> <span data-keep>${pins.map(p => esc(pname(p))).join(" · ")}</span></p>` : `<p class="note">No pinned items yet.</p>`}</div>`;
+}
 function settingsView(){
   const sy = window.ERP_SYNC, c = sy?.cfg();
   return `<section class="sec"><h2>Settings</h2>
@@ -539,7 +590,7 @@ function settingsView(){
       <label>Warn about chronic pickups this many days ahead<input id="sDays" class="num" inputmode="numeric" value="${ALERT_DAYS()}"></label>
       <label class="check"><input type="checkbox" id="sDebt" ${debtOn() ? "checked" : ""}> Allow selling on debt (دين)</label>
       <label>Discount staff may give without your PIN (% of the receipt)<input id="sDisc" class="num" inputmode="decimal" value="${esc(n0(E.cfg.staffDiscPct))}"></label>
-      <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}<button type="submit">Save settings</button></form></section>
+      <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}${quickSettings()}<button type="submit">Save settings</button></form></section>
   <section class="sec"><h2>Where your data is</h2><div class="sum">
     ${window.ERP_MODE === "claude" ? `<p>You are using the claude.ai version. Data is saved online in your Claude account and shared on every device where you open this link. It needs internet. Photo scan works here.</p>` :
     `<p>Installed app. Data is saved on this device first, so it works with no internet.</p>
@@ -1146,9 +1197,9 @@ async function saveSaleNow(){
   if (lines.some(x => !isNum(x.c.price))){ err.textContent = "Every item needs a price."; return; }
   const frac = lines.find(x => !Number.isInteger(n0(x.c.qty))); // audit P-06: no half bottles; a part of a box is sold as strips or tablets
   if (frac){ err.textContent = `${pname(frac.p)}: the quantity must be a whole number. To sell part of a box, choose the strip or tablet unit.`; return; }
-  const method = $("#xMethod")?.value || "cash";
+  const debt = S.cartMeta.method === "debt" && debtOn();
   let customerId = S.cartMeta.customerId || null;
-  if (method === "debt" && !customerId){ err.textContent = "Choose the customer for a debt sale."; return; }
+  if (debt && !customerId){ err.textContent = "Choose the customer for a debt sale."; return; }
   const newName = customerId === "__new" ? ($("#xCName")?.value || "").trim() : ""; if (customerId === "__new" && !newName){ err.textContent = "Enter the customer's name."; return; }
   const out = [], why = [], short = []; let overs = false;
   for (const {c, p} of lines){
@@ -1169,13 +1220,15 @@ async function saveSaleNow(){
     err.innerHTML = S.sellErr.html; return; }
   S.sellErr = null;
   const {sub, disc} = cartTotals(lines.map(x => x.c), {disc:parseNum($("#xDisc").value)});
-  const given = method === "cash" ? parseNum($("#xGiven")?.value) : null; // audit P-07
-  if (isNum(given) && wIQD(given) < sub - disc){ err.textContent = `Cash received (${f0(given)} IQD) is less than the total (${f0(sub - disc)} IQD). Take the rest, or choose "On debt".`; return; }
+  const pay = cartPay(sub - disc), method = pay.method;
+  if (pay.over){ err.textContent = `The card amount is more than the total (${f0(sub - disc)} IQD).`; return; }
+  const given = pay.cash > 0 ? parseNum($("#xGiven")?.value) : null; // audit P-07: cash received is for the cash part
+  if (isNum(given) && wIQD(given) < pay.cash){ err.textContent = method === "split" ? `Cash received (${f0(given)} IQD) is less than the cash part (${f0(pay.cash)} IQD).` : `Cash received (${f0(given)} IQD) is less than the total (${f0(sub - disc)} IQD). Take the rest${debtOn() ? `, or choose "On debt"` : ", or put part on the card"}.`; return; }
   const discMax = Math.floor(sub * n0(E.cfg.staffDiscPct) / 100); if (disc > discMax) why.push(`Discount ${f0(disc)} IQD (staff may give up to ${f0(discMax)})`);
   let approvedBy = null; if (why.length && (!isOwner() || overs)){ approvedBy = await ownerOK(why, {always:overs}); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
   if (customerId === "__new"){ customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
   const id = newId("SL"), d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
-  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - (sub - disc)} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
+  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, ...(method === "split" ? {card:pay.card, cash:pay.cash} : {}), customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - pay.cash} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
   try {
     await write("sales/" + id, sale);
     if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) await write("chronic/" + ch.id, {given:{...(ch.given || {}), [ym(d)]:id}}, true); }
@@ -1190,8 +1243,9 @@ function receiptHtml(s){
     ${(s.lines || []).map(l => `<div>${esc(l.name)}</div><div style="display:flex;justify-content:space-between"><span>${l.qty} ${esc(l.unit)} × ${Math.round(l.price).toLocaleString("en-US")}</span><span>${Math.round(l.total).toLocaleString("en-US")}</span></div>`).join("")}<hr>
     ${s.discount ? `<div style="display:flex;justify-content:space-between"><span>Discount</span><span>−${Math.round(s.discount).toLocaleString("en-US")}</span></div>` : ""}
     <div style="display:flex;justify-content:space-between;font-weight:600"><span>Total IQD</span><span>${Math.round(s.total).toLocaleString("en-US")}</span></div>
+    ${s.method === "split" ? `<div style="display:flex;justify-content:space-between"><span>Card</span><span>${Math.round(payOf(s).card).toLocaleString("en-US")}</span></div>${isNum(s.given) ? "" : `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(payOf(s).cash).toLocaleString("en-US")}</span></div>`}` : ""}
     ${isNum(s.given) ? `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(s.given).toLocaleString("en-US")}</span></div><div style="display:flex;justify-content:space-between"><span>Change</span><span>${Math.round(s.change).toLocaleString("en-US")}</span></div>` : ""}
-    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : s.method === "card" ? `Paid by card${cu ? " · " + esc(cu.name) : ""}` : `Paid cash${cu ? " · " + esc(cu.name) : ""}`}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
+    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : s.method === "card" ? `Paid by card${cu ? " · " + esc(cu.name) : ""}` : s.method === "split" ? `Paid by cash and card${cu ? " · " + esc(cu.name) : ""}` : `Paid cash${cu ? " · " + esc(cu.name) : ""}`}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
 }
 function receiptSheet(id, fresh){
   const s = fresh || E.sales.find(x => x.id === id); if (!s) return;
@@ -1215,7 +1269,8 @@ function returnSheet(id){
     ${(s.lines || []).map((l, i) => { const left = r6(n0(l.qty) - returnedOf(s.id, i)); return `<label><span>${esc(l.name)}</span> <span class="note">sold <span class="num">${l.qty}</span> ${esc(l.unit)}${left < n0(l.qty) ? ` · <span class="num">${left}</span> can still come back` : ""}</span><input class="num" inputmode="numeric" data-xrq="${i}" placeholder="0" ${left <= 0 ? "disabled" : ""}></label>`; }).join("")}
     <label>What happens to the items<select id="rWhere"><option value="shelf">Back on the shelf (stock goes back)</option><option value="damaged">Damaged or opened (stock stays out)</option></select></label>
     <label>Reason<input id="rReason"></label>
-    <p class="note"><span>${s.method === "debt" ? "The refund comes off the customer's debt." : s.method === "card" ? "The refund goes back to the customer's card, not from the cash box." : "The refund is paid from the cash box."}</span> <span>Needs the owner's PIN.</span></p>
+    ${s.method === "split" ? `<label>Give the refund back by<select id="rBy"><option value="cash">Cash, from the cash box</option><option value="card">Card</option></select></label>` : ""}
+    <p class="note"><span>${s.method === "split" ? `This receipt was paid ${esc(payText(s))} IQD.` : s.method === "debt" ? "The refund comes off the customer's debt." : s.method === "card" ? "The refund goes back to the customer's card, not from the cash box." : "The refund is paid from the cash box."}</span> <span>Needs the owner's PIN.</span></p>
     <p class="err" id="rErr"></p><button type="submit" class="primary">Save return</button></form>`);
 }
 async function saveReturn(f){
@@ -1229,9 +1284,9 @@ async function saveReturn(f){
   const share = n0(s.subtotal) > 0 ? 1 - n0(s.discount) / n0(s.subtotal) : 1; // the receipt discount is shared out over the lines
   const parts = picks.map(x => { const l = s.lines[x.i]; return {x, l, refund: wIQD(x.q * n0(l.total) / n0(l.qty) * share)}; }), total = parts.reduce((a, y) => a + y.refund, 0);
   const by = await ownerOK([`Return ${parts.map(y => `${y.x.q} ${y.l.unit} ${y.l.name}`).join(", ")} from receipt ${s.no} (refund ${iqd(total)})`]); if (!by){ err.textContent = NEED_OWNER; return; }
-  const rid = newId("RT"), at = nowIso(), recs = [];
+  const rid = newId("RT"), at = nowIso(), recs = [], refundBy = s.method === "debt" ? "debt" : s.method === "card" ? "card" : s.method === "split" && $("#rBy")?.value === "card" ? "card" : "cash";
   for (const {x, l, refund} of parts){
-    const base = {pid:l.pid, saleId:s.id, saleNo:s.no, saleLine:x.i, returnId:rid, customerId:s.customerId || null, refundBy: s.method === "debt" ? "debt" : s.method === "card" ? "card" : "cash", note:reason, date:today(), at, staffId:S.staff?.id || null, approvedBy:by};
+    const base = {pid:l.pid, saleId:s.id, saleNo:s.no, saleLine:x.i, returnId:rid, customerId:s.customerId || null, refundBy, note:reason, date:today(), at, staffId:S.staff?.id || null, approvedBy:by};
     const alloc = l.alloc || [];
     if (!shelf){ recs.push({...base, key:alloc[0]?.key || "adj:" + l.pid, q:0, per:alloc[0]?.per ?? null, cost:0, reason:"Customer return (damaged)", rq:x.q, refund}); continue; }
     let units = r6(x.q * n0(l.per)), first = true;
@@ -1347,6 +1402,7 @@ document.addEventListener("click", ev => {
   if (d.xper){ S.sellPeriod = d.xper; lsSet("erp.sellPeriod", d.xper); render(); return; }
   if (d.xrm !== undefined){ S.cart.splice(+d.xrm, 1); if (!S.cart.length) S.cartMeta = {}; saveCart(); render(); return; }
   if (d.xclear){ S.cart = []; S.cartMeta = {}; saveCart(); render(); return; }
+  if (d.xpay){ S.cartMeta.method = d.xpay; if (d.xpay !== "debt") S.cartMeta.card = null; saveCart(); render(); return; }
   if (d.xsale){ receiptSheet(d.xsale); return; }
   if (d.xsaleret){ returnSheet(d.xsaleret); return; }
   if (d.xprint){ const s = E.sales.find(x => x.id === d.xprint); if (!s) return; const pa = $("#printArea"); pa.innerHTML = receiptHtml(s); try { window.print(); } catch {} return; }
@@ -1384,8 +1440,8 @@ document.addEventListener("input", ev => {
   if (d.xq !== undefined){ S.cart[+d.xq].qty = n0(parseNum(t.value)); saveCart(); return; }
   if (d.xp !== undefined){ const v = parseNum(t.value); S.cart[+d.xp].price = isNum(v) ? wIQD(v) : null; saveCart(); return; }
   if (t.id === "xDisc"){ S.cartMeta.disc = wIQD(parseNum(t.value)); saveCart(); return; }
-  if (t.id === "xGiven"){ const v = parseNum(t.value); S.cartMeta.given = isNum(v) ? v : null; saveCart();
-    const tot = cartTotals(S.cart, S.cartMeta).total, ch = $("#xChange"); if (ch) ch.value = isNum(v) && v >= tot ? (v - tot).toLocaleString("en-US") : ""; return; }
+  if (t.id === "xGiven"){ const v = parseNum(t.value); S.cartMeta.given = isNum(v) ? v : null; saveCart(); payLive(); return; }
+  if (t.id === "xCard"){ const v = parseNum(t.value); S.cartMeta.card = isNum(v) ? wIQD(v) : null; if (S.cartMeta.method === "card") S.cartMeta.method = "cash"; saveCart(); payLive(); return; }
   if (t.id === "xCName"){ S.cartMeta.newName = t.value; return; } if (t.id === "xCPhone"){ S.cartMeta.newPhone = t.value; return; }
   if (d.xcq !== undefined){ S.chrMeds[+d.xcq].qty = n0(parseNum(t.value)); return; }
   if (t.id === "cAddQ"){ drawChrPick(); return; }
@@ -1401,7 +1457,6 @@ document.addEventListener("change", ev => {
   if (t.id === "yShow"){ $("#yPass").type = t.checked ? "text" : "password"; return; }
   if (d.xq !== undefined || d.xp !== undefined || t.id === "xDisc"){ render(); return; }
   if (d.xmode !== undefined){ const c = S.cart[+d.xmode], p = catalog().find(x => x.id === c.pid); c.mode = t.value; c.price = p ? lvlPrice(p, c.mode) ?? null : null; saveCart(); render(); return; }
-  if (t.id === "xMethod"){ S.cartMeta.method = t.value; saveCart(); render(); return; }
   if (t.id === "xCust"){ S.cartMeta.customerId = t.value; saveCart(); render(); return; }
   if (d.xcm !== undefined){ S.chrMeds[+d.xcm].mode = t.value; drawChrMeds(); return; }
   if (t.id === "prRound"){ S.pr.round = +t.value; prSave(); return; }
@@ -1519,7 +1574,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked}); toast("Settings saved."); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value}); toast("Settings saved."); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -1556,7 +1611,7 @@ window.extraSheets = function(add){
   baseExtraSheets?.(add);
   const cat = catalog(), used = usedMap();
   add("Stock", cat.map(p => { const s = stockOf(p, used); return {"Item":p.name, "Dose":p.strength || "", "Form":p.form || "", "Barcode":p.barcode, "Packaging":levelText(p), "Sell price middle unit (IQD)":p.m?.sellMid ?? "", "Sell price smallest unit (IQD)":p.m?.sellSub ?? "", "In stock":qtyText(p, s.good), "In stock (small units)":s.good, "Expired":s.exp, "Next expiry":s.next?.expiry || "", "Sell price box (IQD)":p.sellBox ?? "", "Cost per box (IQD)":(c => isNum(c) ? Math.round(c) : "")(lastCostBox(p)), "Markup %":(c => { const v = PRICING.markupPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Margin %":(c => { const v = PRICING.marginPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Value at cost (IQD)":Math.round(s.value), "Refrigerated":p.fridge ? "Yes" : "No"}; }));
-  add("Sales", E.sales.flatMap(s => (s.lines || []).map(l => ({"Receipt":s.no, "Date":s.date, "Time":hm(s.at), "Pharmacist":s.staffName || "", "Item":l.name, "Qty":l.qty, "Unit":l.unit, "Price (IQD)":l.price, "Line total (IQD)":l.total, "Cost (IQD)":Math.round((l.alloc || []).reduce((a,x) => a + n0(x.q) * n0(x.cost), 0)), "Batches":(l.alloc || []).map(a => `${a.batch || "-"} × ${a.q}`).join("; "), "Receipt discount (IQD)":s.discount, "Receipt total (IQD)":s.total, "Payment":s.method === "debt" ? "Debt" : "Cash", "Customer":E.customers.find(c => c.id === s.customerId)?.name || "", "Cancelled":s.voided ? "Yes" : ""}))));
+  add("Sales", E.sales.flatMap(s => (s.lines || []).map(l => ({"Receipt":s.no, "Date":s.date, "Time":hm(s.at), "Pharmacist":s.staffName || "", "Item":l.name, "Qty":l.qty, "Unit":l.unit, "Price (IQD)":l.price, "Line total (IQD)":l.total, "Cost (IQD)":Math.round((l.alloc || []).reduce((a,x) => a + n0(x.q) * n0(x.cost), 0)), "Batches":(l.alloc || []).map(a => `${a.batch || "-"} × ${a.q}`).join("; "), "Receipt discount (IQD)":s.discount, "Receipt total (IQD)":s.total, "Payment":s.method === "debt" ? "Debt" : s.method === "card" ? "Card" : s.method === "split" ? "Cash and card" : "Cash", "Paid by card (IQD)":payOf(s).card, "Paid in cash (IQD)":payOf(s).cash, "Customer":E.customers.find(c => c.id === s.customerId)?.name || "", "Cancelled":s.voided ? "Yes" : ""}))));
   add("Customers", E.customers.filter(c => !c.deleted).map(c => { const b = custBalance(c.id); return {"Name":c.name, "Phone":c.phone || "", "Bought on debt (IQD)":b.debt, "Paid (IQD)":b.paid, "Owes (IQD)":b.bal}; }));
   add("Chronic cards", E.chronic.filter(c => !c.deleted).flatMap(c => (c.meds || []).map(m => { const p = cat.find(x => x.id === m.pid); return {"Patient":c.name, "Phone":c.phone || "", "Day each month":c.day, "Next pickup":chrDate(c), "Active":c.active !== false ? "Yes" : "No", "Medicine":p ? pname(p) : m.pid, "Qty per month":m.qty, "Unit":p ? unitName(p, m.mode || "box") : "box", "In stock":p ? qtyText(p, stockOf(p, used).good) : ""}; })));
   add("Expenses", E.expenses.map(x => ({"Date":x.date, "Type":x.category, "Amount (IQD)":x.amount, "From cash box":x.fromCash === false ? "No" : "Yes", "Note":x.note || "", "Cancelled":x.voided ? "Yes" : ""})));
@@ -1726,6 +1781,7 @@ render = window.render = function(){
   navBtns.forEach(b => { b.hidden = !canUse(b.dataset.tab); });
   if (!canUse(S.tab)){ S.tab = navBtns.find(b => !b.hidden)?.dataset.tab || "none"; }
   document.body.classList.toggle("no-newinv", !canUse("newinv"));
+  document.body.classList.toggle("on-sell", S.tab === "sell"); // the till uses the full width (see .pos in build.py)
   navGroups();
   const tb = document.querySelector(`nav.tabs [data-tab="${S.tab}"]`), st = $("#scrTitle"); if (st && tb && st.textContent !== tb.textContent) st.textContent = tb.textContent;
   $("#netDot")?.classList.toggle("off", !navigator.onLine);
@@ -1824,6 +1880,12 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
 });
 Object.assign(AR, {"Tap a medicine to add it, check the quantity, then tap Pay. Made a mistake? Remove the line before you pay.":"اضغط على الدواء لإضافته، راجع الكمية، ثم اضغط دفع. أخطأت؟ احذف السطر قبل الدفع.","This is what is on the shelf now. Use Stocktaking to count a shelf and fix any difference.":"هذا ما هو موجود على الرف الآن. استعمل الجرد لعد رف وتصحيح أي فرق.","Set the selling price from the cost. The app shows the exact formula it used.":"حدد سعر البيع من الكلفة. التطبيق يعرض المعادلة التي استعملها.","Keep your regular customers here. Open a name to see what they bought.":"احفظ زبائنك الدائمين هنا. افتح الاسم لترى ما اشتراه.","Today's cash in and out. Check it at the end of the day.":"النقد الداخل والخارج اليوم. راجعه في نهاية اليوم.","Add each person with their own PIN, and choose which screens they can use.":"أضف كل شخص برقمه السري، واختر الشاشات التي يستطيع استعمالها.","Language, backup and cloud sync are here. Take a backup now and then.":"اللغة والنسخ الاحتياطي ومزامنة السحابة هنا. خذ نسخة احتياطية من حين لآخر.","Got it":"فهمت","Skip":"تخطي","Next":"التالي","Back":"رجوع","Start working":"ابدأ العمل","Welcome to Raihana":"أهلاً بك في ريحانة","A quick look in four steps. You can skip it any time.":"نظرة سريعة في أربع خطوات. يمكنك تخطيها في أي وقت.","Sell is your main screen":"البيع هو شاشتك الرئيسية","Tap a medicine to add it. Check the quantity, then tap Pay. The app tells you how much change to give back.":"اضغط على الدواء لإضافته. راجع الكمية ثم اضغط دفع. التطبيق يخبرك كم ترجع للزبون.","Your day":"يومك","At the start, count the cash in the drawer. At the end, count it again and tap End shift. The owner sees any difference.":"في البداية عدّ النقد في الصندوق. في النهاية عدّه مرة أخرى واضغط إنهاء الدوام. المالك يرى أي فرق.","Help is always near":"المساعدة دائماً قريبة","Every screen has a small tip at the top. You can show the tour and the tips again from Settings.":"في أعلى كل شاشة نصيحة صغيرة. يمكنك إظهار الجولة والنصائح مرة أخرى من الإعدادات.","✓ Shift started":"✓ بدأ الدوام","✓ Cash counted at the start":"✓ تم عدّ النقد في البداية","○ Count the cash before you sell":"○ عدّ النقد قبل البيع","Count the cash":"عدّ النقد","○ End of the day":"○ نهاية اليوم","Count cash and end shift":"عدّ النقد وإنهاء الدوام","Show the tour and tips again":"إظهار الجولة والنصائح مرة أخرى","Help":"مساعدة"});
 
+/* ---- Sell as a till (23 Oct 2026): split payment and quick button settings, in Arabic ---- */
+Object.assign(AR, {"All cash":"نقد بالكامل","All card":"بطاقة بالكامل","Card amount (IQD)":"مبلغ البطاقة (دينار)","Cash part":"الجزء النقدي","Quick buttons":"أزرار سريعة","Quick buttons on Sell":"الأزرار السريعة في البيع","How many buttons":"عدد الأزرار","Change the best sellers":"تغيير الأكثر مبيعاً","Every week (Saturday)":"كل أسبوع (السبت)","Every day":"كل يوم","Every month":"كل شهر","Never: only my pinned items":"أبداً: المواد المثبتة فقط","Pinned items always come first and stay in the same place every day. To pin or unpin an item, open it under Stock and tick \"Quick button on Sell\". The other buttons go to the items on the most receipts, and stay put until the next change.":"المواد المثبتة تظهر أولاً وتبقى في نفس المكان كل يوم. لتثبيت مادة أو إلغاء تثبيتها افتحها من المخزون وضع علامة على \"زر سريع في البيع\". باقي الأزرار للمواد الموجودة في أكثر الوصولات، وتبقى ثابتة حتى التغيير القادم.","Pinned now:":"المثبتة الآن:","No pinned items yet.":"لا توجد مواد مثبتة بعد.","Give the refund back by":"إرجاع المبلغ عن طريق","Cash, from the cash box":"نقداً من الصندوق","Paid by cash and card":"مدفوع نقداً وبالبطاقة","Cash and card":"نقد وبطاقة","Sale paid by cash and card":"بيع مدفوع نقداً وبالبطاقة"});
+AR_RX.push([/^Cash ([\d,]+) \+ card ([\d,]+)$/, "نقد $1 + بطاقة $2"], [/^This receipt was paid Cash ([\d,]+) \+ card ([\d,]+) IQD\.$/, "دُفع هذا الوصل: نقد $1 + بطاقة $2 دينار."],
+  [/^The card amount is more than the total \(([\d,]+) IQD\)\.$/, "مبلغ البطاقة أكثر من المجموع ($1 دينار)."], [/^Cash received \(([\d,]+) IQD\) is less than the cash part \(([\d,]+) IQD\)\.$/, "المبلغ المستلم ($1 دينار) أقل من الجزء النقدي ($2 دينار)."],
+  [/^Cash received \(([\d,]+) IQD\) is less than the total \(([\d,]+) IQD\)\. Take the rest, or put part on the card\.$/, "المبلغ المستلم ($1 دينار) أقل من المجموع ($2 دينار). خذ الباقي أو ادفع جزءاً بالبطاقة."]);
+
 /* ---- forgotten shifts: the owner closes them in one place and the hours are recounted ---- */
 const lateShifts = () => E.shifts.filter(x => !x.end && !x.voided && Date.now() - Date.parse(x.start) > LATE_H * 36e5).sort((a, b) => a.start.localeCompare(b.start));
 function fixLateSheet(){
@@ -1863,8 +1925,8 @@ function bkEntries(){
   const add = (date, src, ref, desc, lines, tag) => { const ls = [];
     for (const l of lines){ let dr = n0(l.dr), cr = n0(l.cr); if (dr < 0){ cr -= dr; dr = 0; } if (cr < 0){ dr -= cr; cr = 0; } if (dr || cr) ls.push({acct:l.acct, dr, cr, tag:l.tag || ""}); }
     if (ls.length) out.push({date:date || "", src, ref, desc, lines:ls, id:src + ref + out.length}); };
-  for (const s of E.sales) if (!s.voided){ const a = s.method === "card" ? "1010" : s.method === "debt" ? "1100" : "1000", c = saleCost(s);
-    add(s.date, "Sale", "#" + (s.no || s.id), s.method === "debt" ? "Sale on debt" : s.method === "card" ? "Sale paid by card" : "Sale paid in cash", [{acct:a, dr:s.total}, {acct:"4000", cr:s.total}, {acct:"5000", dr:c}, {acct:"1200", cr:c}]); }
+  for (const s of E.sales) if (!s.voided){ const p = payOf(s), c = saleCost(s);
+    add(s.date, "Sale", "#" + (s.no || s.id), s.method === "debt" ? "Sale on debt" : s.method === "card" ? "Sale paid by card" : s.method === "split" ? "Sale paid by cash and card" : "Sale paid in cash", [{acct:"1000", dr:p.cash}, {acct:"1010", dr:p.card}, {acct:"1100", dr:p.debt}, {acct:"4000", cr:s.total}, {acct:"5000", dr:c}, {acct:"1200", cr:c}]); }
   for (const m of refundsWhere(() => true)){ const a = m.refundBy === "card" ? "1010" : m.refundBy === "debt" ? "1100" : "1000", v = -n0(m.q) * n0(m.cost);
     add(m.date, "Return", "#" + (m.saleNo || m.saleId), "Customer return", [{acct:"4090", dr:m.refund}, {acct:a, cr:m.refund}, {acct:"1200", dr:v}, {acct:"5000", cr:v}]); }
   for (const inv of S.invoices) if (BOOKED.includes(inv.status)){ const t = calc(inv).total, sp = supplier(inv.supplierId);

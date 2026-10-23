@@ -5,7 +5,9 @@ const { chromium } = require('./pw');
   for (const [w,h] of [[390,800],[1280,720]]) {
     const page = await b.newPage({ viewport: { width: w, height: h } }); const errs = []; page.on('pageerror', e => errs.push(e.message));
     const t0 = Date.now(); await page.goto('http://localhost:8765/index.html', {waitUntil:'commit'});
-    const seen = []; for (let i = 0; i < 60; i++){ const r = await page.evaluate(() => { const el = document.getElementById('boot'); return el ? document.getElementById('bootPct').textContent : 'gone'; }).catch(() => 'nav'); seen.push(r); if (r === 'gone') break; if (i === 3) await page.screenshot({path:`boot-${w}.png`}); await page.waitForTimeout(50); }
+    // a check made while the page is still being replaced can wait for ever on a slow runner: give each one 3 s, then count it as "still loading"
+    const within = (p, ms) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error('timed out')), ms))]);
+    const seen = []; for (let i = 0; i < 60; i++){ const r = await within(page.evaluate(() => { const el = document.getElementById('boot'); return el ? document.getElementById('bootPct').textContent : 'gone'; }), 3000).catch(() => 'nav'); seen.push(r); if (r === 'gone') break; if (i === 3) await page.screenshot({path:`boot-${w}.png`, timeout:5000}).catch(() => {}); await page.waitForTimeout(50); }
     const gone = Date.now() - t0;
     // after load: count renders during 1s idle and layout shift
     const after = await page.evaluate(() => new Promise(r => { let n = 0; const o = window.render; window.render = render = function(){ n++; return o.apply(this, arguments); }; let cls = 0; new PerformanceObserver(l => l.getEntries().forEach(e => cls += e.value)).observe({type:'layout-shift', buffered:false}); setTimeout(() => r({renders:n, cls, ready:S.ready, tab:S.tab}), 1000); }));

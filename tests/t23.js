@@ -13,7 +13,7 @@ const LABEL = { set_id: 'abc-123', effective_time: '20240101', openfda: { generi
   await ctx.addInitScript(() => { window.ERP_FDA = 'http://localhost:8766'; });
   await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(1200);
   await page.click('nav.tabs [data-tab="staff"]'); await page.click('[data-xstaff="__new"]'); await page.fill('#fName', 'Owner'); await page.fill('#fPin', '1234'); await page.click('#staffForm button[type=submit]'); await page.waitForTimeout(700);
-  await page.evaluate(async () => { const base = { basis: 'perkg', doseMin: 10, doseMax: 15, dosesPerDay: 3, srcName: 'Test source', srcRef: 'Test label', srcDate: '2024-01', status: 'approved', approvedBy: 'x', deleted: false };
+  await page.evaluate(async () => { const base = { class: 'Antibiotic', basis: 'perkg', doseMin: 10, doseMax: 15, dosesPerDay: 3, srcName: 'Test source', srcRef: 'Test label', srcDate: '2024-01', status: 'approved', approvedBy: 'x', deleted: false };
     await write('doserules/DR1', { ...base, id: 'DR1', drug: 'Testdrug', group: 'Child' }); await write('doserules/DR2', { ...base, id: 'DR2', drug: 'Nolabel', group: 'Adult' }); S.tab = 'dose'; render(); });
   await page.waitForTimeout(1200);
   await page.selectOption('#dsRule', 'DR1'); await page.fill('#dsKg', '10'); await page.fill('#dsY', '2'); await page.waitForTimeout(1200);

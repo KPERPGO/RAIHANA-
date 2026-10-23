@@ -69,12 +69,18 @@ rep("""function returnedQty(invId, k){ return S.credits.filter(x => x.invoiceId 
 rep("""return {k:+k, desc:l?.desc || "",""", """return {k:+k, lid:String(l?.lid ?? +k), desc:l?.desc || "",""")
 NAV_OLD = re.search(r'<nav class="tabs".*?</nav>', base, re.S).group(0)
 TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("dose","Dose"),("money","Money"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
+# the menu is grouped by the work being done; every screen keeps its own route and permission
+GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell","dose"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock","items"]),("purchasing","Purchasing",["invoices","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
+assert sorted(k for _,_,ks in GROUPS for k in ks) == sorted(k for k,_ in TABS)
 MENU_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 # The screen bar sits right under the top bar: Menu first, then one small button per screen
 # .shell holds the screen bar and the page; on wide screens it turns into a side list (see CSS)
 nav = ('<div class="shell"><nav class="tabs" aria-label="Sections"><div class="in">\n'
        f'  <button type="button" class="navmenu" data-xmenu="1" aria-label="Show or hide screens" aria-expanded="true">{MENU_SVG}<span>Menu</span></button>\n'
-       '  <div class="tl">\n' + "\n".join(f'  <button type="button" data-tab="{k}"{" aria-current=\"page\"" if k=="home" else ""}>{v}</button>' for k,v in TABS) + '\n  </div>\n</div></nav>')
+       '  <div class="tl">\n' + "\n".join(
+           (f'  <span class="ng" data-grp="{g}">{gn}<i class="nb" hidden></i></span>\n' if len(ks) > 1 else "") +
+           "\n".join(f'  <button type="button" data-tab="{k}"{" aria-current=\"page\"" if k=="home" else ""}>{dict(TABS)[k]}</button>' for k in ks)
+           for g,gn,ks in GROUPS) + '\n  </div>\n</div></nav>')
 rep(NAV_OLD, "")
 rep('<div id="banner" class="wrap" hidden style="padding-block:8px 0"><div class="banner" id="bannerText"></div></div>\n<main class="wrap" id="view"></main>',
     '<div class="mcol"><div id="banner" class="wrap" hidden style="padding-block:8px 0"><div class="banner" id="bannerText"></div></div>\n<main class="wrap" id="view"></main></div></div>')
@@ -107,12 +113,16 @@ nav.tabs .navmenu{flex:none;min-width:0;min-height:34px!important;height:34px;pa
 /* Menu hides or shows the screen list. Tablet and wider (iPad both ways): the list stands on the left, one screen per line */
 .shell,.mcol{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column}
 body.navshut nav.tabs .tl{display:none}
+nav.tabs .ng,.nb[hidden]{display:none}
+.crumb{color:var(--muted);font-weight:400}.crumb:empty{display:none}
+.nb{display:inline-block;min-width:16px;height:16px;line-height:16px;border-radius:8px;background:var(--bad);color:#fff;font:600 10px/16px var(--mono);text-align:center;margin-inline-start:6px;font-style:normal}
 body.navshut nav.tabs .in{display:flex}
 @media (min-width:761px){.shell{flex-direction:row}
 nav.tabs{width:200px;flex:none;border-bottom:0!important;border-inline-end:1px solid var(--line);overflow-y:auto}
 nav.tabs .in{max-width:none;margin:0;flex-direction:column;align-items:stretch;gap:6px;padding:8px}
-nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:1px}
-nav.tabs .tl button{width:100%;height:32px;min-height:32px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
+nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:0}
+nav.tabs .ng{display:block;margin:5px 4px 0;line-height:14px;font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}nav.tabs .ng[hidden]{display:none}
+nav.tabs .tl button{width:100%;height:28px;min-height:28px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
 nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
 body.navshut nav.tabs{width:auto}}
 @media (max-width:760px){nav.tabs .in{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:5px 8px}nav.tabs .tl{display:contents}

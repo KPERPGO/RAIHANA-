@@ -1656,6 +1656,42 @@ const baseWrite = write;
 write = async function(path, data, merge){ clearMemo(); if (data && typeof data === "object" && S.staff) data = {...data, staffBy:S.staff.id, staffByName:S.staff.name, staffAt:nowIso()}; try { return await baseWrite(path, data, merge); } finally { clearMemo(); } };
 // pages scroll inside the middle area now, so "go to top" scrolls that area
 window.scrollTo = function(){ const v = document.getElementById("view"); if (v) v.scrollTop = 0; };
+/* ---- grouped menu: group headings with an alert count, a "Screen > group" crumb in the top bar and a screen finder (Ctrl+K, or the search button) ---- */
+const GROUP_OF = {sell:"Dispensing and sales", dose:"Dispensing and sales", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Inventory", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", staff:"Administration", settings:"Administration"};
+let navCount = {at:0, v:{}};
+function navAlerts(){
+  if (Date.now() - navCount.at < 4000) return navCount.v; navCount.at = Date.now();
+  let low = 0, due = 0, stale = 0, late = 0;
+  try { low = lowStock(catalog(), usedMap()).length; due = E.chronic.filter(c => !c.deleted && c.active !== false && chrStatus(c).dl <= ALERT_DAYS() && !chrStatus(c).givenThis).length; stale = staleList().length; late = isOwner() ? lateShifts().length : 0; } catch(e){}
+  return navCount.v = {inventory:low, patients:due, purchasing:stale, admin:late};
+}
+function navGroups(){
+  const tl = document.querySelector("nav.tabs .tl"); if (!tl) return; const al = navAlerts();
+  let cur = null, any = false;
+  const flush = () => { if (cur) cur.hidden = !any; };
+  for (const el of tl.children){
+    if (el.classList.contains("ng")){ flush(); cur = el; any = false; const n = al[el.dataset.grp] || 0, nb = el.querySelector(".nb"); if (nb){ nb.hidden = !n; nb.textContent = n > 99 ? "99+" : n; } }
+    else if (el.dataset.tab && !el.hidden) any = true; }
+  flush();
+  let c = $("#crumb"), scr = document.querySelector("header.top .scr");
+  if (!c && scr){ c = document.createElement("span"); c.id = "crumb"; c.className = "crumb"; scr.insertBefore(c, $("#scrTitle")); const b = document.createElement("button"); b.type = "button"; b.id = "finderBtn"; b.setAttribute("aria-label", "Find a screen"); b.dataset.xfind = "1"; b.textContent = "⌕"; b.style.cssText = "min-height:28px;height:28px;padding:0 8px;margin-inline-start:8px"; scr.appendChild(b); }
+  if (c){ const g = GROUP_OF[S.tab] || ""; const t = g ? g + " ›" : ""; if (c.dataset.k !== t + S.lang){ c.dataset.k = t + S.lang; c.textContent = t ? t + " " : ""; if (S.lang === "ar") translate(c); } }
+}
+function finderSheet(){
+  const items = [...document.querySelectorAll("nav.tabs [data-tab]")].filter(b => !b.hidden).map(b => ({tab:b.dataset.tab, name:b.textContent, grp:GROUP_OF[b.dataset.tab] || ""}));
+  openSheet("Find a screen", `<div style="display:grid;gap:8px"><input id="finderQ" type="search" autocomplete="off" placeholder="Type a screen name"><div class="list" id="finderList"></div><p class="note">Shortcut: Ctrl+K</p></div>`);
+  const draw = () => { const q = ($("#finderQ").value || "").trim().toLowerCase(), l = $("#finderList");
+    const hits = items.filter(x => !q || x.name.toLowerCase().includes(q) || x.grp.toLowerCase().includes(q) || (S.lang === "ar" && (AR[x.name] || "").includes(q)));
+    l.innerHTML = hits.length ? hits.map(x => `<button type="button" class="row" data-xfindgo="${x.tab}"><span class="main"><span class="t">${esc(x.name)}</span>${x.grp ? `<span class="s">${esc(x.grp)}</span>` : ""}</span></button>`).join("") : `<div class="empty">No screen matches.</div>`;
+    if (S.lang === "ar") translate(l); };
+  $("#finderQ").addEventListener("input", draw); $("#finderQ").addEventListener("keydown", ev => { if (ev.key === "Enter") $("#finderList [data-xfindgo]")?.click(); });
+  draw(); if (S.lang === "ar") translate($("#sheet")); setTimeout(() => $("#finderQ")?.focus(), 60);
+}
+document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return;
+  if (t.dataset.xfind){ finderSheet(); return; }
+  if (t.dataset.xfindgo){ closeSheet(); document.querySelector(`nav.tabs [data-tab="${t.dataset.xfindgo}"]`)?.click(); } });
+document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k" && !$("#lockScreen")){ ev.preventDefault(); finderSheet(); } });
+Object.assign(AR, {"Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
 let lastTabERP = null;
 const baseRenderERP = render;
 render = window.render = function(){
@@ -1664,6 +1700,7 @@ render = window.render = function(){
   navBtns.forEach(b => { b.hidden = !canUse(b.dataset.tab); });
   if (!canUse(S.tab)){ S.tab = navBtns.find(b => !b.hidden)?.dataset.tab || "none"; }
   document.body.classList.toggle("no-newinv", !canUse("newinv"));
+  navGroups();
   const tb = document.querySelector(`nav.tabs [data-tab="${S.tab}"]`), st = $("#scrTitle"); if (st && tb && st.textContent !== tb.textContent) st.textContent = tb.textContent;
   $("#netDot")?.classList.toggle("off", !navigator.onLine);
   let bar = $("#staffBar"); if (!bar){ bar = document.createElement("div"); bar.id = "staffBar"; $("header.top").appendChild(bar); }

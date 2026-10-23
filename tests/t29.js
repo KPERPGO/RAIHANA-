@@ -6,6 +6,7 @@ const fake = require('./fakedrug');
   const F = fake.start(8768);
   const b = await chromium.launch(); let fails = 0; const ok = (c, name, got) => { console.log((c ? 'PASS' : 'FAIL') + ' - ' + name + (c ? '' : '  :: ' + JSON.stringify(got))); if (!c) fails++; };
   const ctx = await b.newContext({ viewport: { width: 390, height: 800 } }), page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message));
+  await ctx.addInitScript(() => { window.ERP_DOSE_ON = true; }); // the dose screen is off in the app for now
   await ctx.addInitScript(() => { window.ERP_FDA = 'http://localhost:8768'; window.ERP_RXNAV = 'http://localhost:8768/REST'; });
   await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(1200);
   const pin = async () => { await page.waitForSelector('#ownerPin', { timeout: 3000 }); await page.evaluate(() => { const el = document.getElementById('ownerPin'); for (const ch of '1234') el.querySelector(`[data-opin="${ch}"]`).click(); el.querySelector('[data-opinok]')?.click(); }); await page.waitForTimeout(700); };

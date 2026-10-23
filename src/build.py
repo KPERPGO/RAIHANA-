@@ -68,12 +68,12 @@ rep("""function returnedQty(invId, k){ return S.credits.filter(x => x.invoiceId 
   return S.credits.filter(x => x.invoiceId === invId && x.lines).reduce((a,x) => a + n0(x.lines.find(y => String(y.lid ?? y.k) === lid)?.qty), 0); }""")
 rep("""return {k:+k, desc:l?.desc || "",""", """return {k:+k, lid:String(l?.lid ?? +k), desc:l?.desc || "",""")
 NAV_OLD = re.search(r'<nav class="tabs".*?</nav>', base, re.S).group(0)
-TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("dose","Dose"),("money","Cash box"),("books","Accounts"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
+TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("money","Cash box"),("books","Accounts"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
 # the menu is grouped by the work being done; every screen keeps its own route and permission
 # Items lists the lines of purchase invoices (supplier, batch, unit cost), so it sits under Purchasing; the medicine catalogue is in Stock.
 # A short name is shown on phones, where each heading takes one cell of the screen grid.
 GROUP_SHORT = {"sales":"Sales", "admin":"Admin"}
-GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell","dose"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock"]),("purchasing","Purchasing",["invoices","items","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money","books"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
+GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock"]),("purchasing","Purchasing",["invoices","items","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money","books"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
 assert sorted(k for _,_,ks in GROUPS for k in ks) == sorted(k for k,_ in TABS)
 MENU_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 # The screen bar sits right under the top bar: Menu first, then one small button per screen

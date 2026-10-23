@@ -1829,7 +1829,7 @@ Object.assign(AR, {"Card":"بطاقة","Paid by card":"مدفوع بالبطاق
    age or weight is outside a rule, or when a condition (kidney, liver, pregnancy) has no advice in the rule ---- */
 const DOSE_CLASSES = ["Antibiotic", "Antiviral", "Anthelmintic", "Antifungal"]; // the calculator is only for these four classes
 S.dose = {fda:"", line:0, cls:"", rid:"", y:"", m:"", kg:"", renal:false, hepatic:false, preg:false};
-const doseRules = () => E.doserules.filter(r => !r.deleted).sort((a, b) => (a.drug || "").localeCompare(b.drug || ""));
+const doseRules = () => E.doserules.filter(r => !r.deleted && !r.auto).sort((a, b) => (a.drug || "").localeCompare(b.drug || ""));
 const dfmt = v => (Math.round(v * 10) / 10).toLocaleString("en-US");
 function doseCalc(r, ageM, kg){
   if (!isNum(kg) || kg <= 0) return {err:"Type the weight in kg."};
@@ -1926,8 +1926,8 @@ async function fetchLabel(name){
   else if (!res.ok) throw new Error("label " + res.status);
   else {
     const list = (await res.json()).results || [], want = name.toLowerCase();
-    const named = x => [...(x.openfda?.generic_name || []), ...(x.openfda?.brand_name || [])].some(g => g.toLowerCase() === want);
-    const hit = list.find(x => named(x) && x.dosage_and_administration) || list.find(named);
+    const names = x => [...(x.openfda?.generic_name || []), ...(x.openfda?.brand_name || [])].map(g => g.toLowerCase()), named = x => names(x).includes(want), near = x => names(x).some(g => g.includes(want));
+    const hit = list.find(x => named(x) && x.dosage_and_administration) || list.find(named) || list.find(x => near(x) && x.dosage_and_administration);
     if (!hit) entry = {found:false, at:now};
     else { entry = {found:true, at:now, setid:hit.set_id || "", date:hit.effective_time || "", title:(hit.openfda?.brand_name || [name])[0], generic:(hit.openfda?.generic_name || [name])[0], pharm:["pharm_class_epc", "pharm_class_moa", "pharm_class_cs", "pharm_class_pe"].flatMap(k => hit.openfda?.[k] || []).join("; ")};
       for (const k of LABEL_KEYS) if (hit[k]) entry[k] = [].concat(hit[k]).join(" ").replace(/\s+/g, " ").trim().slice(0, k === "dosage_and_administration" || k === "pediatric_use" ? 20000 : 6000); }
@@ -2174,8 +2174,8 @@ function doseLines(e){
   return out.slice(0, 12);
 }
 function autoHtml(){
-  const d = S.dose; return `<div class="sum" style="gap:8px"><label>Medicine (English generic or brand name)<input id="dsFda" value="${esc(d.fda)}" placeholder="amoxicillin" autocomplete="off"></label>
-    <button type="button" class="primary" data-xfdago="1">Show the FDA doses</button><div id="doseAuto" style="display:grid;gap:8px">${(setTimeout(paintAuto, 0), "")}</div></div>`;
+  const d = S.dose; return `<div class="sum" style="gap:8px"><label>Medicine (scientific name)<input id="dsFda" value="${esc(d.fda)}" placeholder="amoxicillin" autocomplete="off"></label>
+    <div id="medList" class="list" style="max-height:210px;overflow:auto">${medListHtml()}</div><button type="button" class="primary" data-xfdago="1">Show the FDA doses</button><div id="doseAuto" style="display:grid;gap:8px">${(setTimeout(paintAuto, 0), "")}</div></div>`;
 }
 function autoResult(L){
   const d = S.dose, kg = parseNum(d.kg); if (!isNum(kg) || kg <= 0) return `<div class="banner">Type the weight in kg.</div>`;
@@ -2185,29 +2185,71 @@ function autoResult(L){
   else h = row("Total for 24 hours", rng(a, b)) + (L.n ? row("Dose each time", rng(a / L.n, b / L.n)) + row("Times a day", String(L.n)) : `<p class="note">The label does not give how many doses. Read the sentence.</p>`);
   return `<div class="sum">${h}</div>`;
 }
+const medSlug = n => "FDA-" + String(n).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const savedAuto = name => E.doserules.find(x => x.id === medSlug(name) && x.auto && !x.deleted) || null;
 function paintAuto(){
   const box = $("#doseAuto"); if (!box) return; const d = S.dose, name = (d.fda || "").trim().toLowerCase(); if (!name){ box.innerHTML = ""; return; }
   const set = html => { box.innerHTML = html; if (S.lang === "ar") translate(box); };
   if (ERP_MODE !== "device") return set(`<p class="note">FDA label alerts work in the installed app.</p>`);
-  const e = labelCache()[name];
-  if (!e){ set(`<p class="note">${labelOnline() ? "Loading the FDA label..." : "Offline and no saved FDA label for this medicine yet. Connect to the internet once to download it."}</p>`);
-    if (labelOnline()) fetchLabel(name).then(() => { if ((S.dose.fda || "").trim().toLowerCase() === name) paintAuto(); }).catch(() => { if ($("#doseAuto") && !labelCache()[name]) set(`<p class="note">Could not reach the FDA label service. Try again later.</p>`); });
-    return; }
-  if (!e.found) return set(`<p class="note">No FDA label was found for "${esc(name)}". Check the spelling or try the generic name.</p>`);
-  const cls = fdaClassOf(e);
-  if (!cls) return set(`<div class="banner bad" style="border:0">The FDA label does not list this as an antibiotic, antiviral, antifungal or anthelmintic, so the calculator does not use it.</div>`);
-  const lines = doseLines(e); if (d.line >= lines.length) d.line = 0;
-  const pick = lines[d.line];
-  set(`<p class="note"><b>${esc(e.generic || name)}</b> · <span>${esc(cls)}</span></p>
-    ${lines.length ? `<p class="note">Doses stated in the FDA label. Tap the one that fits the patient.</p><div class="list" data-keep>${lines.map((L, i) => `<button type="button" class="row" data-xdline="${i}" aria-pressed="${i === d.line}" style="${i === d.line ? "outline:2px solid var(--accent)" : ""}"><span class="main"><span class="s" style="white-space:normal">${esc(L.text)}</span></span></button>`).join("")}</div>
-      <div id="autoRes" style="display:grid;gap:8px">${autoResult(pick)}</div>
-      <p class="note">These numbers were read from the label text by the program. Check the sentence above, the patient's age and the label before giving it. The pharmacist decides.</p>`
-      : `<div class="banner">The label has no dose in mg per kg. Read the dosing text below.</div>`}
-    <div id="autoLabel" style="display:grid;gap:8px">${labelHtml({drug:name}, e)}</div>`);
+  const e = labelCache()[name], online = labelOnline();
+  let saved = savedAuto(name);
+  if (!saved && d.unsaved === name && e && e.found && fdaClassOf(e) && doseLines(e).length) saved = {generic:e.generic, class:fdaClassOf(e), lines:doseLines(e), labelDate:e.date, savedAt:nowIso()}; // could not save: still show it, once
+  const load = () => { if (online && !e) fetchLabel(name).then(() => { if ((S.dose.fda || "").trim().toLowerCase() === name) paintAuto(); }).catch(() => { if ($("#doseAuto") && !labelCache()[name]) set(`<p class="note">Could not reach the FDA label service. Try again later.</p>`); }); };
+  if (!saved){
+    if (!e){ set(`<p class="note">${online ? "Loading the FDA label..." : "Offline and no saved FDA label for this medicine yet. Connect to the internet once to download it."}</p>`); load(); return; }
+    if (!e.found) return set(`<p class="note">No FDA label was found for "${esc(name)}". Check the spelling or try the generic name.</p>`);
+    const cls = fdaClassOf(e);
+    if (!cls) return set(`<div class="banner bad" style="border:0">The FDA label does not list this as an antibiotic, antiviral, antifungal or anthelmintic, so the calculator does not use it.</div>`);
+    const lines = doseLines(e);
+    if (lines.length && !d.saving){ d.saving = true;   // the rules are fixed the first time the label is read: saved once, the same on every device
+      write("doserules/" + medSlug(name), {id:medSlug(name), auto:true, drug:name, generic:e.generic || name, class:cls, lines, labelDate:e.date || "", setid:e.setid || "", savedAt:nowIso(), status:"approved", deleted:false})
+        .catch(() => { d.unsaved = name; }).finally(() => { d.saving = false; paintAuto(); }); return; }
+    if (!lines.length) return set(`<p class="note"><b>${esc(e.generic || name)}</b> · <span>${esc(cls)}</span></p><div class="banner">The label has no dose in mg per kg. Read the dosing text below.</div><div id="autoLabel" style="display:grid;gap:8px">${labelHtml({drug:name}, e)}</div>`);
+    return;
+  }
+  const lines = saved.lines || []; if (d.line >= lines.length) d.line = 0; const pick = lines[d.line];
+  const fresh = e && e.found && e.date && saved.labelDate && String(e.date) !== String(saved.labelDate);
+  set(`<p class="note"><b>${esc(saved.generic || name)}</b> · <span>${esc(saved.class)}</span></p>
+    <p class="note">Fixed rules from the FDA label dated <span class="num">${esc(String(saved.labelDate || "—"))}</span>, saved <span class="num">${esc((saved.savedAt || "").slice(0, 10))}</span>. They do not change by themselves.</p>
+    ${fresh ? `<div class="banner" style="border:0">The FDA has published a newer label (<span class="num">${esc(String(e.date))}</span>). ${isOwner() ? `<button type="button" data-xfdanew="${esc(name)}">Use the new label</button>` : "Ask the owner to update the rules."}</div>` : ""}
+    <p class="note">Doses stated in the FDA label. Tap the one that fits the patient.</p><div class="list" data-keep>${lines.map((L, i) => `<button type="button" class="row" data-xdline="${i}" aria-pressed="${i === d.line}" style="${i === d.line ? "outline:2px solid var(--accent)" : ""}"><span class="main"><span class="s" style="white-space:normal">${esc(L.text)}</span></span></button>`).join("")}</div>
+    <div id="autoRes" style="display:grid;gap:8px">${autoResult(pick)}</div>
+    <p class="note">These numbers were read from the label text by the program. Check the sentence above, the patient's age and the label before giving it. The pharmacist decides.</p>
+    ${e && e.found ? `<div id="autoLabel" style="display:grid;gap:8px">${labelHtml({drug:name}, e)}</div>` : `<p class="note">${online ? "Loading the FDA label alerts..." : "Offline. The alerts need the saved FDA label, which is not on this device yet."}</p>`}
+    ${isOwner() ? `<button type="button" data-xfdacheck="${esc(name)}">Check for a newer FDA label</button>` : ""}`);
+  load();
 }
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return;
   if (t.dataset.xfdago){ const v = ($("#dsFda")?.value || "").trim(); S.dose.fda = v; S.dose.line = 0; const k = v.toLowerCase(); const c = labelCache(); if (c[k] && Date.now() - c[k].at > LABEL_DAYS * 864e5 && labelOnline()) delete c[k], lsSet("erp.labels", c); paintAuto(); return; }
   if (t.dataset.xdline !== undefined){ S.dose.line = +t.dataset.xdline; paintAuto(); } });
 document.addEventListener("keydown", ev => { if (ev.target.id === "dsFda" && ev.key === "Enter"){ ev.preventDefault(); document.querySelector("[data-xfdago]")?.click(); } });
-Object.assign(AR, {"Medicine (English generic or brand name)":"الدواء (الاسم العلمي أو التجاري بالإنجليزية)","Show the FDA doses":"أظهر جرعات FDA","Rules approved by the owner":"قواعد اعتمدها المالك","Doses stated in the FDA label. Tap the one that fits the patient.":"الجرعات المذكورة في نشرة FDA. اضغط على المناسبة للمريض.","These numbers were read from the label text by the program. Check the sentence above, the patient's age and the label before giving it. The pharmacist decides.":"قرأ البرنامج هذه الأرقام من نص النشرة. تحقق من الجملة أعلاه ومن عمر المريض ومن النشرة قبل الصرف. القرار للصيدلاني.","The FDA label does not list this as an antibiotic, antiviral, antifungal or anthelmintic, so the calculator does not use it.":"نشرة FDA لا تصنف هذا الدواء مضاداً حيوياً أو للفيروسات أو للفطريات أو طارداً للديدان، لذلك لا تستعمله الحاسبة.","The label has no dose in mg per kg. Read the dosing text below.":"النشرة لا تذكر جرعة بالملغ لكل كغم. اقرأ نص الجرعات أدناه.","Daily total at this dose":"المجموع اليومي بهذه الجرعة","Total for 24 hours":"المجموع خلال 24 ساعة","The label does not give how many doses. Read the sentence.":"النشرة لا تذكر عدد الجرعات. اقرأ الجملة."});
+Object.assign(AR, {"Medicine (scientific name)":"الدواء (الاسم العلمي)","Show the FDA doses":"أظهر جرعات FDA","Rules approved by the owner":"قواعد اعتمدها المالك","Doses stated in the FDA label. Tap the one that fits the patient.":"الجرعات المذكورة في نشرة FDA. اضغط على المناسبة للمريض.","These numbers were read from the label text by the program. Check the sentence above, the patient's age and the label before giving it. The pharmacist decides.":"قرأ البرنامج هذه الأرقام من نص النشرة. تحقق من الجملة أعلاه ومن عمر المريض ومن النشرة قبل الصرف. القرار للصيدلاني.","The FDA label does not list this as an antibiotic, antiviral, antifungal or anthelmintic, so the calculator does not use it.":"نشرة FDA لا تصنف هذا الدواء مضاداً حيوياً أو للفيروسات أو للفطريات أو طارداً للديدان، لذلك لا تستعمله الحاسبة.","The label has no dose in mg per kg. Read the dosing text below.":"النشرة لا تذكر جرعة بالملغ لكل كغم. اقرأ نص الجرعات أدناه.","Daily total at this dose":"المجموع اليومي بهذه الجرعة","Total for 24 hours":"المجموع خلال 24 ساعة","The label does not give how many doses. Read the sentence.":"النشرة لا تذكر عدد الجرعات. اقرأ الجملة."});
 AR_RX.push([/^No FDA label was found for "(.+)"\. Check the spelling or try the generic name\.$/, "لم تُوجد نشرة FDA لـ \"$1\". تحقق من الإملاء أو جرّب الاسم العلمي."]);
+
+/* names only (no doses): the generic names offered in the list. The FDA label decides the class and the doses ---- */
+const MED_NAMES = {Antibiotic:["amoxicillin", "amoxicillin and clavulanate potassium", "ampicillin", "penicillin v potassium", "cephalexin", "cefadroxil", "cefaclor", "cefuroxime axetil", "cefprozil", "cefixime", "cefpodoxime proxetil", "cefdinir", "ceftriaxone", "azithromycin", "clarithromycin", "erythromycin", "doxycycline", "minocycline", "ciprofloxacin", "levofloxacin", "ofloxacin", "metronidazole", "tinidazole", "clindamycin", "sulfamethoxazole and trimethoprim", "nitrofurantoin", "gentamicin", "amikacin", "vancomycin", "linezolid", "rifampin", "isoniazid"],
+  Antiviral:["acyclovir", "valacyclovir", "famciclovir", "oseltamivir phosphate", "ribavirin", "ganciclovir", "lamivudine", "zidovudine", "tenofovir disoproxil fumarate", "entecavir", "sofosbuvir", "efavirenz", "nevirapine"],
+  Antifungal:["fluconazole", "itraconazole", "voriconazole", "ketoconazole", "terbinafine", "griseofulvin", "nystatin", "clotrimazole", "miconazole", "amphotericin b"],
+  Anthelmintic:["albendazole", "mebendazole", "ivermectin", "praziquantel", "pyrantel pamoate", "nitazoxanide"]};
+function medListHtml(){
+  const q = (S.dose.fda || "").trim().toLowerCase(), cat = (() => { try { return catalog(); } catch(e){ return []; } })(), mine = new Set(cat.map(p => (p.sci || "").trim().toLowerCase()).filter(Boolean)), seen = new Map();
+  for (const [c, list] of Object.entries(MED_NAMES)) for (const n of list) seen.set(n, c);
+  for (const n of mine) if (!seen.has(n)) seen.set(n, "");
+  const items = [...seen].sort((a, b) => a[0].localeCompare(b[0])).filter(([n]) => !q || n.includes(q));
+  return items.length ? items.map(([n, c]) => `<button type="button" class="row" data-xdmed="${esc(n)}" style="min-height:40px"><span class="main"><span class="t" data-keep>${esc(n)}</span></span>${mine.has(n) ? `<span class="pill good">In your stock</span>` : ""}${savedAuto(n) ? `<span class="pill">Saved</span>` : ""}${c ? `<span class="note">${c}</span>` : ""}</button>`).join("") : `<div class="empty">No medicine in the list matches. Press Show the FDA doses to search the FDA by this name.</div>`;
+}
+function paintMedList(){ const l = $("#medList"); if (l){ l.innerHTML = medListHtml(); if (S.lang === "ar") translate(l); } }
+document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t || t.dataset.xdmed === undefined) return;
+  S.dose.fda = t.dataset.xdmed; S.dose.line = 0; const i = $("#dsFda"); if (i) i.value = S.dose.fda; paintMedList(); paintAuto(); $("#doseAuto")?.scrollIntoView({block:"nearest"}); });
+document.addEventListener("input", ev => { if (ev.target.id === "dsFda") paintMedList(); });
+Object.assign(AR, {"In your stock":"في مخزونك","Saved":"محفوظ","Press Show the FDA doses to search the FDA by this name.":"اضغط أظهر جرعات FDA للبحث في FDA بهذا الاسم.","No medicine in the list matches. Press Show the FDA doses to search the FDA by this name.":"لا يوجد دواء في القائمة مطابق. اضغط أظهر جرعات FDA للبحث في FDA بهذا الاسم."});
+
+document.addEventListener("click", async ev => { const t = ev.target.closest("button"); if (!t) return;
+  if (t.dataset.xfdacheck){ if (!isOwner()) return; const n = t.dataset.xfdacheck, c = labelCache(); delete c[n]; lsSet("erp.labels", c);
+    try { const e = await fetchLabel(n), sv = savedAuto(n); toast(e.found && sv && String(e.date) !== String(sv.labelDate) ? "A newer FDA label is available." : "Your rules match the latest FDA label."); } catch(x){ toast("Could not reach the FDA label service."); } paintAuto(); return; }
+  if (t.dataset.xfdanew){ if (!isOwner()) return; const n = t.dataset.xfdanew, e = labelCache()[n]; if (!e || !e.found) return;
+    const by = await ownerOK([`Replace the saved dose rules for ${n} with the new FDA label (${e.date})`], {always:true}); if (!by) return;
+    const lines = doseLines(e), cls = fdaClassOf(e); if (!lines.length || !cls){ toast("The new label has no mg per kg dose. The saved rules stay."); return; }
+    try { await write("doserules/" + medSlug(n), {lines, class:cls, labelDate:e.date || "", setid:e.setid || "", savedAt:nowIso(), updatedBy:by}, true); toast("Rules updated from the new label."); } catch(x){ toast(x.message); } paintAuto(); } });
+Object.assign(AR, {"Use the new label":"استعمل النشرة الجديدة","Check for a newer FDA label":"تحقق من نشرة FDA أحدث","A newer FDA label is available.":"توجد نشرة FDA أحدث.","Your rules match the latest FDA label.":"قواعدك تطابق أحدث نشرة FDA.","Ask the owner to update the rules.":"اطلب من المالك تحديث القواعد.","Fixed rules from the FDA label dated":"قواعد ثابتة من نشرة FDA بتاريخ","They do not change by themselves.":"لا تتغير من تلقاء نفسها.","Rules updated from the new label.":"تم تحديث القواعد من النشرة الجديدة.","The new label has no mg per kg dose. The saved rules stay.":"النشرة الجديدة لا تذكر جرعة بالملغ لكل كغم. تبقى القواعد المحفوظة.","Loading the FDA label alerts...":"جارٍ تحميل تنبيهات نشرة FDA..."});
+AR_RX.push([/^The FDA has published a newer label \(([\d]+)\)\./, "نشرت FDA نشرة أحدث ($1)."]);

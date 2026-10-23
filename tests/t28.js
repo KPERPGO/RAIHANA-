@@ -14,6 +14,10 @@ const LABELS = { amoxtest: mk('amoxtest', 'Penicillin-class Antibacterial [EPC]'
     await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(1200);
     await page.click('nav.tabs [data-tab="staff"]'); await page.click('[data-xstaff="__new"]'); await page.fill('#fName', 'Owner'); await page.fill('#fPin', '1234'); await page.click('#staffForm button[type=submit]'); await page.waitForTimeout(700);
     await page.evaluate(() => { S.tab = 'dose'; render(); }); await page.waitForTimeout(300);
+    ok(await page.locator('#medList [data-xdmed]').count() > 40, lang + ' a scrolling list of scientific names is shown');
+    const names = await page.$$eval('#medList [data-xdmed]', a => a.map(x => x.dataset.xdmed)); ok(names.join() === [...names].sort((a, b) => a.localeCompare(b)).join(), lang + ' the list is in alphabetical order');
+    await page.fill('#dsFda', 'azith'); await page.waitForTimeout(200); ok(await page.locator('#medList [data-xdmed]').count() === 1, lang + ' typing filters the list');
+    await page.click('#medList [data-xdmed="azithromycin"]'); await page.waitForTimeout(300); ok(await page.inputValue('#dsFda') === 'azithromycin', lang + ' tapping a name fills the box');
     await page.fill('#dsKg', '10'); await page.fill('#dsFda', 'AmoxTest'); await page.click('[data-xfdago="1"]'); await page.waitForTimeout(1200);
     const lines = await page.$$('#doseAuto [data-xdline]'); ok(lines.length === 2, lang + ' two mg per kg lines found (the adult line is ignored)', lines.length);
     let t = await page.textContent('#autoRes');
@@ -28,8 +32,19 @@ const LABELS = { amoxtest: mk('amoxtest', 'Penicillin-class Antibacterial [EPC]'
     ok(/no dose in mg per kg|لا تذكر جرعة/.test(await page.textContent('#doseAuto')), lang + ' label with no mg per kg says so');
     await page.fill('#dsFda', 'Zzzz'); await page.click('[data-xfdago="1"]'); await page.waitForTimeout(1200);
     ok(/No FDA label was found|لم تُوجد/.test(await page.textContent('#doseAuto')), lang + ' unknown medicine: no label found');
+    // the rules are fixed once saved: a changed FDA label does not change them until the owner accepts it
+    ok(await page.evaluate(() => E.doserules.some(r => r.auto && r.id === 'FDA-amoxtest' && r.lines.length === 2)), lang + ' the rules were saved once (constant)');
+    LABELS.amoxtest.effective_time = '20250101'; LABELS.amoxtest.dosage_and_administration = ['Children: 99 mg/kg every 8 hours.'];
+    await page.fill('#dsFda', 'AmoxTest'); await page.click('[data-xfdago="1"]'); await page.waitForTimeout(800);
+    ok(await page.locator('#doseAuto [data-xdline]').count() === 2 && /20240101/.test(await page.textContent('#doseAuto')), lang + ' the saved rules do not change when the label changes');
+    await page.click('[data-xfdacheck="amoxtest"]'); await page.waitForTimeout(1000);
+    ok(await page.locator('[data-xfdanew="amoxtest"]').count() === 1 && await page.locator('#doseAuto [data-xdline]').count() === 2, lang + ' a newer label is offered, rules still unchanged');
+    await page.click('[data-xfdanew="amoxtest"]'); await page.waitForTimeout(400);
+    await page.evaluate(() => { const el = document.getElementById('ownerPin'); for (const ch of '1234') el.querySelector(`[data-opin="${ch}"]`).click(); el.querySelector('[data-opinok]')?.click(); }); await page.waitForTimeout(900);
+    ok(await page.locator('#doseAuto [data-xdline]').count() === 1 && /99/.test(await page.textContent('#doseAuto')), lang + ' after the owner accepts, the new label becomes the rules');
+    LABELS.amoxtest = mk('amoxtest', 'Penicillin-class Antibacterial [EPC]', 'Adults: 500 mg every 8 hours. Children: 25 to 45 mg/kg/day in divided doses every 12 hours. Infants: 10 mg/kg every 6 hours.');
     await ctx.setOffline(true); await page.fill('#dsFda', 'AmoxTest'); await page.click('[data-xfdago="1"]'); await page.waitForTimeout(600);
-    ok(await page.locator('#doseAuto [data-xdline]').count() === 2, lang + ' offline: saved label still gives the doses');
+    ok(await page.locator('#doseAuto [data-xdline]').count() === 1, lang + ' offline: the saved rules still work');
     await ctx.setOffline(false);
     ok(!errs.length, lang + ' no page errors', errs);
     await ctx.close();

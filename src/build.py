@@ -68,9 +68,12 @@ rep("""function returnedQty(invId, k){ return S.credits.filter(x => x.invoiceId 
   return S.credits.filter(x => x.invoiceId === invId && x.lines).reduce((a,x) => a + n0(x.lines.find(y => String(y.lid ?? y.k) === lid)?.qty), 0); }""")
 rep("""return {k:+k, desc:l?.desc || "",""", """return {k:+k, lid:String(l?.lid ?? +k), desc:l?.desc || "",""")
 NAV_OLD = re.search(r'<nav class="tabs".*?</nav>', base, re.S).group(0)
-TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("dose","Dose"),("money","Money"),("books","Accounts"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
+TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("dose","Dose"),("money","Cash box"),("books","Accounts"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
 # the menu is grouped by the work being done; every screen keeps its own route and permission
-GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell","dose"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock","items"]),("purchasing","Purchasing",["invoices","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money","books"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
+# Items lists the lines of purchase invoices (supplier, batch, unit cost), so it sits under Purchasing; the medicine catalogue is in Stock.
+# A short name is shown on phones, where each heading takes one cell of the screen grid.
+GROUP_SHORT = {"sales":"Sales", "admin":"Admin"}
+GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell","dose"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock"]),("purchasing","Purchasing",["invoices","items","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money","books"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
 assert sorted(k for _,_,ks in GROUPS for k in ks) == sorted(k for k,_ in TABS)
 MENU_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 # The screen bar sits right under the top bar: Menu first, then one small button per screen
@@ -78,7 +81,7 @@ MENU_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><
 nav = ('<div class="shell"><nav class="tabs" aria-label="Sections"><div class="in">\n'
        f'  <button type="button" class="navmenu" data-xmenu="1" aria-label="Show or hide screens" aria-expanded="true">{MENU_SVG}<span>Menu</span></button>\n'
        '  <div class="tl">\n' + "\n".join(
-           (f'  <span class="ng" data-grp="{g}">{gn}<i class="nb" hidden></i></span>\n' if len(ks) > 1 else "") +
+           (f'  <span class="ng" data-grp="{g}"><span class="gl">{gn}</span><span class="gs">{GROUP_SHORT.get(g, gn)}</span><i class="nb" hidden></i></span>\n' if gn != dict(TABS)[ks[0]] else "") +
            "\n".join(f'  <button type="button" data-tab="{k}"{" aria-current=\"page\"" if k=="home" else ""}>{dict(TABS)[k]}</button>' for k in ks)
            for g,gn,ks in GROUPS) + '\n  </div>\n</div></nav>')
 rep(NAV_OLD, "")
@@ -121,17 +124,20 @@ body.navshut nav.tabs .in{display:flex}
 nav.tabs{width:200px;flex:none;border-bottom:0!important;border-inline-end:1px solid var(--line);overflow-y:auto}
 nav.tabs .in{max-width:none;margin:0;flex-direction:column;align-items:stretch;gap:6px;padding:8px}
 nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:0}
-nav.tabs .ng{display:block;margin:5px 4px 0;line-height:14px;font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}nav.tabs .ng[hidden]{display:none}
+nav.tabs .ng{display:block;margin:5px 6px 0;line-height:14px;font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}nav.tabs .ng .gs{display:none}
 nav.tabs .tl button{width:100%;height:26px;min-height:26px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
 nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
 body.navshut nav.tabs{width:auto}}
 @media (max-width:760px){nav.tabs .in{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:5px 8px}nav.tabs .tl{display:contents}
-nav.tabs .tl button,nav.tabs .navmenu{width:100%;height:30px;min-height:30px!important;padding:0 2px;font-size:12px;justify-content:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}nav.tabs .navmenu{gap:3px}nav.tabs .navmenu svg{width:14px;height:14px;flex:none}}
+nav.tabs .tl button,nav.tabs .navmenu{width:100%;height:30px;min-height:30px!important;padding:0 2px;font-size:12px;justify-content:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+nav.tabs .ng{display:flex;align-items:center;justify-content:flex-end;gap:2px;height:30px;padding:0 2px;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--accent);text-align:center;line-height:11px;overflow:hidden}nav.tabs .ng[hidden]{display:none}
+nav.tabs .ng .gl{display:none}nav.tabs .ng .gs::after{content:" ›"}html[dir=rtl] nav.tabs .ng .gs::after{content:" ‹"}nav.tabs .ng .nb{margin:0;min-width:14px;height:14px;line-height:14px;font-size:9px}nav.tabs .navmenu{gap:3px}nav.tabs .navmenu svg{width:14px;height:14px;flex:none}}
 button,.btn{min-height:44px}
 .row{min-height:52px}
 .lineedit .lh button,.list .end button{min-height:36px}
 input,select{min-height:44px}
 .chips button{min-height:40px}
+.repidx{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px}.repidx h3{margin:4px 2px 6px;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}.repidx .row{min-height:44px}html[dir=rtl] .repidx .end{transform:scaleX(-1)}
 @media (min-width:1000px){.wrap,header.top .in{max-width:1000px}.sheet .panel{max-width:900px}}
 #printArea{display:none}
 .tabsale{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}.tabsale::-webkit-scrollbar{display:none}

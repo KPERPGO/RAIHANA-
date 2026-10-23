@@ -2849,7 +2849,9 @@ async function tryLogin(){
   const st = activeStaff().find(x => x.id === S.lockSel), pin = S.lockPin || ""; if (!st) return;
   if (pin.length < 4){ S.lockErr = "PIN is 4 to 6 digits."; drawLock(); return; }
   const ck = await pinCheck(st, pin); if (!ck.ok){ S.lockErr = pinErr(ck); S.lockPin = ""; drawLock(); return; }
-  let sh = E.shifts.find(x => x.staffId === st.id && !x.end && !x.voided && x.device === DEVICE_ID);
+  const opened = E.shifts.filter(x => x.staffId === st.id && !x.end && !x.voided).sort((p, q) => p.start < q.start ? -1 : 1);
+  let sh = opened[0]; // one open shift per account, on any device: log in again and it carries on
+  for (const dup of opened.slice(1)){ try { await write("shifts/" + dup.id, {voided:true, voidReason:"duplicate open shift"}, true); } catch(e){} }
   const fresh = !sh; if (fresh){ sh = {id:newId("SH"), staffId:st.id, staffName:st.name, start:nowIso(), end:null, device:DEVICE_ID}; await write("shifts/" + sh.id, sh); }
   S.session = {staffId:st.id, shiftId:sh.id}; lsSet("erp.session", S.session); S.staff = st; S.lockSel = null; S.lockPin = ""; S.lockErr = ""; S.homeDone = true; if (st.role !== "owner" && canUse("sell")) S.tab = "sell"; // cashier and pharmacist start on the Sell screen
   drawLock(); render(); toast(`Shift started at ${hm(sh.start)}. Welcome ${st.name}.`); syncNow();
@@ -2901,7 +2903,8 @@ async function saveCashCount(kind, btn){
 }
 async function endShift(lockOnly, at){
   if (!S.staff) return; const nm = S.staff.name;
-  if (!lockOnly && S.session?.shiftId){ try { await write("shifts/" + S.session.shiftId, {end:at || nowIso()}, true); } catch(e){ toast(e.message); return; } }
+  if (!lockOnly){ const end = at || nowIso(), ids = new Set(E.shifts.filter(x => x.staffId === S.staff.id && !x.end && !x.voided).map(x => x.id)); if (S.session?.shiftId) ids.add(S.session.shiftId);
+    for (const id of ids){ try { await write("shifts/" + id, {end}, true); } catch(e){ toast(e.message); return; } } } // closes every open shift of this person, so none is left running
   S.session = lockOnly ? S.session : null; lsSet("erp.session", S.session); S.staff = null; S.lockSel = null;
   if (lockOnly){ S.lockSel = null; } render(); drawLock(); toast(lockOnly ? "Screen locked." : `Shift ended for ${nm}.`);
 }
@@ -3746,7 +3749,7 @@ function doseCalcHtml(){
     <div class="grid2 stack"><label>Age (years)<input id="dsY" class="num" inputmode="numeric" value="${esc(d.y)}"></label><label>Plus months<input id="dsM" class="num" inputmode="numeric" value="${esc(d.m)}"></label></div>
     <label>Weight (kg)<input id="dsKg" class="num" inputmode="decimal" value="${esc(d.kg)}"></label>
     <div class="chips"><label class="check"><input type="checkbox" id="dsRenal" ${d.renal ? "checked" : ""}> Kidney problem</label><label class="check"><input type="checkbox" id="dsHep" ${d.hepatic ? "checked" : ""}> Liver problem</label><label class="check"><input type="checkbox" id="dsPreg" ${d.preg ? "checked" : ""}> Pregnant or breastfeeding</label></div>
-    <div id="doseOut" style="display:grid;gap:10px">${doseOut()}</div>` : `<div class="empty">No approved dose rules yet. ${isOwner() ? "Add a rule below from an official label, then approve it." : "Ask the owner to add and approve the rules."}</div>`;
+    <div id="doseOut" style="display:grid;gap:10px">${doseOut()}</div><div id="doseLabel" style="display:grid;gap:8px">${(setTimeout(paintLabel, 0), "")}</div>` : `<div class="empty">No approved dose rules yet. ${isOwner() ? "Add a rule below from an official label, then approve it." : "Ask the owner to add and approve the rules."}</div>`;
 }
 function doseView(){
   const all = doseRules(), own = isOwner();
@@ -3759,6 +3762,7 @@ function doseSheet(id){
   const r = E.doserules.find(x => x.id === id) || {}, v = k => esc(r[k] ?? ""), f = (k, l, ph = "") => `<label>${l}<input id="dr_${k}" class="num" inputmode="decimal" value="${v(k)}" ${ph ? `placeholder="${ph}"` : ""}></label>`;
   openSheet(r.id ? "Edit dose rule" : "New dose rule", `<form id="doseForm" data-id="${esc(r.id || "")}" style="display:grid;gap:10px">
     <div class="grid2 stack"><label>Medicine<input id="dr_drug" value="${v("drug")}" required></label><label>Patient group<input id="dr_group" value="${v("group")}" placeholder="Child, Adult"></label></div>
+    <label>English generic name for the FDA label<input id="dr_labelName" value="${v("labelName")}" placeholder="paracetamol is acetaminophen in the US"></label>
     <div class="grid2 stack">${f("ageMin", "Age from (months)")}${f("ageMax", "Age to (months)")}${f("kgMin", "Weight from (kg)")}${f("kgMax", "Weight to (kg)")}</div>
     <label>Dose is<select id="dr_basis"><option value="perkg" ${r.basis !== "fixed" ? "selected" : ""}>mg per kg of body weight</option><option value="fixed" ${r.basis === "fixed" ? "selected" : ""}>a fixed number of mg</option></select></label>
     <div class="grid2 stack">${f("doseMin", "Dose from (mg)")}${f("doseMax", "Dose to (mg)")}${f("dosesPerDay", "Times a day (most)")}${f("maxSingle", "Largest single dose (mg)")}${f("maxDay", "Most per day (mg)")}${f("maxDayKg", "Most per day (mg per kg)")}${f("mgPer5ml", "Liquid: mg in 5 mL")}${f("mgTab", "Tablet: mg each")}</div>
@@ -3770,7 +3774,7 @@ function doseSheet(id){
 document.addEventListener("submit", async ev => { if (ev.target.id !== "doseForm") return; ev.preventDefault();
   if (!isOwner()){ toast("Only the owner can do this."); return; }
   const g = k => $("#dr_" + k).value.trim(), num = k => { const x = parseNum($("#dr_" + k).value); return x === null || isNaN(x) ? null : x; }, err = m => { $("#drErr").textContent = m; };
-  const rule = {drug:g("drug"), group:g("group"), ageMin:num("ageMin"), ageMax:num("ageMax"), kgMin:num("kgMin"), kgMax:num("kgMax"), basis:$("#dr_basis").value, doseMin:num("doseMin"), doseMax:num("doseMax"), dosesPerDay:num("dosesPerDay"), maxSingle:num("maxSingle"), maxDay:num("maxDay"), maxDayKg:num("maxDayKg"), mgPer5ml:num("mgPer5ml"), mgTab:num("mgTab"), renalNote:g("renalNote"), hepaticNote:g("hepaticNote"), pregNote:g("pregNote"), notes:g("notes"), srcName:g("srcName"), srcRef:g("srcRef"), srcDate:g("srcDate")};
+  const rule = {drug:g("drug"), group:g("group"), ageMin:num("ageMin"), ageMax:num("ageMax"), kgMin:num("kgMin"), kgMax:num("kgMax"), basis:$("#dr_basis").value, doseMin:num("doseMin"), doseMax:num("doseMax"), dosesPerDay:num("dosesPerDay"), maxSingle:num("maxSingle"), maxDay:num("maxDay"), maxDayKg:num("maxDayKg"), mgPer5ml:num("mgPer5ml"), mgTab:num("mgTab"), renalNote:g("renalNote"), hepaticNote:g("hepaticNote"), pregNote:g("pregNote"), notes:g("notes"), srcName:g("srcName"), srcRef:g("srcRef"), srcDate:g("srcDate"), labelName:g("labelName")};
   if (!rule.drug || !rule.srcName || !rule.srcRef || !rule.srcDate) return err("Type the medicine and its source (document, title or link, date).");
   if (!isNum(rule.doseMin) || !isNum(rule.doseMax) || rule.doseMin <= 0 || rule.doseMax < rule.doseMin) return err("Type the dose from and to, with the largest not smaller than the smallest.");
   if (!isNum(rule.dosesPerDay) || rule.dosesPerDay < 1 || rule.dosesPerDay > 24) return err("Type how many times a day (1 to 24).");
@@ -3788,8 +3792,63 @@ document.addEventListener("click", async ev => { const t = ev.target.closest("bu
 const doseLive = ev => { const t = ev.target; if (!t.id || !t.id.startsWith("ds")) return; const d = S.dose;
   if (t.id === "dsRule") d.rid = t.value; else if (t.id === "dsY") d.y = t.value; else if (t.id === "dsM") d.m = t.value; else if (t.id === "dsKg") d.kg = t.value;
   else if (t.id === "dsRenal") d.renal = t.checked; else if (t.id === "dsHep") d.hepatic = t.checked; else if (t.id === "dsPreg") d.preg = t.checked; else return;
-  const o = $("#doseOut"); if (o){ o.innerHTML = doseOut(); if (S.lang === "ar") translate(o); } };
+  const o = $("#doseOut"); if (o){ o.innerHTML = doseOut(); if (S.lang === "ar") translate(o); paintLabel(); } };
 document.addEventListener("input", doseLive); document.addEventListener("change", doseLive);
+/* ---- FDA drug label alerts: for each approved rule the app downloads the official FDA label (openFDA) when online and keeps a
+   saved copy for offline use. Boxed warnings, contraindications and the pregnancy, children and elderly sections show as
+   alerts, each with a link to the source. The text is shown as the label wrote it. UpToDate is licensed, so it is only a link ---- */
+const FDA_BASE = () => window.ERP_FDA || "https://api.fda.gov", LABEL_DAYS = 7, LABEL_KEYS = ["boxed_warning", "contraindications", "warnings", "pregnancy", "pediatric_use", "geriatric_use"];
+const labelCache = () => lsGet("erp.labels", {}), labelKey = r => (r.labelName || r.drug || "").trim().toLowerCase();
+const labelOnline = () => navigator.onLine !== false && ERP_MODE === "device";
+async function fetchLabel(name){
+  const res = await fetch(`${FDA_BASE()}/drug/label.json?search=${encodeURIComponent('openfda.generic_name:"' + name + '"')}&limit=5`), now = Date.now();
+  let entry;
+  if (res.status === 404) entry = {found:false, at:now};
+  else if (!res.ok) throw new Error("label " + res.status);
+  else {
+    const list = (await res.json()).results || [], want = name.toLowerCase();
+    const hit = list.find(x => (x.openfda?.generic_name || []).some(g => g.toLowerCase() === want) && x.dosage_and_administration) || list.find(x => (x.openfda?.generic_name || []).some(g => g.toLowerCase() === want));
+    if (!hit) entry = {found:false, at:now};
+    else { entry = {found:true, at:now, setid:hit.set_id || "", date:hit.effective_time || "", title:(hit.openfda?.brand_name || [name])[0]};
+      for (const k of LABEL_KEYS) if (hit[k]) entry[k] = [].concat(hit[k]).join(" ").replace(/\s+/g, " ").trim().slice(0, 4000); }
+  }
+  const c = labelCache(); c[name.toLowerCase()] = entry; lsSet("erp.labels", c); return entry;
+}
+async function prefetchLabels(){
+  if (!labelOnline()) return; const c = labelCache();
+  for (const r of doseRules().filter(x => x.status === "approved")){ const k = labelKey(r); if (!k) continue; const e = c[k];
+    if (e && Date.now() - e.at < LABEL_DAYS * 864e5) continue; try { await fetchLabel(k); } catch {} }
+  paintLabel();
+}
+const labelSrc = e => e.setid ? `https://dailymed.nlm.nih.gov/dailymed/lookup.cfm?setid=${encodeURIComponent(e.setid)}` : "";
+function labelHtml(r, e){
+  const d = S.dose, ageM = (d.y === "" && d.m === "") ? NaN : n0(parseNum(d.y)) * 12 + n0(parseNum(d.m)), src = labelSrc(e), key = labelKey(r);
+  const link = src ? ` <a href="${esc(src)}" target="_blank" rel="noopener">Open the source</a>` : "";
+  const box = (cls, title, txt, open) => `<details class="banner ${cls}" style="border:0" ${open ? "open" : ""}><summary><b>${title}</b>${link}</summary><p data-keep style="margin:6px 0 0;white-space:pre-wrap">${esc(txt)}</p></details>`;
+  let h = "";
+  if (e.boxed_warning) h += box("bad", "Boxed warning", e.boxed_warning, true);
+  if (e.contraindications) h += box("", "Do not use if (contraindications)", e.contraindications, true);
+  if (d.preg && e.pregnancy) h += box("", "Pregnancy and breastfeeding", e.pregnancy, true);
+  if (isNum(ageM) && ageM < 216 && e.pediatric_use) h += box("", "Use in children", e.pediatric_use, true);
+  if (isNum(ageM) && ageM >= 780 && e.geriatric_use) h += box("", "Use in the elderly", e.geriatric_use, true);
+  if (e.warnings) h += box("", "Warnings and precautions", e.warnings, false);
+  const when = e.at ? new Date(e.at).toISOString().slice(0, 10) : "";
+  const st = labelOnline() ? `FDA label, checked ${when}.` : `Offline. Showing the saved FDA label from ${when}.`;
+  return h + `<p class="note">${st}${link}${e.date ? ` Label date ${esc(String(e.date))}.` : ""} <a href="https://www.uptodate.com/contents/search?search=${encodeURIComponent(key)}" target="_blank" rel="noopener">Search UpToDate</a> (needs your own login). The pharmacist checks and decides.</p>`;
+}
+function paintLabel(){
+  const box = $("#doseLabel"); if (!box) return; const r = doseRules().find(x => x.id === S.dose.rid); if (!r){ box.innerHTML = ""; return; }
+  const k = labelKey(r), set = html => { box.innerHTML = html; if (S.lang === "ar") translate(box); };
+  if (ERP_MODE !== "device") return set(`<p class="note">FDA label alerts work in the installed app.</p>`);
+  const e = labelCache()[k], stale = !e || Date.now() - e.at > LABEL_DAYS * 864e5;
+  if (e && e.found) set(labelHtml(r, e));
+  else if (e) set(`<p class="note">No FDA label was found for "${esc(k)}". Check the name in the rule, or look at the full label yourself.</p>`);
+  else set(`<p class="note">${labelOnline() ? "Loading the FDA label..." : "Offline and no saved FDA label for this medicine yet. Connect to the internet once to download it."}</p>`);
+  if (stale && labelOnline() && k) fetchLabel(k).then(() => { if (S.dose.rid === r.id) paintLabel(); }).catch(() => { if (!e && $("#doseLabel") && S.dose.rid === r.id) set(`<p class="note">Could not reach the FDA label service. Try again later.</p>`); });
+}
+window.addEventListener("online", prefetchLabels); setTimeout(prefetchLabels, 8000);
+Object.assign(AR, {"English generic name for the FDA label":"الاسم العلمي بالإنجليزية لنشرة FDA","Boxed warning":"تحذير الإطار الأسود","Do not use if (contraindications)":"لا يُستعمل في حال (موانع الاستعمال)","Pregnancy and breastfeeding":"الحمل والرضاعة","Use in children":"الاستعمال عند الأطفال","Use in the elderly":"الاستعمال عند كبار السن","Warnings and precautions":"تحذيرات واحتياطات","Open the source":"افتح المصدر","Search UpToDate":"ابحث في UpToDate","FDA label alerts work in the installed app.":"تنبيهات نشرة FDA تعمل في التطبيق المثبت.","Could not reach the FDA label service. Try again later.":"تعذر الوصول إلى خدمة نشرة FDA. حاول لاحقاً.","Loading the FDA label...":"جارٍ تحميل نشرة FDA...","Offline and no saved FDA label for this medicine yet. Connect to the internet once to download it.":"لا يوجد اتصال ولا نشرة محفوظة لهذا الدواء. اتصل بالإنترنت مرة واحدة لتنزيلها."});
+AR_RX.push([/^FDA label, checked ([\d-]+)\.$/, "نشرة FDA، آخر فحص $1."], [/^Offline\. Showing the saved FDA label from ([\d-]+)\.$/, "بلا اتصال. تُعرض نشرة FDA المحفوظة بتاريخ $1."], [/^No FDA label was found for "(.+)"\. Check the name in the rule, or look at the full label yourself\.$/, "لم تُوجد نشرة FDA لـ \"$1\". تحقق من الاسم في القاعدة أو راجع النشرة الكاملة بنفسك."]);
 TIPS.dose = "Choose the medicine, type the age and weight, and read the dose with its source. Only rules the owner approved appear here.";
 Object.assign(AR, {"Dose":"الجرعة","Dose calculator":"حاسبة الجرعات","Dose rules":"قواعد الجرعات","+ Rule":"+ قاعدة","Medicine and patient group":"الدواء وفئة المريض","Age (years)":"العمر (سنوات)","Plus months":"مع أشهر","Weight (kg)":"الوزن (كغم)","Kidney problem":"مشكلة في الكلى","Liver problem":"مشكلة في الكبد","Pregnant or breastfeeding":"حامل أو مرضعة","Choose a medicine.":"اختر دواءً.","Type the weight in kg.":"اكتب الوزن بالكيلوغرام.","Type the age.":"اكتب العمر.","Dose each time":"الجرعة في كل مرة","As liquid":"كشراب","As tablets":"كأقراص","Times a day":"عدد المرات في اليوم","Do not give more than, in 24 hours":"لا تعطِ أكثر من ذلك خلال 24 ساعة","Limited to the largest single dose in the rule.":"تم تحديدها بأكبر جرعة مفردة في القاعدة.","This rule has no advice for this. Check the full label before giving it.":"لا توجد نصيحة في هذه القاعدة لهذه الحالة. راجع النشرة الكاملة قبل الإعطاء.","This is an aid. The pharmacist checks it and decides.":"هذه أداة مساعدة. الصيدلي يراجعها ويقرر.","No approved dose rules yet. Ask the owner to add and approve the rules.":"لا توجد قواعد جرعات معتمدة بعد. اطلب من المالك إضافتها واعتمادها.","No approved dose rules yet. Add a rule below from an official label, then approve it.":"لا توجد قواعد جرعات معتمدة بعد. أضف قاعدة أدناه من نشرة رسمية ثم اعتمدها.","Copy each rule from an official label (FDA or EMA). Every rule must name its source. A rule is only used after you approve it, and changing a rule puts it back to draft.":"انسخ كل قاعدة من نشرة رسمية (FDA أو EMA). يجب أن تذكر كل قاعدة مصدرها. لا تُستعمل القاعدة إلا بعد اعتمادك لها، وتعديلها يعيدها إلى مسودة.","No rules yet.":"لا توجد قواعد بعد.","Approved":"معتمدة","Draft":"مسودة","Edit dose rule":"تعديل قاعدة جرعة","New dose rule":"قاعدة جرعة جديدة","Medicine":"الدواء","Patient group":"فئة المريض","Age from (months)":"العمر من (أشهر)","Age to (months)":"العمر إلى (أشهر)","Weight from (kg)":"الوزن من (كغم)","Weight to (kg)":"الوزن إلى (كغم)","Dose is":"الجرعة هي","mg per kg of body weight":"ملغ لكل كغم من وزن الجسم","a fixed number of mg":"عدد ثابت من الملغ","Dose from (mg)":"الجرعة من (ملغ)","Dose to (mg)":"الجرعة إلى (ملغ)","Times a day (most)":"المرات في اليوم (الأكثر)","Largest single dose (mg)":"أكبر جرعة مفردة (ملغ)","Most per day (mg)":"الأكثر في اليوم (ملغ)","Most per day (mg per kg)":"الأكثر في اليوم (ملغ لكل كغم)","Liquid: mg in 5 mL":"الشراب: ملغ في 5 مل","Tablet: mg each":"القرص: ملغ لكل قرص","Kidney advice":"نصيحة للكلى","Liver advice":"نصيحة للكبد","Pregnancy and breastfeeding advice":"نصيحة للحمل والرضاعة","Other notes":"ملاحظات أخرى","Source (FDA or EMA document)":"المصدر (وثيقة FDA أو EMA)","Document title or link":"عنوان الوثيقة أو رابطها","Label date":"تاريخ النشرة","Save as draft":"حفظ كمسودة","Approve this rule":"اعتماد هذه القاعدة","Type the medicine and its source (document, title or link, date).":"اكتب الدواء ومصدره (الوثيقة والعنوان أو الرابط والتاريخ).","Type the dose from and to, with the largest not smaller than the smallest.":"اكتب الجرعة من وإلى، على ألا تكون الكبرى أصغر من الصغرى.","Type how many times a day (1 to 24).":"اكتب عدد المرات في اليوم (من 1 إلى 24).","Rule saved as a draft. Approve it to use it.":"تم حفظ القاعدة كمسودة. اعتمدها لاستعمالها.","Rule approved.":"تم اعتماد القاعدة.","Rule deleted.":"تم حذف القاعدة.","Tap again to delete":"اضغط مرة أخرى للحذف","Choose the medicine, type the age and weight, and read the dose with its source. Only rules the owner approved appear here.":"اختر الدواء، اكتب العمر والوزن، واقرأ الجرعة مع مصدرها. تظهر هنا فقط القواعد التي اعتمدها المالك."});
 AR_RX.push([/^([\d,.]+) to ([\d,.]+) (mg|mL|tablet)$/, "$1 إلى $2 $3"], [/^([\d,.]+) (mg|mL|tablet)$/, "$1 $2"], [/^(\d+), about every ([\d,.]+) hours$/, "$1، تقريباً كل $2 ساعة"], [/^\(([\d,.]+) mg per 5 mL\)$/, "($1 ملغ في 5 مل)"], [/^\(([\d,.]+) mg each\)$/, "($1 ملغ لكل قرص)"], [/^Source: (.+?)( · approved by (.+))?$/, (m, a, b, c) => "المصدر: " + a + (c ? " · اعتمدها " + c : "")],

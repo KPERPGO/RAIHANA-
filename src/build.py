@@ -68,9 +68,9 @@ rep("""function returnedQty(invId, k){ return S.credits.filter(x => x.invoiceId 
   return S.credits.filter(x => x.invoiceId === invId && x.lines).reduce((a,x) => a + n0(x.lines.find(y => String(y.lid ?? y.k) === lid)?.qty), 0); }""")
 rep("""return {k:+k, desc:l?.desc || "",""", """return {k:+k, lid:String(l?.lid ?? +k), desc:l?.desc || "",""")
 NAV_OLD = re.search(r'<nav class="tabs".*?</nav>', base, re.S).group(0)
-TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("dose","Dose"),("money","Money"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
+TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("dose","Dose"),("money","Money"),("books","Accounts"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
 # the menu is grouped by the work being done; every screen keeps its own route and permission
-GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell","dose"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock","items"]),("purchasing","Purchasing",["invoices","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
+GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell","dose"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock","items"]),("purchasing","Purchasing",["invoices","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money","books"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
 assert sorted(k for _,_,ks in GROUPS for k in ks) == sorted(k for k,_ in TABS)
 MENU_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 # The screen bar sits right under the top bar: Menu first, then one small button per screen
@@ -122,7 +122,7 @@ nav.tabs{width:200px;flex:none;border-bottom:0!important;border-inline-end:1px s
 nav.tabs .in{max-width:none;margin:0;flex-direction:column;align-items:stretch;gap:6px;padding:8px}
 nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:0}
 nav.tabs .ng{display:block;margin:5px 4px 0;line-height:14px;font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}nav.tabs .ng[hidden]{display:none}
-nav.tabs .tl button{width:100%;height:28px;min-height:28px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
+nav.tabs .tl button{width:100%;height:26px;min-height:26px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
 nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
 body.navshut nav.tabs{width:auto}}
 @media (max-width:760px){nav.tabs .in{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:5px 8px}nav.tabs .tl{display:contents}

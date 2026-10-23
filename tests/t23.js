@@ -1,7 +1,7 @@
 // FDA label alerts in the dose calculator, against a local fake of the openFDA service (made-up drug and text, never real dosing).
 const http = require('http');
 const { chromium } = require('./pw');
-const LABEL = { set_id: 'abc-123', effective_time: '20240101', openfda: { generic_name: ['TESTDRUG'], brand_name: ['Testbrand'] }, dosage_and_administration: ['x'],
+const LABEL = { set_id: 'abc-123', effective_time: '20240101', openfda: { generic_name: ['TESTDRUG'], brand_name: ['Testbrand'] }, dosage_and_administration: ['Test dosing text.'],
   boxed_warning: ['WARNING: test boxed text about liver.'], contraindications: ['Do not use in test allergy.'], pregnancy: ['Test pregnancy text.'], pediatric_use: ['Test children text.'], geriatric_use: ['Test elderly text.'], warnings: ['Test warnings text.'] };
 (async () => {
   let hits = 0;
@@ -20,6 +20,7 @@ const LABEL = { set_id: 'abc-123', effective_time: '20240101', openfda: { generi
   let t = await page.textContent('#doseLabel');
   ok(/Boxed warning/.test(t) && /test boxed text/.test(t), 'boxed warning shown as an alert', t);
   ok(/test allergy/.test(t), 'contraindications shown', t);
+  ok(/Dosing in the FDA label/.test(t) && /Test dosing text/.test(t), 'FDA dosing section shown from the label', t);
   ok(/Test children text/.test(t) && !/Test elderly text/.test(t), 'child section for a 2 year old, no elderly section', t);
   ok(!/Test pregnancy text/.test(t), 'pregnancy section hidden until ticked');
   await page.check('#dsPreg'); await page.waitForTimeout(200);

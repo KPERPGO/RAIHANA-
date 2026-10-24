@@ -250,6 +250,12 @@ input,select{min-height:44px}
 .quick button .qs{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.quick button .num{font-size:clamp(12px,3.2cqi,14px);color:var(--fg);font-weight:600}
 .quick button.pin{box-shadow:inset 0 -3px 0 var(--accent)}.quick button.out{opacity:.55;box-shadow:inset 0 -3px 0 var(--bad)}
 .quick button .pill{align-self:flex-start}
+.quick button.ph{position:relative;padding:0;justify-content:flex-end}.quick button .qph{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.quick button.ph b,.quick button.ph .num,.quick button.ph .pill{position:relative;margin:0 6px;padding:0 4px;border-radius:4px;background:color-mix(in srgb,var(--surface) 85%,transparent);align-self:flex-start}.quick button.ph .num{margin-bottom:6px}.quick button.ph .qs{display:none}
+/* phone: smaller squares, 5 across, name and price only */
+@media (max-width:760px){.quick{grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}.quick button{padding:5px;border-radius:10px}.quick button b{font-size:10.5px;line-height:1.15}.quick button .qs{display:none}.quick button .num{font-size:11px}
+  .quick button.ph b{display:none}.quick button.ph .num{margin:0 3px 3px;font-size:10.5px}}
+.photorow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.photorow label{flex:1;min-width:180px}.phbox{flex:none;width:56px;height:56px;border-radius:10px;background:var(--sunk);overflow:hidden}.phbox img{width:100%;height:100%;object-fit:cover}.phbox:empty{display:none}
 .stepper{display:flex;gap:6px;align-items:stretch}.stepper button{min-width:52px;font-size:22px;line-height:1;padding:0}.stepper input{flex:1;text-align:center;font-size:18px;min-width:0}.stepper select{width:auto;flex:none}
 table.prt tr.chg td{background:color-mix(in srgb,var(--accent2) 10%,transparent)}table.prt input{min-height:40px}
 @media (max-width:640px){table.prt{min-width:0}table.prt thead{display:none}table.prt tr{display:grid;grid-template-columns:36px repeat(2,minmax(0,1fr));gap:4px 10px;padding:10px 12px;border-top:1px solid var(--line)}table.prt td{border:0;padding:0;text-align:start}table.prt td.ck{grid-row:span 3;padding-top:2px}table.prt td.nm{grid-column:2/-1}table.prt td[data-l]::before{content:attr(data-l);display:block;font-size:11.5px;color:var(--muted);font-family:var(--sans)}table.prt td input{width:100%!important;text-align:start!important}}

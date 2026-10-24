@@ -4,8 +4,8 @@ const fs = require('fs'), path = require('path');
 let pw; try { pw = require('playwright'); } catch { pw = require('./pw'); }
 const exe = process.env.CHROMIUM || (fs.existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined);
 const xlsxFile = [path.join(__dirname, '..', 'node_modules', 'xlsx', 'dist', 'xlsx.full.min.js'), path.join(__dirname, 'node_modules', 'xlsx', 'dist', 'xlsx.full.min.js')].find(f => fs.existsSync(f));
-// the app starts in Arabic on a new device; the tests were written in English, so every page starts with English chosen (tests click the language button to check Arabic)
-const english = `try { if (!localStorage.getItem('rp.lang')) localStorage.setItem('rp.lang', '"en"'); if (!localStorage.getItem('erp.tourDone')) localStorage.setItem('erp.tourDone', 'true'); } catch (e) {}`;
+// the app starts in Arabic on a new device; the start-of-shift list is switched off (t35 opens it itself); the tests were written in English, so every page starts with English chosen (tests click the language button to check Arabic)
+const english = `try { if (!localStorage.getItem('rp.lang')) localStorage.setItem('rp.lang', '"en"'); if (!localStorage.getItem('erp.tourDone')) localStorage.setItem('erp.tourDone', 'true'); if (!localStorage.getItem('erp.startAuto')) localStorage.setItem('erp.startAuto', 'false'); } catch (e) {}`;
 // menu groups start closed: a test that clicks a screen in a closed group taps its heading first, as a person would
 function openGroups(page){
   const click = page.click.bind(page);

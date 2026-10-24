@@ -162,6 +162,27 @@ const SHOTS = process.env.SHOTS; // folder for screenshots, when set
     const r2 = await save(p); ok('IQD discount still works', r2.saved === 1 && r2.last.discount === 2000 && r2.last.discPct === undefined, r2.last);
     ok('No page errors (discount)', !p.errs.length, p.errs);
     await p.close(); }
+  // ---- phone: 5 small squares across; item photo on the button; sales dashboard (profit, busy hours) on Home, not on Sell
+  { const p = await fresh({width:390, height:844}); await pin(p, 12); await p.waitForTimeout(200); await fill(p); await p.waitForTimeout(150);
+    const q = await p.evaluate(() => { const r = [...document.querySelectorAll('.quick button')].map(e => e.getBoundingClientRect()); return {n:r.length, row1: r.filter(x => Math.abs(x.top - r[0].top) < 2).length, w: Math.round(r[0].width), sq: r.every(x => Math.abs(x.width - x.height) < 2)}; });
+    ok('Phone: 5 small square buttons per row', q.n === 12 && q.row1 === 5 && q.w < 70 && q.sq, q);
+    ok('Sales dashboard is not on Sell', await p.evaluate(() => !document.getElementById('liveClock') && !/Busy hours|Profit \(after cost\)/.test($('#view').innerText)));
+    await p.evaluate(() => { S.tab = 'home'; render(); }); await p.waitForTimeout(150);
+    ok('Sales dashboard (profit, busy hours, top items) is on Home', await p.evaluate(() => !!document.getElementById('liveClock') && /Profit \(after cost\)/.test($('#view').innerText)));
+    // a photo picked in the item card shows on its quick button
+    const pid = await p.evaluate(() => catalog().find(x => x.name === 'Alpha').id);
+    await p.evaluate(id => prodSheet(id), pid); await p.waitForTimeout(150);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==', 'base64');
+    await p.setInputFiles('#pPhoto', {name:'a.png', mimeType:'image/png', buffer:png}); await p.waitForTimeout(400);
+    ok('Item card shows the picked photo', await p.evaluate(() => !!document.querySelector('#pPhotoBox img')));
+    await p.evaluate(() => $('#prodForm').requestSubmit()); await p.waitForTimeout(400);
+    const ph = await p.evaluate(id => ({saved: /^data:image\/jpeg/.test(E.prods.find(m => m.id === id)?.photo || ''), size: (E.prods.find(m => m.id === id)?.photo || '').length}), pid);
+    ok('Photo saved small on the item', ph.saved && ph.size < 20000, ph);
+    await p.evaluate(() => { closeSheet(); S.tab = 'sell'; S.posPane = 'in'; render(); }); await p.waitForTimeout(150);
+    ok('Quick button shows the photo', await p.evaluate(id => !!document.querySelector(`.quick [data-xadd="${id}"] img.qph`), pid));
+    if (SHOTS) await p.screenshot({ path: `${SHOTS}/pos-phone-photo.png` });
+    ok('No page errors (phone buttons, photo, Home)', !p.errs.length, p.errs);
+    await p.close(); }
   // ---- search box: barcode + Tx icon instead of words; results A to Z or fastest selling first (owner's choice)
   { const p = await fresh({width:390, height:844});
     const ic = await p.evaluate(() => ({icon: !!document.querySelector('.scanbox .scanico'), ph: $('#sellQ').placeholder, aria: $('#sellQ').getAttribute('aria-label'), tx: document.querySelector('.scanico text')?.textContent}));

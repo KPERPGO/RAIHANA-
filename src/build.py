@@ -178,6 +178,7 @@ input,select{min-height:44px}
   .posin{grid-area:in}.posbill{grid-area:bill;position:sticky;top:0}}
 /* quick buttons: square, in rows that always fit the inputs side (4 across; 3 on a very narrow side, 6 on a wide one so they stay small) */
 .posin{container-type:inline-size}
+.scanbox{position:relative;flex:1;min-width:0;display:block}.scanbox input{width:100%;padding-inline-start:62px}.scanbox .scanico{position:absolute;inset-inline-start:10px;top:50%;transform:translateY(-50%);color:var(--fg);pointer-events:none}
 .quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 @container (max-width:300px){.quick{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @container (min-width:520px){.quick{grid-template-columns:repeat(6,minmax(0,1fr))}.quick button b{font-size:clamp(11px,2.5cqi,15px)}}

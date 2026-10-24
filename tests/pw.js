@@ -9,7 +9,10 @@ const english = `try { if (!localStorage.getItem('rp.lang')) localStorage.setIte
 // menu groups start closed: a test that clicks a screen in a closed group taps its heading first, as a person would
 function openGroups(page){
   const click = page.click.bind(page);
-  page.click = async (sel, opt) => { if (/data-tab=/.test(sel)) await page.evaluate(s => { const b = document.querySelector(s); if (b && b.classList.contains('gshut')) document.querySelector(`nav.tabs .ng[data-grp="${b.dataset.g}"]`)?.click(); }, sel).catch(() => {});
+  // on a phone the screen list sits behind Menu in the bottom bar: open it first, as a person would
+  page.click = async (sel, opt) => { if (/data-tab=|nav\.tabs/.test(sel)) await page.evaluate(s => { const b = document.querySelector(s); if (!b || !b.closest('nav.tabs')) return;
+      if (getComputedStyle(document.querySelector('nav.tabs')).display === 'none' && document.querySelector('#botbar [data-xbotmenu]')) document.querySelector('#botbar [data-xbotmenu]').click();
+      if (b.classList.contains('gshut')) document.querySelector(`nav.tabs .ng[data-grp="${b.dataset.g}"]`)?.click(); }, sel).catch(() => {});
     return click(sel, opt); };
   return page;
 }

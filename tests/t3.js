@@ -50,7 +50,7 @@ const fs = require('fs'), path = require('path'); const D = require('path').join
   await page.locator('[data-xlocksel]').filter({hasText:'Ahmed'}).click(); for (const k of '5555') await page.click(`[data-xpin="${k}"]`); await page.click('[data-xpinok="1"]'); await page.waitForTimeout(800);
   console.log('ahmed now', await vis());
   await page.evaluate(() => { S.tab = 'money'; render(); }); await page.waitForTimeout(200); console.log('forced money ->', await page.evaluate(() => S.tab));
-  await page.click('.navmenu'); await page.waitForTimeout(300); console.log('menu hides list', await page.evaluate(() => document.body.classList.contains('navshut'))); await page.click('.navmenu'); await page.screenshot({path:'s8-ahmed-menu.png'});
+  await page.click('#botbar [data-xbotmenu]'); await page.waitForTimeout(300); console.log('menu opens list', await page.evaluate(() => document.body.classList.contains('botmenu'))); await page.screenshot({path:'s8-ahmed-menu.png'}); await page.click('#botbar [data-xbotmenu]');
 
   console.log(errs.join('\n') || 'no errors'); await b.close();
 })();

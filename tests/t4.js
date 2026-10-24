@@ -17,6 +17,6 @@ const fs = require('fs'), path = require('path'); const D = require('path').join
     console.log(tab.padEnd(10), r.join(' '), r[2] <= vh && r[0] >= 0 ? 'OK' : 'HIDDEN');
   }
   await fr.evaluate(() => { S.tab = 'sell'; render(); }); await page.waitForTimeout(200); await page.screenshot({path:'f1.png'});
-  await fr.click('.navmenu'); await page.waitForTimeout(300); await page.screenshot({path:'f2.png'});
+  await fr.click('#botbar [data-xbotmenu]'); await page.waitForTimeout(300); await page.screenshot({path:'f2.png'});
   console.log(errs.join('\n') || 'no errors'); await b.close();
 })();

@@ -68,22 +68,53 @@ rep("""function returnedQty(invId, k){ return S.credits.filter(x => x.invoiceId 
   return S.credits.filter(x => x.invoiceId === invId && x.lines).reduce((a,x) => a + n0(x.lines.find(y => String(y.lid ?? y.k) === lid)?.qty), 0); }""")
 rep("""return {k:+k, desc:l?.desc || "",""", """return {k:+k, lid:String(l?.lid ?? +k), desc:l?.desc || "",""")
 NAV_OLD = re.search(r'<nav class="tabs".*?</nav>', base, re.S).group(0)
-TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("money","Cash box"),("books","Accounts"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
+TABS = [("home","Home"),("sell","POS"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("money","Cash box"),("books","Accounts"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
 # the menu is grouped by the work being done; every screen keeps its own route and permission
 # Items lists the lines of purchase invoices (supplier, batch, unit cost), so it sits under Purchasing; the medicine catalogue is in Stock.
 # A short name is shown on phones, where each heading takes one cell of the screen grid.
-GROUP_SHORT = {"sales":"Sales", "admin":"Admin"}
-GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock"]),("purchasing","Purchasing",["invoices","items","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money","books"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
+GROUP_SHORT = {"admin":"Admin"}
+GROUPS = [("home","Home",["home"]),("sales","Sales/POS",["sell"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock"]),("purchasing","Purchasing",["invoices","items","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money","books"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
 assert sorted(k for _,_,ks in GROUPS for k in ks) == sorted(k for k,_ in TABS)
+# one small line icon per screen and per group heading (24x24, drawn with the text colour)
+ICON_PATHS = {
+  "home":"M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z",
+  "sell":"M4 10h16v10H4zM7 10V4h10v6M9 7h6M8 14h2M12 14h2M16 14h0M8 17h8",
+  "stock":"M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10",
+  "pricing":"M3 12V4h8l10 10-8 8zM7.5 7.5h.01",
+  "chronic":"M10.5 20.5a5 5 0 0 1-7-7l6-6a5 5 0 0 1 7 7zM8.5 8.5l7 7",
+  "invoices":"M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h7",
+  "items":"M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01",
+  "payments":"M3 6h18v12H3zM3 10h18M7 15h3",
+  "suppliers":"M2 6h11v10H2zM13 9h4l4 4v3h-8M5 18.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M15 18.5a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0",
+  "customers":"M9 11a4 4 0 1 0 0-8a4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6",
+  "money":"M3 8h18v12H3zM3 8l3-4h12l3 4M15 14h3",
+  "books":"M4 5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 1-2-2zM4 19a2 2 0 0 1 2-2h13M9 7h6",
+  "reports":"M4 20h16M7 16v-5M12 16V6M17 16v-8",
+  "staff":"M12 12a4 4 0 1 0 0-8a4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
+  "settings":"M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M16 4v4M10 10v4M18 16v4",
+  "patients":"M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.5-7 10-7 10zM12 10v5M9.5 12.5h5",
+  "inventory":"M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10",
+  "purchasing":"M3 4h2l2.5 11h11L21 7H6.2M9 19.5a1 1 0 1 0 0 .01M18 19.5a1 1 0 1 0 0 .01",
+  "finance":"M12 3v18M17 7H9.5a3 3 0 0 0 0 6h5a3 3 0 0 1 0 6H6",
+  "admin":"M12 3l8 3v6c0 5-3.5 8-8 9c-4.5-1-8-4-8-9V6z",
+  "menu":"M4 6h16M4 12h16M4 18h16"}
+ICON_PATHS["sales"] = ICON_PATHS["sell"]
+def icon(k): return f'<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="{ICON_PATHS[k]}"/></svg>'
+assert all(k in ICON_PATHS for k,_ in TABS) and all(g in ICON_PATHS for g,_,_ in GROUPS)
 MENU_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 # The screen bar sits right under the top bar: Menu first, then one small button per screen
 # .shell holds the screen bar and the page; on wide screens it turns into a side list (see CSS)
 nav = ('<div class="shell"><nav class="tabs" aria-label="Sections"><div class="in">\n'
        f'  <button type="button" class="navmenu" data-xmenu="1" aria-label="Show or hide screens" aria-expanded="true">{MENU_SVG}<span>Menu</span></button>\n'
        '  <div class="tl">\n' + "\n".join(
-           (f'  <span class="ng" data-grp="{g}"><span class="gl">{gn}</span><span class="gs">{GROUP_SHORT.get(g, gn)}</span><i class="nb" hidden></i></span>\n' if gn != dict(TABS)[ks[0]] else "") +
-           "\n".join(f'  <button type="button" data-tab="{k}" data-g="{g}"{" class=\"gsep\"" if j == 0 and g != "home" and gn == dict(TABS)[ks[0]] else ""}{" aria-current=\"page\"" if k=="home" else ""}>{dict(TABS)[k]}</button>' for j, k in enumerate(ks))
-           for g,gn,ks in GROUPS) + '\n  </div>\n</div></nav>')
+           (f'  <span class="ng" data-grp="{g}">{icon(g)}<span class="gl">{gn}</span><span class="gs">{GROUP_SHORT.get(g, gn)}</span><i class="nb" hidden></i></span>\n' if gn != dict(TABS)[ks[0]] else "") +
+           "\n".join(f'  <button type="button" data-tab="{k}" data-g="{g}"{" class=\"gsep\"" if j == 0 and g != "home" and gn == dict(TABS)[ks[0]] else ""}{" aria-current=\"page\"" if k=="home" else ""}>{icon(k)}<span class="tx">{dict(TABS)[k]}</span></button>' for j, k in enumerate(ks))
+           for g,gn,ks in GROUPS) + '\n  </div>\n</div></nav>'
+       # phone only: bottom bar (filled by botBar() in erp.js) and the dim layer behind the menu when it opens above the bar
+       '<nav id="botbar" aria-label="Quick screens"></nav><div id="botdim" hidden></div>')
+# the Invoices menu button keeps its icon and name when the base app adds the "unpaid past their limit" badge
+rep('tb.innerHTML = `Invoices${st.length ? ` <span class="tabbadge"',
+    'tb.innerHTML = (tb.querySelector("svg.ic")?.outerHTML || "") + `<span class="tx">Invoices</span>${st.length ? ` <span class="tabbadge"')
 rep(NAV_OLD, "")
 rep('<div id="banner" class="wrap" hidden style="padding-block:8px 0"><div class="banner" id="bannerText"></div></div>\n<main class="wrap" id="view"></main>',
     '<div class="mcol"><div id="banner" class="wrap" hidden style="padding-block:8px 0"><div class="banner" id="bannerText"></div></div>\n<main class="wrap" id="view"></main></div></div>')
@@ -134,15 +165,40 @@ nav.tabs{width:200px;flex:none;border-bottom:0!important;border-inline-end:1px s
 nav.tabs .in{max-width:none;margin:0;flex-direction:column;align-items:stretch;gap:6px;padding:8px}
 nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:0}
 nav.tabs .ng{display:flex;align-items:center;min-height:28px;margin:3px 0 0;padding:0 8px;line-height:14px;font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}nav.tabs .ng .gs{display:none}
-nav.tabs .tl button{width:100%;height:26px;min-height:26px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start}
+nav.tabs .tl button{width:100%;height:26px;min-height:26px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start;display:flex;align-items:center;gap:8px}nav.tabs .tl .ic{width:16px;height:16px}nav.tabs .ng{gap:6px}nav.tabs .ng .ic{width:14px;height:14px}
 nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
 /* a group with no heading (Pricing, Reports) starts with a thin line, so it does not read as part of the group above */
 nav.tabs .tl button.gsep{margin-top:5px;overflow:visible}nav.tabs .tl button.gsep::before{content:"";position:absolute;inset-inline:4px;top:-3px;border-top:1px solid var(--line)}nav.tabs .tl button{position:relative}
 body.navshut nav.tabs{width:auto}}
-@media (max-width:760px){nav.tabs .in{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:5px 8px}nav.tabs .tl{display:contents}
-nav.tabs .tl button,nav.tabs .navmenu{width:100%;height:30px;min-height:30px!important;padding:0 2px;font-size:12px;justify-content:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-nav.tabs .ng{display:flex;align-items:center;justify-content:center;gap:2px;height:30px;padding:0 2px;border:1px solid var(--line);font-size:9.5px;font-weight:700;letter-spacing:0;text-transform:uppercase;color:var(--accent);text-align:center;line-height:11px;overflow:hidden;white-space:nowrap}nav.tabs .ng[hidden]{display:none}
-nav.tabs .ng .gl{display:none}nav.tabs .ng .nb{margin:0;min-width:14px;height:14px;line-height:14px;font-size:9px}nav.tabs .navmenu{gap:3px}nav.tabs .navmenu svg{width:14px;height:14px;flex:none}}
+/* phone: no screen list at the top. A bar at the bottom holds three screens (owner picks them in Settings) and Menu at the right;
+   Menu opens the full grouped list upward from the button. The bar slides in when the page scrolls down and away on a small scroll up */
+#botbar,#botdim{display:none}
+@media (max-width:760px){
+body{--botP:calc(60px + env(safe-area-inset-bottom,0px));--botH:var(--botP)}body.bothide:not(.botmenu){--botH:0px}
+main#view{padding-bottom:calc(24px + var(--botP))}
+.sticky-save,.posswitch{bottom:var(--botH)!important;transition:bottom .28s ease}
+.toast{bottom:calc(16px + var(--botH))!important}
+#botbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:18;direction:ltr;gap:4px;height:var(--botP);padding:5px max(8px,env(safe-area-inset-left,0px)) env(safe-area-inset-bottom,0px) max(8px,env(safe-area-inset-right,0px));background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -4px 16px rgba(0,0,0,.06);transition:transform .28s ease,opacity .28s ease}
+body.bothide:not(.botmenu) #botbar{transform:translateY(105%);opacity:0;pointer-events:none}
+#botbar button{flex:1 1 0;min-width:0;min-height:50px!important;height:50px;padding:2px 4px;border:0;border-radius:12px;background:none;box-shadow:none!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;font-weight:600;color:var(--muted)}
+#botbar button .ic{width:22px;height:22px}
+#botbar button span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#botbar button[aria-current=page]{color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+#botbar button.botmenu{color:var(--accent-ink)!important;background:var(--accent)!important}
+#botdim{display:block;position:fixed;inset:0;z-index:16;background:rgba(10,20,30,.3);animation:botfade .18s ease}#botdim[hidden]{display:none}
+nav.tabs{display:none!important}
+body.botmenu nav.tabs{display:block!important;position:fixed!important;z-index:17;inset:auto max(8px,env(safe-area-inset-right,0px)) calc(var(--botP) + 8px) auto;width:min(290px,calc(100vw - 16px));max-height:calc(100dvh - var(--botP) - 90px);overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--line)!important;border-radius:16px;background:var(--surface);box-shadow:0 12px 40px rgba(0,0,0,.25);transform-origin:bottom right;animation:botpop .2s ease}
+nav.tabs .in{display:block;padding:6px}nav.tabs .navmenu{display:none}
+nav.tabs .tl{display:flex;flex-direction:column;gap:2px}
+nav.tabs .tl button{width:100%;height:42px;min-height:42px!important;padding:0 12px;border-radius:10px;font-size:15px;display:flex;align-items:center;justify-content:flex-start;gap:10px;text-align:start}
+nav.tabs .ng{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 12px;font-size:12.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}
+nav.tabs .ng .gs{display:none}nav.tabs .ng .nb{margin-inline-start:auto}
+nav.tabs .tl button.gsep{margin-top:5px;position:relative;overflow:visible}nav.tabs .tl button.gsep::before{content:"";position:absolute;inset-inline:6px;top:-3px;border-top:1px solid var(--line)}}
+@keyframes botpop{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes botfade{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){#botbar,.sticky-save,.posswitch{transition:none}body.botmenu nav.tabs,#botdim{animation:none}}
+/* icons beside every screen and group name */
+.ic{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 button,.btn{min-height:44px}
 .row{min-height:52px}
 .lineedit .lh button,.list .end button{min-height:36px}

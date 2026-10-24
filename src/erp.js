@@ -644,11 +644,12 @@ function moneyView(){
     ${dc.closed && dc.after ? `<div class="r"><span>Changes after closing (new sales, payments, cancels)</span><span class="num" style="color:var(--warn)">${dc.after > 0 ? "+" : "−"}${iqd(Math.abs(dc.after))}</span></div>` : ""}</div>
     <form id="closeForm" class="sum" style="gap:10px"><b>Close the day</b><label>Cash counted in the box (IQD)<input id="clAmt" class="num" inputmode="numeric" value="${cl ? esc(cl.counted) : ""}" required></label>${cl ? `<p class="note">Closed${cl.lastBy ? " by " + esc(whoName(cl.lastBy)) : ""}: difference <b class="num" style="color:var(--${Math.abs(cl.diff) <= TOL ? "good" : "bad"})">${iqd(cl.diff)}</b></p>` : ""}<label>Note<input id="clNote" value="${esc(cl?.note || "")}"></label><button type="submit">${cl ? "Update day close" : "Save day close"}</button></form></section>
   <section class="sec"><div class="sechead"><h2>Profit by month</h2><input id="moneyM" type="month" value="${esc(S.moneyM)}" style="width:auto"></div>
+    ${moneyCharts(S.moneyM)}
     <div class="sum"><div class="r"><span>Sales (${mm.count})</span><span class="num">${iqd(mm.sales)}</span></div><div class="r"><span>Cost of what was sold</span><span class="num">−${iqd(mm.cost)}</span></div><div class="r big"><span>Gross profit</span><span class="num">${iqd(mm.gross)}</span></div><div class="r"><span>Expenses</span><span class="num">−${iqd(mm.expenses)}</span></div><div class="r"><span>${mm.writeoff < 0 ? "Extra stock found at counts" : "Expired, damaged or lost stock (less any found)"}</span><span class="num">${mm.writeoff < 0 ? "+" : "−"}${iqd(Math.abs(mm.writeoff))}</span></div><div class="r big"><span>Net profit</span><span class="num" style="color:var(--${mm.net >= 0 ? "good" : "bad"})">${iqd(mm.net)}</span></div><div class="r"><span>Bought from suppliers this month</span><span class="num">${iqd(mm.purchases)}</span></div></div>
     ${mm.noCost ? `<p class="note">Some sales or stock changes have no cost because the item has no purchase invoice yet, so profit may be a little off.</p>` : ""}</section>
   <section class="sec"><div class="sechead"><h2>Expenses</h2><button type="button" class="primary" data-xexp="1">+ Expense</button></div>
     <div class="list">${exps.length ? exps.map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.category)}</span><span class="s">${esc(x.date)}${x.note ? " · " + esc(x.note) : ""}${x.fromCash === false ? " · not from cash box" : ""}</span></span><span class="end"><span class="num">${iqd(x.amount)}</span><button type="button" class="danger" data-xexpvoid="${esc(x.id)}" style="padding:4px 10px">Cancel</button></span></div>`).join("") : `<div class="empty">No expenses this month.</div>`}</div>
-    ${Object.keys(mm.byCat).length ? `<p class="note">${Object.entries(mm.byCat).map(([k,v]) => `${esc(k)}: <span class="num">${iqd(v)}</span>`).join(" · ")}</p>` : ""}</section>`;
+    ${Object.keys(mm.byCat).length ? `<div style="margin-top:10px">${expenseChart(mm.byCat)}</div>` : ""}</section>`;
 }
 function quickSettings(){
   const pins = catalog().filter(p => p.m?.quick).sort((a, b) => pname(a).localeCompare(pname(b)));
@@ -2111,11 +2112,12 @@ function bkPL(en){ const b = bkBal(en, S.bk.from, S.bk.to), net = a => bkNet(b, 
   const lossTags = {}; for (const e of en) if (e.date >= S.bk.from && e.date <= S.bk.to) for (const l of e.lines) if (l.acct === "5300") lossTags[l.tag] = (lossTags[l.tag] || 0) + l.dr - l.cr;
   const exp = net("5100"), gross = sales - ret - cogs, profit = gross + disc - exp - loss, r = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td>${bkN(v)}</td></tr>`;
   return bkTable([r("Sales", sales), r("Sales returns", -ret), r("Cost of goods sold", -cogs), r("Gross profit", gross, "tot"), r("Discounts received from suppliers", disc),
-    ...Object.entries(tags).sort().map(([k, v]) => r("Expense: " + esc(k), -v)), ...Object.entries(lossTags).sort().map(([k, v]) => r("Stock: " + esc(k), -v)), r("Net profit", profit, "tot")], ["Profit and loss", "IQD"]); }
+    ...Object.entries(tags).sort().map(([k, v]) => r("Expense: " + esc(k), -v)), ...Object.entries(lossTags).sort().map(([k, v]) => r("Stock: " + esc(k), -v)), r("Net profit", profit, "tot")], ["Profit and loss", "IQD"]) + plChart(sales - ret, cogs, exp, loss, profit); }
 function bkBS(en){ const b = bkBal(en, null, S.bk.to), a = c => bkNet(b, c), r = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td>${bkN(v)}</td></tr>`;
   const assets = a("1000") + a("1010") + a("1100") + a("1200"), liab = a("2000"), profit = a("4000") - a("4090") - a("5000") + a("4200") - a("5100") - a("5300"), eq = a("3000") + profit;
   return bkTable([r("Cash box", a("1000")), r("Card and bank", a("1010")), r("Customer debts", a("1100")), r("Stock at cost", a("1200")), r("Total assets", assets, "tot"),
     r("Supplier balances", liab), r("Owner capital and opening balances", a("3000")), r("Profit to date", profit), r("Total liabilities and capital", liab + eq, "tot")], ["Balance sheet", "IQD"])
+    + bsChart(a("1000"), a("1010"), a("1100"), a("1200"), liab)
     + `<p class="note">${Math.round(assets) === Math.round(liab + eq) ? "Assets equal liabilities plus capital." : "Assets and liabilities plus capital differ. Tell the developer."}</p>`
     + (a("1200") < 0 ? `<p class="banner">Stock at cost is below zero. You have sold stock that was never entered through an approved invoice. Add your opening stock value as a manual entry.</p>` : ""); }
 function bkJournal(en){ const list = en.filter(e => e.date >= S.bk.from && e.date <= S.bk.to).slice(-200).reverse();
@@ -2188,6 +2190,92 @@ Object.assign(AR, {"Accounts":"الحسابات","Cash box":"صندوق النق
   "Sale":"بيع","Return":"إرجاع","Purchase":"شراء","Supplier payment":"دفعة لمورد","Purchase return":"إرجاع للمورد","Customer payment":"دفعة زبون","Expense":"مصروف","Stock":"المخزون","Manual":"يدوي","Sale paid in cash":"بيع نقدي","Sale paid by card":"بيع بالبطاقة","Sale on debt":"بيع بالدين","Customer return":"إرجاع زبون","Debt paid by customer":"سداد دين من زبون","Goods returned to supplier":"بضاعة مرجعة للمورد"});
 AR_RX.push([/^Expense: (.+)$/, "مصروف: $1"], [/^(\d+) entries shown \(newest 200\)\. The export has all of them\.$/, "$1 قيد معروض (أحدث 200). الملف المصدّر فيه الكل."], [/^(\d+) stock changes have no cost and count as zero\.$/, "$1 تغيير في المخزون بلا كلفة ويُحسب صفراً."]);
 
+/* ---- charts on the finance screens (Cash box, Accounts): plain HTML bars, no chart library, nothing online.
+   Blue = sales and what you own, turquoise = profit and what you owe; both colours checked for colour-blind reading
+   in light and dark. Hover or tap a column for its numbers; on Cash box a tap on a month opens that month ---- */
+const CH_MONTHS = {en:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"], ar:["كانون الثاني","شباط","آذار","نيسان","أيار","حزيران","تموز","آب","أيلول","تشرين الأول","تشرين الثاني","كانون الأول"]};
+const chMonth = (m, full) => S.lang === "ar" ? CH_MONTHS.ar[+m.slice(5, 7) - 1] + (full ? " " + m.slice(0, 4) : "") : CH_MONTHS.en[+m.slice(5, 7) - 1] + " " + m.slice(2, 4); // Arabic names are long: no year under the column
+const chK = v => { const a = Math.abs(v), ar = S.lang === "ar", s = v < 0 ? "−" : "";
+  return a >= 1e6 ? s + +(a / 1e6).toFixed(1) + (ar ? " م" : "M") : a >= 1e3 ? s + Math.round(a / 1e3) + (ar ? " ألف" : "K") : s + Math.round(a); };
+const chUp = v => { if (v <= 0) return 0; const p = 10 ** Math.floor(Math.log10(v)); return [1, 2, 2.5, 5, 10].map(m => m * p).find(x => x >= v); };
+const chSigned = v => (v < 0 ? "−" : "") + iqd(Math.abs(v));
+const chLegend = series => series.length < 2 ? "" : `<div class="chleg">${series.map(s => `<span><i class="chb ${s.cls}"></i>${esc(s.name)}</span>`).join("")}</div>`;
+// columns from a zero line: cats [{label, tip (html), attr}], series [{name, cls, vals}]; values below zero hang under the line
+function chCols({title, cats, series, sel = -1, h = 150, step = 1, wrap = false}){
+  const all = series.flatMap(s => s.vals), hi = chUp(Math.max(0, ...all)), lo = -chUp(Math.max(0, ...all.map(v => -v)));
+  if (!hi && !lo) return "";
+  const span = hi - lo, top = t => (hi - t) / span * 100, zero = top(0), ticks = [...new Set([hi, hi / 2, 0, lo].filter(t => t || t === 0))];
+  const bar = (v, room) => room ? `${Math.max(v / room * 100, v ? 1.5 : 0)}%` : "0";
+  return `<figure class="ch" aria-label="${esc(title)}"><figcaption>${esc(title)}</figcaption>${chLegend(series)}
+    <div class="chplot" style="height:${h}px">${ticks.map(t => `<div class="chgrid${t === 0 ? " zero" : ""}" style="top:${top(t)}%"><span class="num">${chK(t)}</span></div>`).join("")}
+      <div class="chcols">${cats.map((c, i) => `<button type="button" class="chcol${i === sel ? " on" : ""}" data-chtip="${esc(c.tip)}" ${c.attr || ""} aria-label="${esc(c.aria || c.label)}">
+        <span class="chup" style="height:${zero}%">${series.map(s => `<i class="chb ${s.cls}" style="height:${bar(Math.max(0, s.vals[i]), hi)}"></i>`).join("")}</span>
+        <span class="chdn" style="height:${100 - zero}%">${series.map(s => `<i class="chb ${s.cls}" style="height:${bar(Math.max(0, -s.vals[i]), -lo)}"></i>`).join("")}</span></button>`).join("")}</div></div>
+    <div class="chx${wrap ? " wrap" : ""}" data-keep>${cats.map((c, i) => `<span>${i % step ? "" : esc(c.label)}</span>`).join("")}</div><div class="chtip" hidden></div></figure>`;
+}
+// one bar per row, length by size; rows [{label, v, cls}]. The amount is written at the end of every row
+function chBars(title, rows){
+  rows = rows.filter(r => Math.round(r.v)); const max = Math.max(0, ...rows.map(r => Math.abs(r.v))); if (!max) return "";
+  return `<figure class="ch"><figcaption>${esc(title)}</figcaption><div class="chrows">${rows.map(r => `<div class="chrow"><span class="chl">${esc(r.label)}</span>
+    <span class="cht"><i class="chb ${r.cls || "c1"}" style="width:${Math.max(Math.abs(r.v) / max * 100, 1.5)}%"></i></span><span class="num">${chSigned(r.v)}</span></div>`).join("")}</div></figure>`;
+}
+// Cash box: the six months up to the chosen one, and each day of the chosen month
+function moneyCharts(m){
+  const months = Array.from({length:6}, (_, i) => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 6 + i, 1); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); });
+  const mms = months.map(monthMoney), tipRow = (l, v) => `<div><span>${l}</span> <b class="num">${chSigned(v)}</b></div>`;
+  const six = chCols({title:"Last 6 months", sel:5, wrap:true, series:[{name:"Sales", cls:"c1", vals:mms.map(x => x.sales)}, {name:"Net profit", cls:"c2", vals:mms.map(x => x.net)}],
+    cats:months.map((k, i) => ({label:chMonth(k), aria:k, attr:`data-xchm="${k}"`, tip:`<b data-keep>${esc(chMonth(k, true))}</b>${tipRow("Sales", mms[i].sales)}${tipRow(mms[i].net < 0 ? "Net loss" : "Net profit", mms[i].net)}`}))});
+  const days = new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate(), byDay = Array(days).fill(0), nDay = Array(days).fill(0);
+  for (const s of E.sales) if (!s.voided && ym(s.date) === m){ byDay[+s.date.slice(8, 10) - 1] += n0(s.total); nDay[+s.date.slice(8, 10) - 1]++; }
+  for (const x of refundsWhere(x => ym(x.date) === m)) byDay[+x.date.slice(8, 10) - 1] -= n0(x.refund);
+  const daily = chCols({title:"Sales each day", h:110, step:7, series:[{name:"Sales", cls:"c1", vals:byDay}],
+    cats:byDay.map((v, i) => { const d = m + "-" + String(i + 1).padStart(2, "0"); return {label:String(i + 1), aria:d, tip:`<b class="num">${d}</b>${tipRow("Sales", v)}<div><span>Receipts</span> <b class="num">${nDay[i]}</b></div>`}; })});
+  return six || daily ? `<div class="chset">${six}${daily}</div>${six ? `<p class="note">Tap a month to see it below.</p>` : ""}` : "";
+}
+const expenseChart = byCat => chBars("Expenses by type", Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({label:k, v, cls:"c1"})));
+// Accounts: where the sales money went, and what the pharmacy owns against what it owes
+function plChart(sales, cogs, exp, loss, profit){
+  return chBars("Where the sales money went", [{label:"Sales", v:sales, cls:"c1"}, {label:"Cost of goods sold", v:cogs, cls:"cm"}, {label:"Expenses", v:exp, cls:"cm"},
+    {label:"Stock losses and count differences", v:loss, cls:"cm"}, {label:profit < 0 ? "Net loss" : "Net profit", v:profit, cls:profit < 0 ? "cbad" : "c2"}]);
+}
+const bsChart = (cash, bank, debts, stock, liab) => chBars("What you own and what you owe", [{label:"Cash box", v:cash}, {label:"Card and bank", v:bank}, {label:"Customer debts", v:debts},
+  {label:"Stock at cost", v:stock}, {label:"Supplier balances", v:liab, cls:"c2"}]);
+{ const tipFor = col => { const ch = col.closest(".ch"), tip = ch?.querySelector(".chtip"); if (!tip) return;
+    tip.innerHTML = col.dataset.chtip; tip.hidden = false; if (S.lang === "ar") translate(tip);
+    tip.style.left = "0"; const cr = col.getBoundingClientRect(), fr = ch.getBoundingClientRect(), w = tip.offsetWidth; // measured at the left edge, so it never wraps
+    tip.style.left = Math.max(0, Math.min(cr.left - fr.left + cr.width / 2 - w / 2, ch.clientWidth - w)) + "px"; tip.style.top = Math.max(0, cr.top - fr.top - tip.offsetHeight + 24) + "px"; };
+  const hide = ch => { const t = ch?.querySelector(".chtip"); if (t) t.hidden = true; };
+  document.addEventListener("pointerover", ev => { const c = ev.target.closest?.(".chcol"); if (c) tipFor(c); });
+  document.addEventListener("pointerout", ev => { const ch = ev.target.closest?.(".ch"); if (ch && !ch.contains(ev.relatedTarget)) hide(ch); });
+  document.addEventListener("focusin", ev => { const c = ev.target.closest?.(".chcol"); if (c) tipFor(c); });
+  document.addEventListener("click", ev => { const c = ev.target.closest(".chcol"); if (!c) return;
+    if (c.dataset.xchm){ S.moneyM = c.dataset.xchm; render(); } else tipFor(c); }); }
+document.head.insertAdjacentHTML("beforeend", `<style>
+:root{--ch1:#1557b0;--ch2:#0e9aa3}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ch1:#4a86ea;--ch2:#1aa9ab}}
+:root[data-theme="dark"]{--ch1:#4a86ea;--ch2:#1aa9ab}
+.chset{display:grid;gap:12px;margin-bottom:10px;align-items:start}@media (min-width:900px){.chset{grid-template-columns:3fr 2fr}}
+.ch{position:relative;margin:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.ch figcaption{font-size:13px;font-weight:600;margin-bottom:6px}
+.chleg{display:flex;gap:14px;font-size:12.5px;color:var(--muted);margin-bottom:6px}.chleg span{display:inline-flex;align-items:center;gap:6px}.chleg .chb{width:10px;height:10px;border-radius:3px;display:inline-block}
+.chb{display:block;background:var(--ch1)}.chb.c2{background:var(--ch2)}.chb.cm{background:var(--muted);opacity:.55}.chb.cbad{background:var(--bad)}
+.chplot,.chx{direction:ltr}.chplot{position:relative;padding-left:44px} /* time runs left to right in both languages, amounts on the left */
+.chgrid{position:absolute;inset-inline:0;border-top:1px dashed var(--line);height:0}.chgrid.zero{border-top:1px solid var(--muted)}
+.chgrid span{position:absolute;left:0;top:-8px;font-size:10.5px;color:var(--muted);background:var(--surface);padding-right:4px;line-height:1;white-space:nowrap}
+.chcols{position:relative;display:flex;height:100%;gap:2px}
+.chcol{flex:1;min-width:0;display:flex;flex-direction:column;padding:0;border:0;border-radius:4px;background:none;cursor:pointer}
+.chcol:hover,.chcol.on{background:color-mix(in srgb,var(--ch1) 9%,transparent)}
+.chup,.chdn{display:flex;justify-content:center;gap:2px;padding-inline:12%}.chup{align-items:flex-end}.chdn{align-items:flex-start}
+.chup .chb,.chdn .chb{flex:1;max-width:22px;min-width:2px}.chup .chb{border-radius:4px 4px 0 0}.chdn .chb{border-radius:0 0 4px 4px}
+.chx{display:flex;gap:2px;padding-left:44px;margin-top:4px}.chx span{flex:1;min-width:0;text-align:center;font-size:11px;color:var(--muted);line-height:1.2;white-space:nowrap;overflow:visible}html[dir="rtl"] .chx.wrap span{white-space:normal;overflow-wrap:anywhere}
+.chtip{position:absolute;z-index:3;background:var(--fg);color:var(--surface);border-radius:8px;padding:6px 10px;font-size:12.5px;line-height:1.4;white-space:nowrap;pointer-events:none;box-shadow:0 4px 14px rgb(0 0 0 / .18)}
+.chtip b{font-weight:600}.chtip .num{color:inherit}
+.chrows{display:grid;gap:8px}.chrow{display:grid;grid-template-columns:minmax(80px,32%) 1fr auto;gap:10px;align-items:center;font-size:13px}
+.chl{overflow:hidden;text-overflow:ellipsis}.cht{background:var(--sunk);border-radius:4px;height:12px;overflow:hidden}.cht .chb{height:100%;border-radius:4px}
+.chrow .num{font-size:12.5px;white-space:nowrap}
+</style>`);
+Object.assign(AR, {"Last 6 months":"آخر 6 أشهر","Sales each day":"المبيعات كل يوم","Tap a month to see it below.":"اضغط على شهر لترى تفاصيله في الأسفل.","Net loss":"صافي الخسارة","Receipts":"الوصولات",
+  "Expenses by type":"المصاريف حسب النوع","Where the sales money went":"أين ذهبت أموال المبيعات","What you own and what you owe":"ما تملكه وما عليك"});
 /* ---- stage 3: reorder list, all-keys sheet, activity log. All worked out from records already in the app ---- */
 // the shortage list: every item out or below its safe level, grouped by the supplier it last came from. An item drops off
 // by itself once enough stock comes in, and comes back when it runs low again

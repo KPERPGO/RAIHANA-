@@ -244,6 +244,7 @@ input,select{min-height:44px}
   .posin{grid-area:in}.posbill{grid-area:bill;position:sticky;top:0}}
 /* quick buttons: square, in rows that always fit the inputs side (4 across; 3 on a very narrow side, 6 on a wide one so they stay small) */
 .posin{container-type:inline-size}
+.scanbox{position:relative;flex:1;min-width:0;display:block}.scanbox input{width:100%;padding-inline-start:62px}.scanbox .scanico{position:absolute;inset-inline-start:10px;top:50%;transform:translateY(-50%);color:var(--fg);pointer-events:none}
 .quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 @container (max-width:300px){.quick{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @container (min-width:520px){.quick{grid-template-columns:repeat(6,minmax(0,1fr))}.quick button b{font-size:clamp(11px,2.5cqi,15px)}}
@@ -2394,11 +2395,21 @@ function sellDash(){
     </div>
     ${st.byStaff.length > 1 || (st.byStaff[0] && st.byStaff[0].id !== "-") ? `<div class="list"><div class="row" style="cursor:default"><span class="main"><span class="t">By pharmacist</span></span></div>${st.byStaff.map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.name)}</span><span class="s"><span class="num">${x.count}</span> receipts</span></span><span class="end num">${iqd(x.total)}</span></div>`).join("")}</div>` : ""}` : `<p class="note">No sales ${k === "today" ? "today" : k === "week" ? "this week" : "this month"} yet.</p>`}</section>`;
 }
+// the till's search box shows a barcode with "Tx" (treatment) instead of words: scan or type into it
+const SCAN_ICON = `<svg class="scanico" viewBox="0 0 46 24" width="46" height="24" aria-hidden="true"><g fill="currentColor"><rect x="1" y="3" width="2" height="18"/><rect x="5" y="3" width="1" height="18"/><rect x="8" y="3" width="3" height="18"/><rect x="13" y="3" width="1" height="18"/><rect x="16" y="3" width="2" height="18"/><rect x="20" y="3" width="1" height="18"/></g><text x="24" y="17.5" font-size="13" font-weight="700" font-family="var(--sans)" fill="var(--accent2)">Tx</text></svg>`;
+// search results: A to Z, or the fastest sellers of the last 30 days first (owner's choice in Settings)
+const SEARCH_SORT = () => E.cfg.searchSort === "fast" ? "fast" : "az";
+function searchSort(list){
+  const byName = (a, b) => pname(a).localeCompare(pname(b));
+  if (SEARCH_SORT() !== "fast") return list.sort(byName);
+  const since = addDays(today(), -30), n = {}; E.sales.filter(s => !s.voided && s.date >= since).forEach(s => (s.lines || []).forEach(l => n[l.pid] = (n[l.pid] || 0) + n0(l.qty) * n0(l.per || 1)));
+  return list.sort((a, b) => (n[b.id] || 0) - (n[a.id] || 0) || byName(a, b));
+}
 /* Sell is the till (POS). Two parts: the inputs (open sales, search, quick buttons, payment) and the invoice (items and totals).
    Phone: inputs on top, invoice under them. Tablet and computer: invoice on the left, inputs on the right (see .pos in build.py). */
 function sellView(){
   const cat = catalog(), used = usedMap(), q = S.sellQ.trim().toLowerCase();
-  const hits = q ? cat.filter(p => (p.barcode && p.barcode === S.sellQ.trim()) || [p.name, p.strength, p.form, p.sci, p.desc, p.barcode].join(" ").toLowerCase().includes(q)).slice(0, 12) : [];
+  const hits = q ? searchSort(cat.filter(p => (p.barcode && p.barcode === S.sellQ.trim()) || [p.name, p.strength, p.form, p.sci, p.desc, p.barcode].join(" ").toLowerCase().includes(q))).slice(0, 12) : [];
   const byId = Object.fromEntries(cat.map(p => [p.id, p]));
   const lines = S.cart.map((c, i) => ({c, i, p: byId[c.pid]})).filter(x => x.p);
   const {sub, disc, total} = cartTotals(lines.map(x => x.c), S.cartMeta), pay = cartPay(total);
@@ -2408,7 +2419,7 @@ function sellView(){
   const quick = quickItems(cat, used);
   const inputs = `<section class="sec posin">
     <div class="tabsale" role="tablist" aria-label="Open sales">${S.tabs.map((t, i) => `<button type="button" role="tab" aria-selected="${i === S.tabAt}" data-xtab="${i}"><span>${esc(tabName(t))}</span>${(t.lines || []).length ? `<span class="num">${iqd(Math.max(0, tabSum(t)))}</span>` : `<span>empty</span>`}</button>`).join("")}<button type="button" class="add" data-xnewtab="1" aria-label="New customer">+ Customer</button></div>
-    <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}</div>
+    <div style="display:flex;gap:8px"><span class="scanbox">${SCAN_ICON}<input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" aria-label="Scan barcode or type a name" value="${esc(S.sellQ)}"></span>${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}</div>
     <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print <button type="button" class="linkbtn" data-xkeys="1">All keys</button></p>
     ${q ? `<div class="list">${hits.length ? hits.map(p => { const s = stockOf(p, used); return `<button type="button" class="row" data-xadd="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""} · ${esc(qtyText(p, s.good))} in stock${s.next ? ` · exp ${esc(s.next.expiry)}` : ""}</span></span><span class="end num">${p.sellBox ? iqd(p.sellBox) : `<span class="pill warn">No price</span>`}</span></button>`; }).join("") : `<div class="empty">No item matches. Items appear here once they are on a purchase invoice, or add one under Stock.</div>`}</div>` : ""}
     ${!q && quick.length ? `<div class="quick" role="group" aria-label="Quick buttons">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" class="${[s.good <= 0 ? "out" : "", p.m?.quick ? "pin" : ""].join(" ").trim()}" title="${esc(pname(p))}"><b>${esc(p.name)}</b><span class="qs">${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : p.sellBox ? `<span class="num">${f0(p.sellBox)}</span>` : `<span class="qs">No price</span>`}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
@@ -2603,6 +2614,7 @@ function quickSettings(){
     <div class="grid2"><label>How many buttons<select id="sQuickN">${[8, 12, 16].map(n => `<option value="${n}" ${QUICK_N() === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
     <label>Change the best sellers<select id="sQuickEvery">${[["week", "Every week (Saturday)"], ["day", "Every day"], ["month", "Every month"], ["pinned", "Never: only my pinned items"]].map(([v, l]) => `<option value="${v}" ${QUICK_EVERY() === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
     <p class="note">Pinned items always come first and stay in the same place every day. To pin or unpin an item, open it under Stock and tick "Quick button on Sell". The other buttons go to the items on the most receipts, and stay put until the next change.</p>
+    <label>Search results on Sell<select id="sSearchSort"><option value="az" ${SEARCH_SORT() === "az" ? "selected" : ""}>A to Z</option><option value="fast" ${SEARCH_SORT() === "fast" ? "selected" : ""}>Fastest selling first (last 30 days)</option></select></label>
     ${pins.length ? `<p class="note"><span>Pinned now:</span> <span data-keep>${pins.map(p => esc(pname(p))).join(" · ")}</span></p>` : `<p class="note">No pinned items yet.</p>`}</div>`;
 }
 function settingsView(){
@@ -3599,7 +3611,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, ...fcSaved()}); toast("Settings saved."); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved()}); toast("Settings saved."); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -3656,7 +3668,7 @@ Object.assign(AR, {
 "Subtotal":"المجموع الفرعي","Discount (IQD)":"الخصم (دينار)","On debt (دين)":"دين","Customer":"الزبون","Choose customer":"اختر الزبون","+ New customer":"+ زبون جديد","Customer name":"اسم الزبون","Phone":"الهاتف",
 "Sell even if stock shows less (fix stock later)":"بع حتى لو المخزون أقل (صحح المخزون لاحقاً)","Today's sales":"مبيعات اليوم","No sales yet today.":"لا مبيعات اليوم بعد.","Scan or search an item to start a sale.":"امسح أو ابحث عن مادة لبدء البيع.",
 "Sales today":"مبيعات اليوم","Low or out of stock":"قليل أو نافد","Customers owe you":"ديون الزبائن","Customers owe you (دين)":"ديون الزبائن","stock is enough":"المخزون كافٍ","Chronic patients: order now":"المرضى المزمنين: اطلب الآن",
-"Stock value at cost (after discounts and bonus)":"قيمة المخزون بالكلفة (بعد الخصم والبونص)","+ Item":"+ مادة","Low":"قليل","Expiring 3 months":"تنتهي خلال 3 أشهر","No sell price":"بدون سعر بيع","Out":"نافد","No price":"بدون سعر",
+"Stock value at cost (after discounts and bonus)":"قيمة المخزون بالكلفة (بعد الخصم والبونص)","+ Item":"+ مادة","Low":"قليل","Expiring 3 months":"تنتهي خلال 3 أشهر","No sell price":"بدون سعر بيع","Out":"نافد","Search results on Sell":"ترتيب نتائج البحث في البيع","A to Z":"من أ إلى ي","Fastest selling first (last 30 days)":"الأسرع بيعاً أولاً (آخر 30 يوماً)","No price":"بدون سعر",
 "Add item":"إضافة مادة","In stock":"في المخزون","Value at cost":"القيمة بالكلفة","Scientific name":"الاسم العلمي","Barcode":"الباركود","Shelf / place":"الرف / المكان","Sell smaller units?":"بيع وحدات أصغر؟","How many in one box":"كم واحدة في العلبة",
 "Sell price per box (IQD)":"سعر بيع العلبة (دينار)","Sell price per small unit (IQD)":"سعر بيع الوحدة الصغيرة (دينار)","Alert when below (boxes)":"نبه عندما يقل عن (علب)","Refrigerated (براد)":"براد","Save item":"حفظ المادة",
 "Batches (nearest expiry sold first)":"الوجبات (الأقرب انتهاءً تباع أولاً)","Came in":"الوارد","Left":"المتبقي","Cost each":"كلفة الواحدة","Write off or correct stock":"شطب أو تصحيح المخزون","Quantity":"الكمية","Unit":"الوحدة","Note":"ملاحظة","Save stock change":"حفظ تغيير المخزون","Stock changes":"تغييرات المخزون",

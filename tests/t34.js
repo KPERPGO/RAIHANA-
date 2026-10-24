@@ -138,6 +138,21 @@ const SHOTS = process.env.SHOTS; // folder for screenshots, when set
     const L = await layout(p, 'pos-phone-16');
     ok('16 buttons on a small phone: square, inside, nothing off the edge', L.n === 16 && L.square && L.inside && L.overflow <= 0, L);
     await p.close(); }
+  // ---- search box: barcode + Tx icon instead of words; results A to Z or fastest selling first (owner's choice)
+  { const p = await fresh({width:390, height:844});
+    const ic = await p.evaluate(() => ({icon: !!document.querySelector('.scanbox .scanico'), ph: $('#sellQ').placeholder, aria: $('#sellQ').getAttribute('aria-label'), tx: document.querySelector('.scanico text')?.textContent}));
+    ok('Search box shows the barcode Tx icon, no words', ic.icon && ic.ph === '' && ic.tx === 'Tx' && /Scan barcode/.test(ic.aria), ic);
+    const hits = () => p.evaluate(() => { S.sellQ = 'a'; render(); return [...document.querySelectorAll('.posin .list [data-xadd] .t')].map(e => e.textContent); });
+    let h = await hits(); ok('Search results A to Z by default', h.join() === [...h].sort((a, b) => a.localeCompare(b)).join() && h.length > 3, h);
+    await p.evaluate(async () => { const id = n => catalog().find(x => x.name === n).id;
+      for (let k = 0; k < 3; k++) await write('sales/F' + k, {id:'F' + k, no:'f', date:today(), at:nowIso(), lines:[{pid:id('Voltaren'), qty:2, per:1, total:10000, alloc:[]}], total:10000, method:'cash'});
+      await write('sales/G0', {id:'G0', no:'g', date:today(), at:nowIso(), lines:[{pid:id('Gaviscon'), qty:1, per:1, total:5000, alloc:[]}], total:5000, method:'cash'});
+      await write('meta/erp', {...E.cfg, searchSort:'fast'}); }); await p.waitForTimeout(250);
+    h = await hits(); ok('Owner choice: fastest selling first', h[0] === 'Voltaren' && h[1] === 'Gaviscon', h);
+    await p.evaluate(() => { S.tab = 'settings'; render(); });
+    ok('Settings shows the search order choice', await p.evaluate(() => $('#sSearchSort')?.value === 'fast'));
+    ok('No page errors (search)', !p.errs.length, p.errs);
+    await p.close(); }
   await b.close();
   console.log(fails ? `FAIL ${fails} checks` : 'PASS all till checks'); process.exit(fails ? 1 : 0);
 })().catch(e => { console.error('CRASH', e); process.exit(1); });

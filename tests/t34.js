@@ -48,7 +48,16 @@ const SHOTS = process.env.SHOTS; // folder for screenshots, when set
     ok(`${name}: nothing wider than the screen`, L.overflow <= 0 && L.doc <= 0, [L.overflow, L.doc]);
     ok(`${name}: 12 square quick buttons inside the inputs part`, L.n === 12 && L.square && L.inside && L.minW >= 56, L);
     if (side) ok(`${name}: invoice on the left, inputs on the right`, L.bill.r <= L.inn.l + 1 && L.bill.t < L.inn.b, [L.bill, L.inn]);
-    else ok(`${name}: inputs on top, invoice under them`, L.inn.b <= L.bill.t + 1, [L.inn, L.bill]);
+    if (side) ok(`${name}: no switch on a wide screen`, await p.evaluate(() => getComputedStyle(document.querySelector('.posswitch')).display === 'none'));
+    else {
+      const sw = async () => p.evaluate(() => ({inn: getComputedStyle(document.querySelector('.posin')).display, bill: getComputedStyle(document.querySelector('.posbill')).display, sw: getComputedStyle(document.querySelector('.posswitch')).display, label: document.querySelector('[data-xpane="bill"]').innerText.replace(/\s+/g, ' ')}));
+      let v = await sw(); ok(`${name}: one part at a time, Items first, switch shows count and total`, v.inn !== 'none' && v.bill === 'none' && v.sw !== 'none' && /3 · 15,000/.test(v.label), v);
+      const swBox = await box(p, '.posswitch'); ok(`${name}: switch sits at the bottom of the screen`, swBox && swBox.b <= 844 + 1 && swBox.b > 844 - 80, swBox);
+      await p.click('[data-xpane="bill"]'); await p.waitForTimeout(150); v = await sw();
+      if (SHOTS) await p.screenshot({ path: `${SHOTS}/pos-${name}-invoice.png` });
+      ok(`${name}: switch to Invoice hides the inputs`, v.inn === 'none' && v.bill !== 'none', v);
+      await p.click('[data-xpane="in"]'); await p.waitForTimeout(150); v = await sw(); ok(`${name}: and back to Items`, v.inn !== 'none' && v.bill === 'none', v);
+    }
     ok(`${name}: no page errors`, !p.errs.length, p.errs);
     await p.close();
   }

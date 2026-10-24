@@ -422,7 +422,10 @@ function sellView(){
       ${pay.method === "debt" ? `<div class="r"><span>On debt</span><span class="num">${iqd(total)}</span></div>` : `<div class="r" id="billCardRow" ${pay.card ? "" : "hidden"}><span>Card</span><span class="num" id="billCard">${iqd(pay.card)}</span></div><div class="r"><span>Cash</span><span class="num" id="billCash">${iqd(pay.cash)}</span></div>`}
     </div>` : ""}
   </section>`;
-  return `<div class="pos">${inputs}${bill}</div>
+  // phone: one part at a time, with a switch at the bottom (Items / Invoice); wider screens show both and hide the switch
+  const pane = S.posPane === "bill" ? "bill" : "in", n = lines.reduce((a, x) => a + n0(x.c.qty), 0);
+  const sw = `<div class="posswitch" role="tablist" aria-label="Till parts"><button type="button" role="tab" data-xpane="in" aria-selected="${pane === "in"}">Items</button><button type="button" role="tab" data-xpane="bill" aria-selected="${pane === "bill"}"><span>Invoice</span>${lines.length ? ` <span class="num">${n} · ${iqd(total)}</span>` : ""}</button></div>`;
+  return `<div class="pos" data-pane="${pane}">${inputs}${bill}${sw}</div>
   ${sellDash()}
   <section class="sec"><div class="sechead"><h2>Receipts</h2><span class="note">${esc(S.sellPeriod === "custom" ? [S.sellFrom, S.sellTo].filter(Boolean).join(" to ").replace(/T/g, " ") : periodRange(S.sellPeriod).join(" to "))}</span></div>
     <div class="list">${E.sales.filter(s => inPeriod(s, S.sellPeriod)).sort((a,b) => (b.at || "").localeCompare(a.at || "")).slice(0, 50).map(saleRow).join("") || `<div class="empty">No receipts yet.</div>`}</div></section>`;
@@ -1414,6 +1417,7 @@ document.addEventListener("click", ev => {
   if (d.xper){ S.sellPeriod = d.xper; lsSet("erp.sellPeriod", d.xper); render(); return; }
   if (d.xrm !== undefined){ S.cart.splice(+d.xrm, 1); if (!S.cart.length) S.cartMeta = {}; saveCart(); render(); return; }
   if (d.xclear){ S.cart = []; S.cartMeta = {}; saveCart(); render(); return; }
+  if (d.xpane){ S.posPane = d.xpane; render(); $("#view")?.scrollTo(0, 0); return; }
   if (d.xdisc){ if ((S.cartMeta.discMode || "iqd") !== d.xdisc){ S.cartMeta.discMode = d.xdisc; S.cartMeta.disc = null; S.cartMeta.discPct = null; saveCart(); render(); setTimeout(() => $("#xDisc")?.focus(), 0); } return; }
   if (d.xpay){ S.cartMeta.method = d.xpay; if (d.xpay !== "debt") S.cartMeta.card = null; saveCart(); render(); return; }
   if (d.xsale){ receiptSheet(d.xsale); return; }
@@ -1644,7 +1648,7 @@ Object.assign(AR, {
 "Subtotal":"المجموع الفرعي","Discount (IQD)":"الخصم (دينار)","On debt (دين)":"دين","Customer":"الزبون","Choose customer":"اختر الزبون","+ New customer":"+ زبون جديد","Customer name":"اسم الزبون","Phone":"الهاتف",
 "Sell even if stock shows less (fix stock later)":"بع حتى لو المخزون أقل (صحح المخزون لاحقاً)","Today's sales":"مبيعات اليوم","No sales yet today.":"لا مبيعات اليوم بعد.","Scan or search an item to start a sale.":"امسح أو ابحث عن مادة لبدء البيع.",
 "Sales today":"مبيعات اليوم","Low or out of stock":"قليل أو نافد","Customers owe you":"ديون الزبائن","Customers owe you (دين)":"ديون الزبائن","stock is enough":"المخزون كافٍ","Chronic patients: order now":"المرضى المزمنين: اطلب الآن",
-"Stock value at cost (after discounts and bonus)":"قيمة المخزون بالكلفة (بعد الخصم والبونص)","+ Item":"+ مادة","Low":"قليل","Expiring 3 months":"تنتهي خلال 3 أشهر","No sell price":"بدون سعر بيع","Out":"نافد","Discount (%)":"الخصم (%)","Discount as":"الخصم بـ","Search results on Sell":"ترتيب نتائج البحث في البيع","A to Z":"من أ إلى ي","Fastest selling first (last 30 days)":"الأسرع بيعاً أولاً (آخر 30 يوماً)","No price":"بدون سعر",
+"Stock value at cost (after discounts and bonus)":"قيمة المخزون بالكلفة (بعد الخصم والبونص)","+ Item":"+ مادة","Low":"قليل","Expiring 3 months":"تنتهي خلال 3 أشهر","No sell price":"بدون سعر بيع","Out":"نافد","Till parts":"أقسام البيع","Discount (%)":"الخصم (%)","Discount as":"الخصم بـ","Search results on Sell":"ترتيب نتائج البحث في البيع","A to Z":"من أ إلى ي","Fastest selling first (last 30 days)":"الأسرع بيعاً أولاً (آخر 30 يوماً)","No price":"بدون سعر",
 "Add item":"إضافة مادة","In stock":"في المخزون","Value at cost":"القيمة بالكلفة","Scientific name":"الاسم العلمي","Barcode":"الباركود","Shelf / place":"الرف / المكان","Sell smaller units?":"بيع وحدات أصغر؟","How many in one box":"كم واحدة في العلبة",
 "Sell price per box (IQD)":"سعر بيع العلبة (دينار)","Sell price per small unit (IQD)":"سعر بيع الوحدة الصغيرة (دينار)","Alert when below (boxes)":"نبه عندما يقل عن (علب)","Refrigerated (براد)":"براد","Save item":"حفظ المادة",
 "Batches (nearest expiry sold first)":"الوجبات (الأقرب انتهاءً تباع أولاً)","Came in":"الوارد","Left":"المتبقي","Cost each":"كلفة الواحدة","Write off or correct stock":"شطب أو تصحيح المخزون","Quantity":"الكمية","Unit":"الوحدة","Note":"ملاحظة","Save stock change":"حفظ تغيير المخزون","Stock changes":"تغييرات المخزون",

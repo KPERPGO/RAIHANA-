@@ -172,7 +172,14 @@ input,select{min-height:44px}
 .posbill .lineedit{background:transparent;border:0;border-top:1px solid var(--inv-line);border-radius:0}.posbill .list > .lineedit:first-child{border-top:0}
 .posbill .billsum .r.big{font-size:20px}
 .paybox .err:empty{display:none}.discrow{display:flex;gap:8px;align-items:end}.discrow label{flex:1;min-width:0}.discrow .chips{flex-wrap:nowrap;gap:4px}.discrow .chips button{min-height:44px;min-width:52px}#xDiscIqd{margin:-4px 0 0}.paybox .paykind button{flex:1 1 0;min-width:0}.paybox .paykind button[aria-pressed="true"]{background:linear-gradient(120deg,var(--accent),var(--accent2));border-color:var(--accent);color:var(--accent-ink)}
+/* phone: only one part shows; the switch at the bottom changes it */
+.posswitch{position:sticky;bottom:0;z-index:4;display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:6px;margin-top:-4px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 -4px 16px rgba(16,36,61,.10)}
+.posswitch button{min-height:48px;border-radius:10px;font-weight:600;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px;border:0;background:transparent;color:var(--muted)}
+.posswitch button .num{font-size:12.5px;font-weight:600}
+.posswitch button[aria-selected="true"]{background:linear-gradient(120deg,var(--accent),var(--accent2));color:var(--accent-ink)}
+@media (max-width:760px){.pos[data-pane="in"] .posbill,.pos[data-pane="bill"] .posin{display:none}}
 @media (min-width:761px){body.on-sell .wrap{max-width:1500px}
+  .posswitch{display:none}
   .pos{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-areas:"bill in"}
   html[dir=rtl] .pos{grid-template-areas:"in bill"}
   .posin{grid-area:in}.posbill{grid-area:bill;position:sticky;top:0}}

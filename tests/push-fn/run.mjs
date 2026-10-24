@@ -12,3 +12,6 @@ const tok = T.erp_push_keys[0].token; sent.length = 0;
 r = await call('', {token: tok}); ok('daily send: owner gets both parts, cashier only sell-first, old list marked', r[1].sent === 2 && r[1].gone === 1 && /2 to order/.test(sent.find(s => s[0] === 'A')[1].body) && !/to order/.test(sent.find(s => s[0] === 'B')[1].body) && /List from 2000-01-01/.test(sent[0][1].body), {r, sent});
 ok('gone phone switched off', T.erp_docs.find(d => d.path === 'meta/pushsub-G').data.off === true);
 r = await call('', {token: tok}); ok('second send the same day skipped', /already/.test(r[1].skipped || ''), r);
+r = await call('', {test: true, endpoint: 'nobody'}); ok('test for a phone not in the cloud: found 0', r[1].sent === 0 && r[1].found === 0, r);
+T.erp_docs.push({path: 'meta/pushsub-X', data: {endpoint: 'bad', keys: {}}});
+r = await call('', {test: true, endpoint: 'bad'}); ok('refused send: reason returned', r[1].sent === 0 && r[1].found === 1 && /403 BadJwtToken/.test(r[1].failed[0] || ''), r);

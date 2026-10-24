@@ -11,5 +11,5 @@ try { out = execFileSync(process.execPath, ['--experimental-strip-types', '--no-
 catch (e) { out = (e.stdout || '') + (e.stderr || '') + '\nFAIL the function test crashed'; }
 finally { fs.rmSync(fn, { force: true }); }
 console.log(out.trim());
-const bad = /FAIL/.test(out) || (out.match(/^ok /gm) || []).length < 6;
+const bad = /FAIL/.test(out) || (out.match(/^ok /gm) || []).length < 8;
 console.log(bad ? 'SOME FAILED' : 'PASS all push function checks'); process.exit(bad ? 1 : 0);

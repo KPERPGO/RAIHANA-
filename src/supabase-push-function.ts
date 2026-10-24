@@ -41,10 +41,11 @@ Deno.serve(async (req) => {
     webpush.setVapidDetails("https://kperpgo.github.io/RAIHANA-/", k.public_key, k.private_key);
     const today = new Date(Date.now() + 3 * 36e5).toISOString().slice(0, 10); // Baghdad time
     const old = note.date && note.date < today ? `List from ${note.date}, the last time the app was used.\n` : "";
-    let sent = 0, gone = 0;
+    let sent = 0, gone = 0, found = 0; const failed: string[] = [];
     for (const s of subs) {
       const d = s.data || {};
       if (d.off || !d.endpoint || !d.keys || (test && d.endpoint !== body.endpoint)) continue;
+      found++;
       const parts = [d.stock ? note.short : "", note.near].filter(Boolean);
       const msg = test ? "Test: phone notifications from Raihana work." : parts.length ? old + parts.join("\n") : "Nothing to order and nothing to sell first today.";
       try {
@@ -53,10 +54,11 @@ Deno.serve(async (req) => {
       } catch (e: any) {
         // the phone removed the app or turned notifications off: stop sending to it
         if (e?.statusCode === 404 || e?.statusCode === 410) { await db.from("erp_docs").update({ data: { ...d, off: true } }).eq("path", s.path); gone++; }
+        else failed.push(`${e?.statusCode || ""} ${String(e?.body || e?.message || e).slice(0, 160)}`.trim()); // shown in the app's test message
       }
     }
     if (!test) await db.from("erp_push_keys").update({ last_sent: new Date().toISOString() }).eq("id", 1);
-    return json({ sent, gone });
+    return json({ sent, gone, found, failed });
   } catch (e: any) {
     return json({ error: String(e?.message || e) }, 500);
   }

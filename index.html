@@ -4322,7 +4322,7 @@ async function pushJoin(quiet){
 async function pushTest(){
   try { const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription(), f = pushFn(); if (!sub || !f) return toast("This phone is not registered yet.");
     const r = await fetch(f.url, {method:"POST", headers:f.h, body:JSON.stringify({test:true, endpoint:sub.endpoint})}), j = await r.json().catch(() => ({}));
-    toast(r.ok && j.sent ? "Test sent. It should arrive in a few seconds." : "Not sent: " + (j.error || "this phone is not registered in the cloud yet. Wait for sync and try again."));
+    toast(r.ok && j.sent ? "Test sent. It should arrive in a few seconds." : "Not sent: " + (j.error || (j.failed?.length ? "the phone's notification service refused it (" + j.failed[0] + "). Tap Register this phone again, then try again." : j.found === 0 || j.found === undefined ? "this phone's registration has not reached the cloud yet. Tap Sync now under Where your data is, then try again." : "unknown reason.")));
   } catch(e){ toast("Not sent: " + (e.message || e)); }
 }
 // keep the day's list in the cloud for the morning notification: at shift start and end, and when the app is put away

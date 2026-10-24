@@ -29,19 +29,20 @@ const rd = p => JSON.parse(fs.readFileSync(path.join(D, p)));
   // sell
   await tab('sell'); await page.fill('#sellQ', '6281234567890'); await page.press('#sellQ', 'Enter'); await page.waitForTimeout(300);
   await page.fill('#sellQ', 'hema'); await page.waitForTimeout(300); await page.click(`[data-xadd="${hp[0]}"]`); await page.waitForTimeout(300);
-  await page.selectOption('[data-xmode="1"]', 'mid'); await page.waitForTimeout(300);
+  // phone till: the invoice and the inputs are two parts with a switch at the bottom
+  await page.click('[data-xpane="bill"]'); await page.selectOption('[data-xmode="1"]', 'mid'); await page.waitForTimeout(300);
   await page.fill('[data-xq="0"]', '2'); await page.dispatchEvent('[data-xq="0"]', 'change'); await page.waitForTimeout(300);
   await shot('04-cart');
-  await page.click('#sellForm button[type=submit]'); await page.waitForTimeout(700); await shot('05-receipt');
+  await page.click('[data-xpane="in"]'); await page.click('#sellForm button[type=submit]'); await page.waitForTimeout(700); await shot('05-receipt');
   await page.click('#sheetClose');
   // debt sale new customer
   // selling on debt is off by default (owner's rule 22 Oct 2026); switch it on for this check
   await page.evaluate(async () => { await write('meta/erp', {...E.cfg, debtOn:true}); }); await page.waitForTimeout(200);
   await page.fill('#sellQ', 'hema'); await page.waitForTimeout(200); await page.click(`[data-xadd="${hp[0]}"]`); await page.waitForTimeout(200);
   await page.click('[data-xpay="debt"]'); await page.waitForTimeout(200); await page.selectOption('#xCust', '__new'); await page.waitForTimeout(200);
-  await page.selectOption('[data-xmode="0"]', 'mid'); await page.waitForTimeout(200); await page.fill('#xCName', 'Test Customer'); await page.click('#sellForm button[type=submit]'); await page.waitForTimeout(700); console.log('xErr', await page.evaluate(() => document.querySelector('#xErr')?.textContent)); if (await page.isVisible('#sheetClose')) await page.click('#sheetClose');
+  await page.click('[data-xpane="bill"]'); await page.selectOption('[data-xmode="0"]', 'mid'); await page.waitForTimeout(200); await page.click('[data-xpane="in"]'); await page.fill('#xCName', 'Test Customer'); await page.click('#sellForm button[type=submit]'); await page.waitForTimeout(700); console.log('xErr', await page.evaluate(() => document.querySelector('#xErr')?.textContent)); if (await page.isVisible('#sheetClose')) await page.click('#sheetClose');
   await page.click('[data-xnewtab="1"]'); await page.waitForTimeout(200); await page.click(`.quick [data-xadd="${st[0]}"]`); await page.waitForTimeout(200);
-  await page.click('[data-xnewtab="1"]'); await page.waitForTimeout(200); await page.click(`.quick [data-xadd="${st[0]}"]`); await page.click('[data-xstep="0"][data-d="1"]'); await page.waitForTimeout(200);
+  await page.click('[data-xnewtab="1"]'); await page.waitForTimeout(200); await page.click(`.quick [data-xadd="${st[0]}"]`); await page.click('[data-xpane="bill"]'); await page.click('[data-xstep="0"][data-d="1"]'); await page.click('[data-xpane="in"]'); await page.waitForTimeout(200);
   console.log('tabs', await page.evaluate(() => S.tabs.map(t => t.n + ':' + t.lines.map(l => l.qty).join(','))));
   await page.click('[data-xtab="0"]'); await page.waitForTimeout(200); await shot('05b-tabs'); await page.screenshot({ path: '05c-sell-full.png', fullPage: true });
   // chronic

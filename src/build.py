@@ -68,12 +68,12 @@ rep("""function returnedQty(invId, k){ return S.credits.filter(x => x.invoiceId 
   return S.credits.filter(x => x.invoiceId === invId && x.lines).reduce((a,x) => a + n0(x.lines.find(y => String(y.lid ?? y.k) === lid)?.qty), 0); }""")
 rep("""return {k:+k, desc:l?.desc || "",""", """return {k:+k, lid:String(l?.lid ?? +k), desc:l?.desc || "",""")
 NAV_OLD = re.search(r'<nav class="tabs".*?</nav>', base, re.S).group(0)
-TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("dose","Dose"),("money","Cash box"),("books","Accounts"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
+TABS = [("home","Home"),("sell","Sell"),("stock","Stock"),("pricing","Pricing"),("chronic","Chronic"),("invoices","Invoices"),("items","Items"),("payments","Payments"),("suppliers","Suppliers"),("customers","Customers"),("money","Cash box"),("books","Accounts"),("reports","Reports"),("staff","Staff"),("settings","Settings")]
 # the menu is grouped by the work being done; every screen keeps its own route and permission
 # Items lists the lines of purchase invoices (supplier, batch, unit cost), so it sits under Purchasing; the medicine catalogue is in Stock.
 # A short name is shown on phones, where each heading takes one cell of the screen grid.
 GROUP_SHORT = {"sales":"Sales", "admin":"Admin"}
-GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell","dose"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock"]),("purchasing","Purchasing",["invoices","items","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money","books"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
+GROUPS = [("home","Home",["home"]),("sales","Dispensing and sales",["sell"]),("patients","Patients",["customers","chronic"]),("inventory","Inventory",["stock"]),("purchasing","Purchasing",["invoices","items","suppliers"]),("pricing","Pricing",["pricing"]),("finance","Finance",["payments","money","books"]),("reports","Reports",["reports"]),("admin","Administration",["staff","settings"])]
 assert sorted(k for _,_,ks in GROUPS for k in ks) == sorted(k for k,_ in TABS)
 MENU_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
 # The screen bar sits right under the top bar: Menu first, then one small button per screen
@@ -160,10 +160,32 @@ input,select{min-height:44px}
 .tabsale button[aria-selected="true"] span:last-child{color:inherit;opacity:.85}
 .tabsale button.add{min-width:auto;align-content:center;border-style:dashed;color:var(--accent)}
 .kbdhint{margin:0;font-size:12px}@media (hover:none),(max-width:700px){.kbdhint{display:none}}
-.quick{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
-.quick button{display:grid;gap:3px;align-content:start;text-align:start;min-height:88px;padding:10px 12px;border-radius:12px;font-weight:500;background:var(--surface);border:1px solid var(--line);box-shadow:inset 0 -3px 0 var(--accent2)}
-.quick button b{font-size:15px;overflow-wrap:anywhere}.quick button span{font-size:12px;color:var(--muted)}.quick button .num{font-size:14px;color:var(--fg);font-weight:600}
-.quick button.out{opacity:.55;box-shadow:inset 0 -3px 0 var(--bad)}
+/* Sell is the till (POS). Phone: inputs (open sales, search, quick buttons, payment) on top, the invoice under them.
+   Tablet and computer: the invoice on the left, the inputs on the right, in both languages (the owner's layout). */
+:root{--inv:#d6e2ee;--inv-line:#b9cadb}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--inv:#1f3048;--inv-line:#33496a}}
+:root[data-theme="dark"]{--inv:#1f3048;--inv-line:#33496a}
+.pos{display:grid;gap:14px;align-items:start}
+.posin,.posbill{min-width:0}
+.posbill{background:var(--inv);border:1px solid var(--inv-line);border-radius:16px;padding:12px}
+.posbill .list,.posbill .sum{background:transparent;border-color:var(--inv-line)}
+.posbill .lineedit{background:transparent;border:0;border-top:1px solid var(--inv-line);border-radius:0}.posbill .list > .lineedit:first-child{border-top:0}
+.posbill .billsum .r.big{font-size:20px}
+.paybox .err:empty{display:none}.paybox .paykind button{flex:1 1 0;min-width:0}.paybox .paykind button[aria-pressed="true"]{background:linear-gradient(120deg,var(--accent),var(--accent2));border-color:var(--accent);color:var(--accent-ink)}
+@media (min-width:761px){body.on-sell .wrap{max-width:1500px}
+  .pos{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-areas:"bill in"}
+  html[dir=rtl] .pos{grid-template-areas:"in bill"}
+  .posin{grid-area:in}.posbill{grid-area:bill;position:sticky;top:0}}
+/* quick buttons: square, in rows that always fit the inputs side (4 across; 3 on a very narrow side, 6 on a wide one so they stay small) */
+.posin{container-type:inline-size}
+.quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@container (max-width:300px){.quick{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@container (min-width:520px){.quick{grid-template-columns:repeat(6,minmax(0,1fr))}.quick button b{font-size:clamp(11px,2.5cqi,15px)}}
+.quick button{aspect-ratio:1;min-height:0;display:flex;flex-direction:column;justify-content:space-between;gap:2px;text-align:start;padding:8px;border-radius:12px;font-weight:500;background:var(--surface);border:1px solid var(--line);box-shadow:inset 0 -3px 0 var(--accent2);overflow:hidden}
+.quick button b{font-size:clamp(11px,3.6cqi,15px);line-height:1.2;overflow-wrap:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.quick button .qs{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.quick button .num{font-size:clamp(12px,3.2cqi,14px);color:var(--fg);font-weight:600}
+.quick button.pin{box-shadow:inset 0 -3px 0 var(--accent)}.quick button.out{opacity:.55;box-shadow:inset 0 -3px 0 var(--bad)}
+.quick button .pill{align-self:flex-start}
 .stepper{display:flex;gap:6px;align-items:stretch}.stepper button{min-width:52px;font-size:22px;line-height:1;padding:0}.stepper input{flex:1;text-align:center;font-size:18px;min-width:0}.stepper select{width:auto;flex:none}
 table.prt tr.chg td{background:color-mix(in srgb,var(--accent2) 10%,transparent)}table.prt input{min-height:40px}
 @media (max-width:640px){table.prt{min-width:0}table.prt thead{display:none}table.prt tr{display:grid;grid-template-columns:36px repeat(2,minmax(0,1fr));gap:4px 10px;padding:10px 12px;border-top:1px solid var(--line)}table.prt td{border:0;padding:0;text-align:start}table.prt td.ck{grid-row:span 3;padding-top:2px}table.prt td.nm{grid-column:2/-1}table.prt td[data-l]::before{content:attr(data-l);display:block;font-size:11.5px;color:var(--muted);font-family:var(--sans)}table.prt td input{width:100%!important;text-align:start!important}}

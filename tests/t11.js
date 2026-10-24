@@ -9,6 +9,8 @@ const { chromium } = require('./pw');
     const within = (p, ms) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error('timed out')), ms))]);
     const seen = []; for (let i = 0; i < 60; i++){ const r = await within(page.evaluate(() => { const el = document.getElementById('boot'); return el ? document.getElementById('bootPct').textContent : 'gone'; }), 3000).catch(() => 'nav'); seen.push(r); if (r === 'gone') break; if (i === 3) await page.screenshot({path:`boot-${w}.png`, timeout:5000}).catch(() => {}); await page.waitForTimeout(50); }
     const gone = Date.now() - t0;
+    // the page may still be swapping documents here; a plain evaluate then never returns, so first wait (and fail clearly) until the app is up
+    await page.waitForFunction(() => typeof S !== 'undefined' && S.ready && !document.getElementById('boot'), null, {timeout:60000});
     // after load: count renders during 1s idle and layout shift
     const after = await page.evaluate(() => new Promise(r => { let n = 0; const o = window.render; window.render = render = function(){ n++; return o.apply(this, arguments); }; let cls = 0; new PerformanceObserver(l => l.getEntries().forEach(e => cls += e.value)).observe({type:'layout-shift', buffered:false}); setTimeout(() => r({renders:n, cls, ready:S.ready, tab:S.tab}), 1000); }));
     // tab switching speed

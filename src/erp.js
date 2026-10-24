@@ -1,7 +1,7 @@
 /* ---------- Raihana ERP modules (2026-10-21): stock by batch, cashier, customers on debt,
    chronic patient cards with shortage alerts, money (cash box, expenses, profit), settings.
    Stock is worked out from the purchase invoices: what came in, minus returns, sales and write-offs. ---------- */
-const E = {staff:[], shifts:[], doserules:[], doselog:[], journal:[], prods:[], sales:[], moves:[], customers:[], custpays:[], chronic:[], expenses:[], closes:[], counts:[], events:[], cfg:{}};
+const E = {staff:[], shifts:[], journal:[], prods:[], sales:[], moves:[], customers:[], custpays:[], chronic:[], expenses:[], closes:[], counts:[], events:[], cfg:{}};
 /* several sales open at once: one tab per customer at the counter */
 S.tabs = lsGet("erp.tabs", null) || [{n:1, lines:lsGet("erp.cart", []), meta:lsGet("erp.cartMeta", {})}];
 S.tabAt = Math.min(lsGet("erp.tabAt", 0), S.tabs.length - 1); S.sellPeriod = lsGet("erp.sellPeriod", "today");
@@ -325,6 +325,10 @@ const saleReturns = sid => E.moves.filter(m => !m.voided && m.saleId === sid);
 const returnedOf = (sid, li) => saleReturns(sid).filter(m => m.saleLine === li).reduce((a, m) => a + n0(m.rq), 0);
 const refundsWhere = f => E.moves.filter(m => !m.voided && m.saleId && f(m));
 const debtOn = () => E.cfg.debtOn === true; // owner's rule (22 Oct 2026): no selling on debt unless switched on in Settings
+// how a sale was paid. "split" = part card, part cash: the card part is kept on the sale, the rest is cash
+const payOf = s => { const t = n0(s.total); if (s.method === "debt") return {cash:0, card:0, debt:t};
+  const card = s.method === "card" ? t : s.method === "split" ? Math.min(t, n0(s.card)) : 0; return {cash:t - card, card, debt:0}; };
+const payText = s => { const p = payOf(s); return s.method === "debt" ? "On debt" : s.method === "split" ? `Cash ${f0(p.cash)} + card ${f0(p.card)}` : s.method === "card" ? "Card" : "Cash"; };
 function custBalance(cid){
   const debt = E.sales.filter(s => !s.voided && s.method === "debt" && s.customerId === cid).reduce((a,s) => a + n0(s.total), 0)
     - refundsWhere(m => m.refundBy === "debt" && m.customerId === cid).reduce((a, m) => a + n0(m.refund), 0);
@@ -333,11 +337,11 @@ function custBalance(cid){
 }
 function cashParts(d, keep){ // d = null: any date (a shift can run past midnight); keep() then picks the time window
   const sum = (arr, f) => arr.reduce((a, x) => a + n0(f(x)), 0), on = x => d == null || x.date === d;
-  const sales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "cash"), s => s.total);
+  const sales = sum(E.sales.filter(s => keep(s) && on(s)), s => payOf(s).cash);
   const cin = sum(E.custpays.filter(x => keep(x) && on(x)), x => x.amount);
   const sup = sum(S.payments.filter(p => p.verified && (d == null ? keep(p) : p.date === d) && /cash/i.test(p.method || "")), p => p.amount);
   const exp = sum(E.expenses.filter(x => keep(x) && on(x) && x.fromCash !== false), x => x.amount);
-  const debtSales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "debt"), s => s.total), cardSales = sum(E.sales.filter(s => keep(s) && on(s) && s.method === "card"), s => s.total);
+  const debtSales = sum(E.sales.filter(s => keep(s) && on(s)), s => payOf(s).debt), cardSales = sum(E.sales.filter(s => keep(s) && on(s)), s => payOf(s).card);
   const ref = sum(E.moves.filter(m => keep(m) && m.saleId && on(m) && m.refundBy === "cash"), m => m.refund); // cash given back for returns
   return {sales, cin, sup, exp, ref, debtSales, cardSales, expected: sales + cin - sup - exp - ref};
 }
@@ -377,14 +381,23 @@ function salesStats(k){
   const items = {}; ss.forEach(s => (s.lines || []).forEach(l => { const x = items[l.pid] || (items[l.pid] = {pid:l.pid, name:l.name, qty:0, total:0, unit:l.unit}); x.total += n0(l.total); x.qty += n0(l.qty); }));
   const hours = Array(24).fill(0); ss.forEach(s => { const h = new Date(s.at || s.date).getHours(); if (isFinite(h)) hours[h] += n0(s.total); });
   const days = {}; ss.forEach(s => days[s.date] = (days[s.date] || 0) + n0(s.total));
-  return {from, to, count:ss.length, total, cash:ss.filter(s => s.method !== "debt" && s.method !== "card").reduce((a,s) => a + n0(s.total), 0) - cashRef, card:ss.filter(s => s.method === "card").reduce((a,s) => a + n0(s.total), 0) - cardRef, debt:ss.filter(s => s.method === "debt").reduce((a,s) => a + n0(s.total), 0) - (refunds - cashRef - cardRef), refunds, disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
+  return {from, to, count:ss.length, total, cash:ss.reduce((a,s) => a + payOf(s).cash, 0) - cashRef, card:ss.reduce((a,s) => a + payOf(s).card, 0) - cardRef, debt:ss.reduce((a,s) => a + payOf(s).debt, 0) - (refunds - cashRef - cardRef), refunds, disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
     byStaff:Object.values(ss.reduce((m, s) => { const id = s.staffId || "-", x = m[id] || (m[id] = {id, name:s.staffName || "No login", count:0, total:0}); x.count++; x.total += n0(s.total); return m; }, {})).sort((a,b) => b.total - a.total)};
 }
+/* quick buttons on Sell: the owner's pinned items come first and always keep their place. The other places go to the
+   best sellers (how many receipts an item was on), worked out once per period (by default the week, from Saturday) from the
+   sales before it, so the buttons stay put while staff learn them. Out-of-stock best sellers are skipped. */
+const QUICK_N = () => [8, 12, 16].includes(E.cfg.quickN) ? E.cfg.quickN : 12;
+const QUICK_EVERY = () => ["day", "week", "month", "pinned"].includes(E.cfg.quickEvery) ? E.cfg.quickEvery : "week";
 function quickItems(cat, used){
-  const since = addDays(today(), -30), score = {};
-  E.sales.filter(s => !s.voided && s.date >= since).forEach(s => (s.lines || []).forEach(l => score[l.pid] = (score[l.pid] || 0) + 1));
-  const pinned = cat.filter(p => p.m?.quick), top = cat.filter(p => !p.m?.quick && score[p.id]).sort((a,b) => score[b.id] - score[a.id]);
-  return [...pinned, ...top].slice(0, 12).map(p => ({p, s:stockOf(p, used)}));
+  const every = QUICK_EVERY(), start = every === "day" ? today() : every === "month" ? today().slice(0, 8) + "01" : periodRange("week")[0];
+  const pinned = cat.filter(p => p.m?.quick).sort((a, b) => pname(a).localeCompare(pname(b)));
+  const rank = (from, to) => { const score = {}; E.sales.filter(s => !s.voided && s.date >= from && s.date < to).forEach(s => new Set((s.lines || []).map(l => l.pid)).forEach(pid => score[pid] = (score[pid] || 0) + 1)); return score; };
+  let score = {};
+  if (every !== "pinned"){ score = rank(addDays(start, every === "month" ? -30 : -7), start);
+    if (!Object.keys(score).length) score = rank(addDays(start, -30), addDays(today(), 1)); } // a new pharmacy: use what has been sold so far
+  const top = cat.filter(p => !p.m?.quick && score[p.id] && stockOf(p, used).good > 0).sort((a, b) => score[b.id] - score[a.id] || pname(a).localeCompare(pname(b)));
+  return [...pinned, ...top].slice(0, QUICK_N()).map(p => ({p, s:stockOf(p, used)}));
 }
 function sellDash(){
   const k = S.sellPeriod, st = salesStats(k), f = v => Math.round(v).toLocaleString("en-US");
@@ -410,28 +423,31 @@ function sellDash(){
     </div>
     ${st.byStaff.length > 1 || (st.byStaff[0] && st.byStaff[0].id !== "-") ? `<div class="list"><div class="row" style="cursor:default"><span class="main"><span class="t">By pharmacist</span></span></div>${st.byStaff.map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.name)}</span><span class="s"><span class="num">${x.count}</span> receipts</span></span><span class="end num">${iqd(x.total)}</span></div>`).join("")}</div>` : ""}` : `<p class="note">No sales ${k === "today" ? "today" : k === "week" ? "this week" : "this month"} yet.</p>`}</section>`;
 }
+/* Sell is the till (POS). Two parts: the inputs (open sales, search, quick buttons, payment) and the invoice (items and totals).
+   Phone: inputs on top, invoice under them. Tablet and computer: invoice on the left, inputs on the right (see .pos in build.py). */
 function sellView(){
   const cat = catalog(), used = usedMap(), q = S.sellQ.trim().toLowerCase();
   const hits = q ? cat.filter(p => (p.barcode && p.barcode === S.sellQ.trim()) || [p.name, p.strength, p.form, p.sci, p.desc, p.barcode].join(" ").toLowerCase().includes(q)).slice(0, 12) : [];
   const byId = Object.fromEntries(cat.map(p => [p.id, p]));
   const lines = S.cart.map((c, i) => ({c, i, p: byId[c.pid]})).filter(x => x.p);
-  const {sub, total} = cartTotals(lines.map(x => x.c), S.cartMeta);
+  const {sub, disc, total} = cartTotals(lines.map(x => x.c), S.cartMeta), pay = cartPay(total);
   const chr = S.cartMeta.chronicId ? E.chronic.find(c => c.id === S.cartMeta.chronicId) : null;
   const tabName = t => { const ch = t.meta?.chronicId && E.chronic.find(c => c.id === t.meta.chronicId); const cu = t.meta?.customerId && E.customers.find(c => c.id === t.meta.customerId); return ch ? ch.name : cu ? cu.name : t.meta?.newName || `Customer ${t.n}`; };
   const tabSum = t => cartTotals(t.lines || [], t.meta).total;
   const quick = quickItems(cat, used);
-  return `<section class="sec">
+  const inputs = `<section class="sec posin">
     <div class="tabsale" role="tablist" aria-label="Open sales">${S.tabs.map((t, i) => `<button type="button" role="tab" aria-selected="${i === S.tabAt}" data-xtab="${i}"><span>${esc(tabName(t))}</span>${(t.lines || []).length ? `<span class="num">${iqd(Math.max(0, tabSum(t)))}</span>` : `<span>empty</span>`}</button>`).join("")}<button type="button" class="add" data-xnewtab="1" aria-label="New customer">+ Customer</button></div>
-    <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}${canUse("dose") ? `<button type="button" class="hbtn" data-xdosepop="1">Dose</button>` : ""}</div>
+    <div style="display:flex;gap:8px"><input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" placeholder="Scan barcode or type a name" value="${esc(S.sellQ)}" style="flex:1">${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}</div>
     <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print <button type="button" class="linkbtn" data-xkeys="1">All keys</button></p>
     ${q ? `<div class="list">${hits.length ? hits.map(p => { const s = stockOf(p, used); return `<button type="button" class="row" data-xadd="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""} · ${esc(qtyText(p, s.good))} in stock${s.next ? ` · exp ${esc(s.next.expiry)}` : ""}</span></span><span class="end num">${p.sellBox ? iqd(p.sellBox) : `<span class="pill warn">No price</span>`}</span></button>`; }).join("") : `<div class="empty">No item matches. Items appear here once they are on a purchase invoice, or add one under Stock.</div>`}</div>` : ""}
-    ${!q && quick.length ? `<div class="quick">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" ${s.good <= 0 ? 'class="out"' : ""}><b>${esc(p.name)}</b><span>${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span>${p.sellBox ? `<span class="num">${f0(p.sellBox)}</span>` : `<span>No price</span>`}${s.good <= 0 ? `<span class="pill bad">Out</span>` : ""}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
-  </section>
-  <section class="sec"><div class="sechead"><h2>${esc(tabName(actTab()))}</h2><div class="actions">${lines.length ? `<button type="button" data-xclear="1">Clear</button>` : ""}${S.tabs.length > 1 ? `<button type="button" class="danger" data-xclosetab="1">Close</button>` : ""}</div></div>
+    ${!q && quick.length ? `<div class="quick" role="group" aria-label="Quick buttons">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" class="${[s.good <= 0 ? "out" : "", p.m?.quick ? "pin" : ""].join(" ").trim()}" title="${esc(pname(p))}"><b>${esc(p.name)}</b><span class="qs">${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : p.sellBox ? `<span class="num">${f0(p.sellBox)}</span>` : `<span class="qs">No price</span>`}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
+    ${lines.length ? payForm(sub, total, pay) : ""}
+  </section>`;
+  const bill = `<section class="sec posbill" aria-label="Invoice"><div class="sechead"><h2>${esc(tabName(actTab()))}</h2><div class="actions">${lines.length ? `<button type="button" data-xclear="1">Clear</button>` : ""}${S.tabs.length > 1 ? `<button type="button" class="danger" data-xclosetab="1">Close</button>` : ""}</div></div>
     ${chr ? `<div class="banner">Chronic card: <b>${esc(chr.name)}</b>. Saving this sale marks this month as given.</div>` : ""}
     ${closeOf(today()) ? `<div class="banner">Today's cash box is already closed. Sales saved now show under "Changes after closing" in Money.</div>` : ""}
     <div class="list">${lines.length ? lines.map(({c, i, p}) => { const s = stockOf(p, used), needQ = n0(c.qty) * unitPer(p, c.mode);
-      return `<div class="lineedit" style="border:0;border-top:1px solid var(--line);border-radius:0">
+      return `<div class="lineedit">
         <div class="lh"><b style="color:var(--fg)">${esc(pname(p))}</b><button type="button" class="danger" data-xrm="${i}" style="padding:4px 10px">Remove</button></div>
         <div class="stepper"><button type="button" data-xstep="${i}" data-d="-1" aria-label="One less">−</button><input class="num" inputmode="decimal" data-xq="${i}" value="${esc(c.qty)}" aria-label="Quantity"><button type="button" data-xstep="${i}" data-d="1" aria-label="One more">+</button>
           <select data-xmode="${i}" aria-label="Sell by">${unitOpts(p, c.mode)}</select></div>
@@ -439,25 +455,52 @@ function sellView(){
           <label>Line total<input class="num" value="${lineTot(c).toLocaleString("en-US")}" disabled></label></div>
         ${needQ > s.good ? `<span class="err">${esc(s.good <= 0 ? STOCK.shortText(p, 0) : `Only ${qtyText(p, s.good)} in stock.`)}</span>` : ""}${!isNum(c.price) ? `<span class="err">Enter a price. Set the usual price under Stock so it fills in next time.</span>` : ""}
       </div>`; }).join("") : `<div class="empty">Tap a quick button, scan, or search an item to start this sale.</div>`}</div>
-    ${lines.length ? `<form id="sellForm" class="sum" style="gap:10px">
+    ${lines.length ? `<div class="sum billsum">
       <div class="r"><span>Subtotal</span><span class="num">${iqd(sub)}</span></div>
-      <div class="grid2"><label>Discount (IQD)<input id="xDisc" class="num" inputmode="numeric" value="${esc(S.cartMeta.disc ?? "")}"></label>
-      <label>Payment<select id="xMethod"><option value="cash" ${!S.cartMeta.method || S.cartMeta.method === "cash" ? "selected" : ""}>Cash</option><option value="card" ${S.cartMeta.method === "card" ? "selected" : ""}>Card</option>${debtOn() ? `<option value="debt" ${S.cartMeta.method === "debt" ? "selected" : ""}>On debt (دين)</option>` : ""}</select></label></div>
-      ${`<label>${S.cartMeta.method === "debt" ? "Customer" : "Customer (optional)"}<select id="xCust"><option value="">${S.cartMeta.method === "debt" ? "Choose customer" : "No customer"}</option>${E.customers.filter(c => !c.deleted).map(c => `<option value="${esc(c.id)}" ${S.cartMeta.customerId === c.id ? "selected" : ""}>${esc(c.name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("")}<option value="__new" ${S.cartMeta.customerId === "__new" ? "selected" : ""}>+ New customer</option></select></label>
-      ${S.cartMeta.customerId === "__new" ? `<div class="grid2"><label>Customer name<input id="xCName" value="${esc(S.cartMeta.newName || "")}"></label><label>Phone<input id="xCPhone" inputmode="tel" value="${esc(S.cartMeta.newPhone || "")}"></label></div>` : ""}`}
-      ${(S.cartMeta.method || "cash") === "cash" ? `<div class="grid2"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(S.cartMeta.given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(S.cartMeta.given) && S.cartMeta.given >= total ? (S.cartMeta.given - total).toLocaleString("en-US") : ""}" disabled></label></div>` : ""}
+      ${disc ? `<div class="r"><span>Discount</span><span class="num">−${iqd(disc)}</span></div>` : ""}
       <div class="r big"><span>Total</span><span class="num">${iqd(total)}</span></div>
-      <p class="err" id="xErr">${S.sellErr && S.sellErr.cart === JSON.stringify(S.cart) ? S.sellErr.html : ""}</p>
-      <button type="submit" class="primary paybtn">Save sale · ${iqd(total)}</button></form>` : ""}
-  </section>
+      ${pay.method === "debt" ? `<div class="r"><span>On debt</span><span class="num">${iqd(total)}</span></div>` : `<div class="r" id="billCardRow" ${pay.card ? "" : "hidden"}><span>Card</span><span class="num" id="billCard">${iqd(pay.card)}</span></div><div class="r"><span>Cash</span><span class="num" id="billCash">${iqd(pay.cash)}</span></div>`}
+    </div>` : ""}
+  </section>`;
+  return `<div class="pos">${inputs}${bill}</div>
   ${sellDash()}
   <section class="sec"><div class="sechead"><h2>Receipts</h2><span class="note">${esc(S.sellPeriod === "custom" ? [S.sellFrom, S.sellTo].filter(Boolean).join(" to ").replace(/T/g, " ") : periodRange(S.sellPeriod).join(" to "))}</span></div>
     <div class="list">${E.sales.filter(s => inPeriod(s, S.sellPeriod)).sort((a,b) => (b.at || "").localeCompare(a.at || "")).slice(0, 50).map(saleRow).join("") || `<div class="empty">No receipts yet.</div>`}</div></section>`;
 }
+/* payment: by default the whole total is cash. The pharmacist types what goes on the card and the rest is cash,
+   or taps All cash / All card. Cash received and change are for the cash part only. */
+function cartPay(total){
+  const m = S.cartMeta.method;
+  if (m === "debt" && debtOn()) return {method:"debt", card:0, cash:0, over:false};
+  const typed = wIQD(n0(S.cartMeta.card)), card = m === "card" ? total : Math.max(0, Math.min(total, typed));
+  return {method: total > 0 && card >= total ? "card" : card > 0 ? "split" : "cash", card, cash:total - card, over: m !== "card" && typed > total};
+}
+function payForm(sub, total, pay){
+  const debt = pay.method === "debt", m = S.cartMeta.method, given = S.cartMeta.given;
+  return `<form id="sellForm" class="sum paybox" style="gap:10px">
+      <div class="chips paykind" role="group" aria-label="Payment"><button type="button" data-xpay="cash" aria-pressed="${!debt && pay.method === "cash"}">All cash</button><button type="button" data-xpay="card" aria-pressed="${!debt && m === "card"}">All card</button>${debtOn() ? `<button type="button" data-xpay="debt" aria-pressed="${debt}">On debt (دين)</button>` : ""}</div>
+      ${debt ? "" : `<div class="grid2"><label>Card amount (IQD)<input id="xCard" class="num" inputmode="numeric" placeholder="0" value="${esc(m === "card" ? total : S.cartMeta.card ?? "")}"></label><label>Cash part<input id="xCashPart" class="num" value="${f0(pay.cash)}" disabled></label></div>
+      <p class="err" id="xCardErr">${pay.over ? `The card amount is more than the total (${esc(f0(total))} IQD).` : ""}</p>
+      <div class="grid2" ${pay.cash > 0 ? "" : "hidden"} id="xCashRow"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(given) && given >= pay.cash ? (given - pay.cash).toLocaleString("en-US") : ""}" disabled></label></div>`}
+      <label>Discount (IQD)<input id="xDisc" class="num" inputmode="numeric" value="${esc(S.cartMeta.disc ?? "")}"></label>
+      <label>${debt ? "Customer" : "Customer (optional)"}<select id="xCust"><option value="">${debt ? "Choose customer" : "No customer"}</option>${E.customers.filter(c => !c.deleted).map(c => `<option value="${esc(c.id)}" ${S.cartMeta.customerId === c.id ? "selected" : ""}>${esc(c.name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("")}<option value="__new" ${S.cartMeta.customerId === "__new" ? "selected" : ""}>+ New customer</option></select></label>
+      ${S.cartMeta.customerId === "__new" ? `<div class="grid2"><label>Customer name<input id="xCName" value="${esc(S.cartMeta.newName || "")}"></label><label>Phone<input id="xCPhone" inputmode="tel" value="${esc(S.cartMeta.newPhone || "")}"></label></div>` : ""}
+      <div class="r big"><span>Total</span><span class="num">${iqd(total)}</span></div>
+      <p class="err" id="xErr">${S.sellErr && S.sellErr.cart === JSON.stringify(S.cart) ? S.sellErr.html : ""}</p>
+      <button type="submit" class="primary paybtn">Save sale · ${iqd(total)}</button></form>`;
+}
+// card amount or cash received typed: only the numbers next to them change, so the box keeps the keyboard
+function payLive(){
+  const total = cartTotals(S.cart, S.cartMeta).total, pay = cartPay(total), set = (id, v) => { const el = $(id); if (el) el.value = v; };
+  set("#xCashPart", f0(pay.cash)); const row = $("#xCashRow"); if (row) row.hidden = !(pay.cash > 0);
+  const g = S.cartMeta.given; set("#xChange", isNum(g) && g >= pay.cash ? (g - pay.cash).toLocaleString("en-US") : "");
+  const e = $("#xCardErr"); if (e) e.textContent = pay.over ? `The card amount is more than the total (${f0(total)} IQD).` : "";
+  const bc = $("#billCash"), bk = $("#billCard"), br = $("#billCardRow"); if (bc) bc.textContent = iqd(pay.cash); if (bk) bk.textContent = iqd(pay.card); if (br) br.hidden = !pay.card;
+}
 const f0 = v => Math.round(v).toLocaleString("en-US");
 function saleRow(s){
   const cu = E.customers.find(c => c.id === s.customerId);
-  return `<button type="button" class="row" data-xsale="${esc(s.id)}"><span class="main"><span class="t">Receipt <span class="num">${esc(s.no || s.id)}</span>${cu ? " · " + esc(cu.name) : ""}</span><span class="s">${esc(s.date)} ${esc(hm(s.at))} · ${(s.lines || []).length} items${s.staffName ? " · " + esc(s.staffName) : ""} · ${s.method === "debt" ? "On debt" : "Cash"}</span></span><span class="end"><span class="num">${iqd(s.total)}</span>${s.voided ? `<span class="pill bad">Cancelled</span>` : ""}</span></button>`;
+  return `<button type="button" class="row" data-xsale="${esc(s.id)}"><span class="main"><span class="t">Receipt <span class="num">${esc(s.no || s.id)}</span>${cu ? " · " + esc(cu.name) : ""}</span><span class="s">${esc(s.date)} ${esc(hm(s.at))} · ${(s.lines || []).length} items${s.staffName ? " · " + esc(s.staffName) : ""} · ${esc(payText(s))}</span></span><span class="end"><span class="num">${iqd(s.total)}</span>${s.voided ? `<span class="pill bad">Cancelled</span>` : ""}</span></button>`;
 }
 function stockView(){
   const cat = catalog(), used = usedMap(), q = S.stockQ.trim().toLowerCase();
@@ -583,6 +626,14 @@ function moneyView(){
     <div class="list">${exps.length ? exps.map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.category)}</span><span class="s">${esc(x.date)}${x.note ? " · " + esc(x.note) : ""}${x.fromCash === false ? " · not from cash box" : ""}</span></span><span class="end"><span class="num">${iqd(x.amount)}</span><button type="button" class="danger" data-xexpvoid="${esc(x.id)}" style="padding:4px 10px">Cancel</button></span></div>`).join("") : `<div class="empty">No expenses this month.</div>`}</div>
     ${Object.keys(mm.byCat).length ? `<p class="note">${Object.entries(mm.byCat).map(([k,v]) => `${esc(k)}: <span class="num">${iqd(v)}</span>`).join(" · ")}</p>` : ""}</section>`;
 }
+function quickSettings(){
+  const pins = catalog().filter(p => p.m?.quick).sort((a, b) => pname(a).localeCompare(pname(b)));
+  return `<div class="sum" style="gap:10px"><b>Quick buttons on Sell</b>
+    <div class="grid2"><label>How many buttons<select id="sQuickN">${[8, 12, 16].map(n => `<option value="${n}" ${QUICK_N() === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+    <label>Change the best sellers<select id="sQuickEvery">${[["week", "Every week (Saturday)"], ["day", "Every day"], ["month", "Every month"], ["pinned", "Never: only my pinned items"]].map(([v, l]) => `<option value="${v}" ${QUICK_EVERY() === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+    <p class="note">Pinned items always come first and stay in the same place every day. To pin or unpin an item, open it under Stock and tick "Quick button on Sell". The other buttons go to the items on the most receipts, and stay put until the next change.</p>
+    ${pins.length ? `<p class="note"><span>Pinned now:</span> <span data-keep>${pins.map(p => esc(pname(p))).join(" · ")}</span></p>` : `<p class="note">No pinned items yet.</p>`}</div>`;
+}
 function settingsView(){
   const sy = window.ERP_SYNC, c = sy?.cfg();
   return `<section class="sec"><h2>Settings</h2>
@@ -594,7 +645,7 @@ function settingsView(){
         <label>Order enough for this many days<input id="sOrder" class="num" inputmode="numeric" value="${fcCfg("fcOrder")}"></label><label>Stagnant after this many days without a sale<input id="sSlow" class="num" inputmode="numeric" value="${fcCfg("fcSlow")}"></label></div>
         <p class="note">Each item's safe level = what it sells per day (average of the last 90 days) × (delivery days + safety days). Below that it goes on the shortage list, and it leaves the list once enough stock comes in.</p></fieldset>
       <label>Discount staff may give without your PIN (% of the receipt)<input id="sDisc" class="num" inputmode="decimal" value="${esc(n0(E.cfg.staffDiscPct))}"></label>
-      <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}<button type="submit">Save settings</button></form></section>
+      <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}${quickSettings()}<button type="submit">Save settings</button></form></section>
   <section class="sec"><h2>Where your data is</h2><div class="sum">
     ${window.ERP_MODE === "claude" ? `<p>You are using the claude.ai version. Data is saved online in your Claude account and shared on every device where you open this link. It needs internet. Photo scan works here.</p>` :
     `<p>Installed app. Data is saved on this device first, so it works with no internet.</p>
@@ -930,12 +981,10 @@ document.addEventListener("change", ev => { const t = ev.target, d = t.dataset;
 S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice(0,7);
 /* screen permissions: the owner ticks which screens each employee may use. "newinv" is the + Invoice / Scan buttons.
    Staff stays owner-only, so nobody can give themselves more screens */
-const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["dose","Dose"],["money","Cash box"],["reports","Reports"],["settings","Settings"]];
+const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["money","Cash box"],["reports","Reports"],["settings","Settings"]];
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
-// The dose calculator is switched off for now (LTH 2026-10-23); its code and saved rules stay. Tests turn it on with window.ERP_DOSE_ON = true.
-const doseOn = () => window.ERP_DOSE_ON === true;
-const canUse = k => (k !== "dose" || doseOn()) && (isOwner() || (k !== "staff" && myPerms().includes(k)));
+const canUse = k => isOwner() || (k !== "staff" && myPerms().includes(k));
 // PINs are stored as a slow PBKDF2 hash ("p2$..."); older quick SHA-256 hashes still work and are upgraded at the next good login
 async function pinHash2(id, pin){ const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
   const b = await crypto.subtle.deriveBits({name:"PBKDF2", hash:"SHA-256", salt:new TextEncoder().encode("raihana|" + id), iterations:150000}, k, 256); return "p2$" + Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, "0")).join(""); }
@@ -1068,7 +1117,7 @@ function staffSheet(id){
       <div class="grid2"><label>Paid<select id="fPay">${[["hourly","Per hour"],["daily","Per day worked"],["monthly","Monthly salary"]].map(([v,l]) => `<option value="${v}" ${x.payType === v ? "selected" : ""}>${l}</option>`).join("")}</select></label><label>Rate (IQD)<input id="fRate" class="num" inputmode="numeric" value="${esc(x.rate ?? "")}"></label></div>
       <div class="grid2"><label>Expected hours per month (monthly only)<input id="fExp" class="num" inputmode="numeric" value="${esc(x.expHours ?? "")}"></label><label class="check" style="align-self:end"><input type="checkbox" id="fPro" ${x.prorate ? "checked" : ""}> Pay monthly salary by hours worked</label></div>
       <fieldset id="fPerms" class="sum" style="gap:8px" ${x.role === "owner" ? "hidden" : ""}><b>Screens this person can use</b>
-        <div class="permgrid">${PERM_SCREENS.filter(([k]) => k !== "dose" || doseOn()).map(([k,l]) => `<label class="check"><input type="checkbox" data-fperm="${k}" ${(Array.isArray(x.perms) ? x.perms : DEFAULT_PERMS).includes(k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
+        <div class="permgrid">${PERM_SCREENS.map(([k,l]) => `<label class="check"><input type="checkbox" data-fperm="${k}" ${(Array.isArray(x.perms) ? x.perms : DEFAULT_PERMS).includes(k) ? "checked" : ""}> ${l}</label>`).join("")}</div>
         <p class="note">Staff is for the owner only.</p></fieldset>
       <label class="check"><input type="checkbox" id="fActive" ${x.active !== false ? "checked" : ""}> Can log in</label>
       <p class="err" id="fErr"></p><button type="submit" class="primary">Save</button></form>
@@ -1202,9 +1251,9 @@ async function saveSaleNow(){
   if (lines.some(x => !isNum(x.c.price))){ err.textContent = "Every item needs a price."; return; }
   const frac = lines.find(x => !Number.isInteger(n0(x.c.qty))); // audit P-06: no half bottles; a part of a box is sold as strips or tablets
   if (frac){ err.textContent = `${pname(frac.p)}: the quantity must be a whole number. To sell part of a box, choose the strip or tablet unit.`; return; }
-  const method = $("#xMethod")?.value || "cash";
+  const debt = S.cartMeta.method === "debt" && debtOn();
   let customerId = S.cartMeta.customerId || null;
-  if (method === "debt" && !customerId){ err.textContent = "Choose the customer for a debt sale."; return; }
+  if (debt && !customerId){ err.textContent = "Choose the customer for a debt sale."; return; }
   const newName = customerId === "__new" ? ($("#xCName")?.value || "").trim() : ""; if (customerId === "__new" && !newName){ err.textContent = "Enter the customer's name."; return; }
   const out = [], why = [], short = []; let overs = false;
   for (const {c, p} of lines){
@@ -1225,13 +1274,15 @@ async function saveSaleNow(){
     err.innerHTML = S.sellErr.html; return; }
   S.sellErr = null;
   const {sub, disc} = cartTotals(lines.map(x => x.c), {disc:parseNum($("#xDisc").value)});
-  const given = method === "cash" ? parseNum($("#xGiven")?.value) : null; // audit P-07
-  if (isNum(given) && wIQD(given) < sub - disc){ err.textContent = `Cash received (${f0(given)} IQD) is less than the total (${f0(sub - disc)} IQD). Take the rest, or choose "On debt".`; return; }
+  const pay = cartPay(sub - disc), method = pay.method;
+  if (pay.over){ err.textContent = `The card amount is more than the total (${f0(sub - disc)} IQD).`; return; }
+  const given = pay.cash > 0 ? parseNum($("#xGiven")?.value) : null; // audit P-07: cash received is for the cash part
+  if (isNum(given) && wIQD(given) < pay.cash){ err.textContent = method === "split" ? `Cash received (${f0(given)} IQD) is less than the cash part (${f0(pay.cash)} IQD).` : `Cash received (${f0(given)} IQD) is less than the total (${f0(sub - disc)} IQD). Take the rest${debtOn() ? `, or choose "On debt"` : ", or put part on the card"}.`; return; }
   const discMax = Math.floor(sub * n0(E.cfg.staffDiscPct) / 100); if (disc > discMax) why.push(`Discount ${f0(disc)} IQD (staff may give up to ${f0(discMax)})`);
   let approvedBy = null; if (why.length && (!isOwner() || overs)){ approvedBy = await ownerOK(why, {always:overs}); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
   if (customerId === "__new"){ customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
   const id = newId("SL"), d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
-  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - (sub - disc)} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
+  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, ...(method === "split" ? {card:pay.card, cash:pay.cash} : {}), customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - pay.cash} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
   try {
     await write("sales/" + id, sale);
     if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) await write("chronic/" + ch.id, {given:{...(ch.given || {}), [ym(d)]:id}}, true); }
@@ -1246,8 +1297,9 @@ function receiptHtml(s){
     ${(s.lines || []).map(l => `<div>${esc(l.name)}</div><div style="display:flex;justify-content:space-between"><span>${l.qty} ${esc(l.unit)} × ${Math.round(l.price).toLocaleString("en-US")}</span><span>${Math.round(l.total).toLocaleString("en-US")}</span></div>`).join("")}<hr>
     ${s.discount ? `<div style="display:flex;justify-content:space-between"><span>Discount</span><span>−${Math.round(s.discount).toLocaleString("en-US")}</span></div>` : ""}
     <div style="display:flex;justify-content:space-between;font-weight:600"><span>Total IQD</span><span>${Math.round(s.total).toLocaleString("en-US")}</span></div>
+    ${s.method === "split" ? `<div style="display:flex;justify-content:space-between"><span>Card</span><span>${Math.round(payOf(s).card).toLocaleString("en-US")}</span></div>${isNum(s.given) ? "" : `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(payOf(s).cash).toLocaleString("en-US")}</span></div>`}` : ""}
     ${isNum(s.given) ? `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(s.given).toLocaleString("en-US")}</span></div><div style="display:flex;justify-content:space-between"><span>Change</span><span>${Math.round(s.change).toLocaleString("en-US")}</span></div>` : ""}
-    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : s.method === "card" ? `Paid by card${cu ? " · " + esc(cu.name) : ""}` : `Paid cash${cu ? " · " + esc(cu.name) : ""}`}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
+    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : s.method === "card" ? `Paid by card${cu ? " · " + esc(cu.name) : ""}` : s.method === "split" ? `Paid by cash and card${cu ? " · " + esc(cu.name) : ""}` : `Paid cash${cu ? " · " + esc(cu.name) : ""}`}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
 }
 function receiptSheet(id, fresh){
   const s = fresh || E.sales.find(x => x.id === id); if (!s) return;
@@ -1271,7 +1323,8 @@ function returnSheet(id){
     ${(s.lines || []).map((l, i) => { const left = r6(n0(l.qty) - returnedOf(s.id, i)); return `<label><span>${esc(l.name)}</span> <span class="note">sold <span class="num">${l.qty}</span> ${esc(l.unit)}${left < n0(l.qty) ? ` · <span class="num">${left}</span> can still come back` : ""}</span><input class="num" inputmode="numeric" data-xrq="${i}" placeholder="0" ${left <= 0 ? "disabled" : ""}></label>`; }).join("")}
     <label>What happens to the items<select id="rWhere"><option value="shelf">Back on the shelf (stock goes back)</option><option value="damaged">Damaged or opened (stock stays out)</option></select></label>
     <label>Reason<input id="rReason"></label>
-    <p class="note"><span>${s.method === "debt" ? "The refund comes off the customer's debt." : s.method === "card" ? "The refund goes back to the customer's card, not from the cash box." : "The refund is paid from the cash box."}</span> <span>Needs the owner's PIN.</span></p>
+    ${s.method === "split" ? `<label>Give the refund back by<select id="rBy"><option value="cash">Cash, from the cash box</option><option value="card">Card</option></select></label>` : ""}
+    <p class="note"><span>${s.method === "split" ? `This receipt was paid ${esc(payText(s))} IQD.` : s.method === "debt" ? "The refund comes off the customer's debt." : s.method === "card" ? "The refund goes back to the customer's card, not from the cash box." : "The refund is paid from the cash box."}</span> <span>Needs the owner's PIN.</span></p>
     <p class="err" id="rErr"></p><button type="submit" class="primary">Save return</button></form>`);
 }
 async function saveReturn(f){
@@ -1285,9 +1338,9 @@ async function saveReturn(f){
   const share = n0(s.subtotal) > 0 ? 1 - n0(s.discount) / n0(s.subtotal) : 1; // the receipt discount is shared out over the lines
   const parts = picks.map(x => { const l = s.lines[x.i]; return {x, l, refund: wIQD(x.q * n0(l.total) / n0(l.qty) * share)}; }), total = parts.reduce((a, y) => a + y.refund, 0);
   const by = await ownerOK([`Return ${parts.map(y => `${y.x.q} ${y.l.unit} ${y.l.name}`).join(", ")} from receipt ${s.no} (refund ${iqd(total)})`]); if (!by){ err.textContent = NEED_OWNER; return; }
-  const rid = newId("RT"), at = nowIso(), recs = [];
+  const rid = newId("RT"), at = nowIso(), recs = [], refundBy = s.method === "debt" ? "debt" : s.method === "card" ? "card" : s.method === "split" && $("#rBy")?.value === "card" ? "card" : "cash";
   for (const {x, l, refund} of parts){
-    const base = {pid:l.pid, saleId:s.id, saleNo:s.no, saleLine:x.i, returnId:rid, customerId:s.customerId || null, refundBy: s.method === "debt" ? "debt" : s.method === "card" ? "card" : "cash", note:reason, date:today(), at, staffId:S.staff?.id || null, approvedBy:by};
+    const base = {pid:l.pid, saleId:s.id, saleNo:s.no, saleLine:x.i, returnId:rid, customerId:s.customerId || null, refundBy, note:reason, date:today(), at, staffId:S.staff?.id || null, approvedBy:by};
     const alloc = l.alloc || [];
     if (!shelf){ recs.push({...base, key:alloc[0]?.key || "adj:" + l.pid, q:0, per:alloc[0]?.per ?? null, cost:0, reason:"Customer return (damaged)", rq:x.q, refund}); continue; }
     let units = r6(x.q * n0(l.per)), first = true;
@@ -1318,18 +1371,18 @@ async function cancelRecord(coll, id, what, after){
 async function backupAll(btn){
   if (!S.dl){ toast("Download isn't available here."); return; } btn.disabled = true;
   try {
-    const data = {app:"Raihana ERP", version:1, exportedAt:nowIso(), collections:{suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})), products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, doserules:E.doserules, doselog:E.doselog, journal:E.journal}};
+    const data = {app:"Raihana ERP", version:1, exportedAt:nowIso(), collections:{suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})), products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, journal:E.journal}};
     await S.dl.save({filename:`Raihana_ERP_Backup_${today()}.json`, data:new Blob([JSON.stringify(data)], {type:"application/json"})});
     toast("Backup saved."); window.markBackup?.();
   } catch(e){ toast(e?.code === "declined" ? "Download cancelled." : "Backup failed. Try again."); } finally { btn.disabled = false; }
 }
 /* restore (audit F-03): shows what will change first, adds records that are missing, and replaces a record only when the
    file's copy is newer. A record changed or cancelled on this device after the backup is always kept as it is. */
-const RESTORE_COLLS = ["doserules","doselog","journal","suppliers","invoices","payments","credits","meta","products","sales","moves","customers","custpays","chronic","expenses","closes","counts","staff","shifts","events"];
+const RESTORE_COLLS = ["journal","suppliers","invoices","payments","credits","meta","products","sales","moves","customers","custpays","chronic","expenses","closes","counts","staff","shifts","events"];
 const recStamp = d => [d?.lastAt, d?.updatedAt, d?.voidedAt, d?.deletedAt, d?.staffAt, d?.at, d?.createdAt].filter(x => typeof x === "string").sort().pop() || "";
 function deviceColl(coll){
   return ({suppliers:S.suppliers, invoices:S.invoices, payments:S.allPayments || S.payments, credits:S.allCredits || S.credits, meta:Object.entries(S.meta || {}).map(([id, v]) => ({id, ...v})),
-    products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, doserules:E.doserules, doselog:E.doselog, journal:E.journal})[coll] || [];
+    products:E.prods, sales:E.sales, moves:E.moves, customers:E.customers, custpays:E.custpays, chronic:E.chronic, expenses:E.expenses, closes:E.closes, counts:E.counts, staff:E.staff, shifts:E.shifts, journal:E.journal})[coll] || [];
 }
 function restorePlan(j){
   const plan = {add:[], replace:[], keep:0, same:0};
@@ -1403,6 +1456,7 @@ document.addEventListener("click", ev => {
   if (d.xper){ S.sellPeriod = d.xper; lsSet("erp.sellPeriod", d.xper); render(); return; }
   if (d.xrm !== undefined){ S.cart.splice(+d.xrm, 1); if (!S.cart.length) S.cartMeta = {}; saveCart(); render(); return; }
   if (d.xclear){ S.cart = []; S.cartMeta = {}; saveCart(); render(); return; }
+  if (d.xpay){ S.cartMeta.method = d.xpay; if (d.xpay !== "debt") S.cartMeta.card = null; saveCart(); render(); return; }
   if (d.xsale){ receiptSheet(d.xsale); return; }
   if (d.xsaleret){ returnSheet(d.xsaleret); return; }
   if (d.xprint){ const s = E.sales.find(x => x.id === d.xprint); if (!s) return; const pa = $("#printArea"); pa.innerHTML = receiptHtml(s); try { window.print(); } catch {} return; }
@@ -1440,8 +1494,8 @@ document.addEventListener("input", ev => {
   if (d.xq !== undefined){ S.cart[+d.xq].qty = n0(parseNum(t.value)); saveCart(); return; }
   if (d.xp !== undefined){ const v = parseNum(t.value); S.cart[+d.xp].price = isNum(v) ? wIQD(v) : null; saveCart(); return; }
   if (t.id === "xDisc"){ S.cartMeta.disc = wIQD(parseNum(t.value)); saveCart(); return; }
-  if (t.id === "xGiven"){ const v = parseNum(t.value); S.cartMeta.given = isNum(v) ? v : null; saveCart();
-    const tot = cartTotals(S.cart, S.cartMeta).total, ch = $("#xChange"); if (ch) ch.value = isNum(v) && v >= tot ? (v - tot).toLocaleString("en-US") : ""; return; }
+  if (t.id === "xGiven"){ const v = parseNum(t.value); S.cartMeta.given = isNum(v) ? v : null; saveCart(); payLive(); return; }
+  if (t.id === "xCard"){ const v = parseNum(t.value); S.cartMeta.card = isNum(v) ? wIQD(v) : null; if (S.cartMeta.method === "card") S.cartMeta.method = "cash"; saveCart(); payLive(); return; }
   if (t.id === "xCName"){ S.cartMeta.newName = t.value; return; } if (t.id === "xCPhone"){ S.cartMeta.newPhone = t.value; return; }
   if (d.xcq !== undefined){ S.chrMeds[+d.xcq].qty = n0(parseNum(t.value)); return; }
   if (t.id === "cAddQ"){ drawChrPick(); return; }
@@ -1457,7 +1511,6 @@ document.addEventListener("change", ev => {
   if (t.id === "yShow"){ $("#yPass").type = t.checked ? "text" : "password"; return; }
   if (d.xq !== undefined || d.xp !== undefined || t.id === "xDisc"){ render(); return; }
   if (d.xmode !== undefined){ const c = S.cart[+d.xmode], p = catalog().find(x => x.id === c.pid); c.mode = t.value; c.price = p ? lvlPrice(p, c.mode) ?? null : null; saveCart(); render(); return; }
-  if (t.id === "xMethod"){ S.cartMeta.method = t.value; saveCart(); render(); return; }
   if (t.id === "xCust"){ S.cartMeta.customerId = t.value; saveCart(); render(); return; }
   if (d.xcm !== undefined){ S.chrMeds[+d.xcm].mode = t.value; drawChrMeds(); return; }
   if (t.id === "prRound"){ S.pr.round = +t.value; prSave(); return; }
@@ -1575,7 +1628,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, ...fcSaved()}); toast("Settings saved."); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, ...fcSaved()}); toast("Settings saved."); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -1585,7 +1638,7 @@ document.addEventListener("submit", async ev => {
 });
 
 /* ---------- hook into the app: tabs, home screen, Excel, Arabic ---------- */
-window.ERP_VIEWS = {none:() => `<div class="empty">The owner has not given you any screens yet. Ask the owner to tick your screens under Staff.</div>`, staff:staffView, pricing:pricingView, sell:sellView, stock:stockView, chronic:chronicView, customers:customersView, dose:doseView, money:moneyView, settings:settingsView};
+window.ERP_VIEWS = {none:() => `<div class="empty">The owner has not given you any screens yet. Ask the owner to tick your screens under Staff.</div>`, staff:staffView, pricing:pricingView, sell:sellView, stock:stockView, chronic:chronicView, customers:customersView, money:moneyView, settings:settingsView};
 const baseHomeExtras = homeExtras;
 homeExtras = window.homeExtras = function(){
   const used = usedMap(), cat = catalog(), low = lowStock(cat, used).length, soon = chronicNeeds(ALERT_DAYS()).filter(n => n.short > 0);
@@ -1612,7 +1665,7 @@ window.extraSheets = function(add){
   baseExtraSheets?.(add);
   const cat = catalog(), used = usedMap();
   add("Stock", cat.map(p => { const s = stockOf(p, used), u = usageOf(p, s); return {"Item":p.name, "Dose":p.strength || "", "Form":p.form || "", "Barcode":p.barcode, "Packaging":levelText(p), "Sell price middle unit (IQD)":p.m?.sellMid ?? "", "Sell price smallest unit (IQD)":p.m?.sellSub ?? "", "In stock":qtyText(p, s.good), "In stock (small units)":s.good, "Expired":s.exp, "Next expiry":s.next?.expiry || "", "Sold per day (small units)":Math.round(u.day * 100) / 100, "Sold in 30 days (small units)":r6(u.sold30), "Safe level (small units)":u.safe ?? "", "Fast-moving":u.fast ? "yes" : "", "Stagnant":u.stagnant ? "yes" : "", "Sell price box (IQD)":p.sellBox ?? "", "Cost per box (IQD)":(c => isNum(c) ? Math.round(c) : "")(lastCostBox(p)), "Markup %":(c => { const v = PRICING.markupPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Margin %":(c => { const v = PRICING.marginPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Value at cost (IQD)":Math.round(s.value), "Refrigerated":p.fridge ? "Yes" : "No"}; }));
-  add("Sales", E.sales.flatMap(s => (s.lines || []).map(l => ({"Receipt":s.no, "Date":s.date, "Time":hm(s.at), "Pharmacist":s.staffName || "", "Item":l.name, "Qty":l.qty, "Unit":l.unit, "Price (IQD)":l.price, "Line total (IQD)":l.total, "Cost (IQD)":Math.round((l.alloc || []).reduce((a,x) => a + n0(x.q) * n0(x.cost), 0)), "Batches":(l.alloc || []).map(a => `${a.batch || "-"} × ${a.q}`).join("; "), "Receipt discount (IQD)":s.discount, "Receipt total (IQD)":s.total, "Payment":s.method === "debt" ? "Debt" : "Cash", "Customer":E.customers.find(c => c.id === s.customerId)?.name || "", "Cancelled":s.voided ? "Yes" : ""}))));
+  add("Sales", E.sales.flatMap(s => (s.lines || []).map(l => ({"Receipt":s.no, "Date":s.date, "Time":hm(s.at), "Pharmacist":s.staffName || "", "Item":l.name, "Qty":l.qty, "Unit":l.unit, "Price (IQD)":l.price, "Line total (IQD)":l.total, "Cost (IQD)":Math.round((l.alloc || []).reduce((a,x) => a + n0(x.q) * n0(x.cost), 0)), "Batches":(l.alloc || []).map(a => `${a.batch || "-"} × ${a.q}`).join("; "), "Receipt discount (IQD)":s.discount, "Receipt total (IQD)":s.total, "Payment":s.method === "debt" ? "Debt" : s.method === "card" ? "Card" : s.method === "split" ? "Cash and card" : "Cash", "Paid by card (IQD)":payOf(s).card, "Paid in cash (IQD)":payOf(s).cash, "Customer":E.customers.find(c => c.id === s.customerId)?.name || "", "Cancelled":s.voided ? "Yes" : ""}))));
   add("Customers", E.customers.filter(c => !c.deleted).map(c => { const b = custBalance(c.id); return {"Name":c.name, "Phone":c.phone || "", "Bought on debt (IQD)":b.debt, "Paid (IQD)":b.paid, "Owes (IQD)":b.bal}; }));
   add("Chronic cards", E.chronic.filter(c => !c.deleted).flatMap(c => (c.meds || []).map(m => { const p = cat.find(x => x.id === m.pid); return {"Patient":c.name, "Phone":c.phone || "", "Day each month":c.day, "Next pickup":chrDate(c), "Active":c.active !== false ? "Yes" : "No", "Medicine":p ? pname(p) : m.pid, "Qty per month":m.qty, "Unit":p ? unitName(p, m.mode || "box") : "box", "In stock":p ? qtyText(p, stockOf(p, used).good) : ""}; })));
   add("Expenses", E.expenses.map(x => ({"Date":x.date, "Type":x.category, "Amount (IQD)":x.amount, "From cash box":x.fromCash === false ? "No" : "Yes", "Note":x.note || "", "Cancelled":x.voided ? "Yes" : ""})));
@@ -1721,7 +1774,7 @@ write = async function(path, data, merge){ clearMemo(); if (data && typeof data 
 // pages scroll inside the middle area now, so "go to top" scrolls that area
 window.scrollTo = function(){ const v = document.getElementById("view"); if (v) v.scrollTop = 0; };
 /* ---- grouped menu: group headings with an alert count, a "Screen > group" crumb in the top bar and a screen finder (Ctrl+K, or the search button) ---- */
-const GROUP_OF = {sell:"Dispensing and sales", dose:"Dispensing and sales", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Purchasing", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", books:"Finance", staff:"Administration", settings:"Administration"};
+const GROUP_OF = {sell:"Dispensing and sales", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Purchasing", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", books:"Finance", staff:"Administration", settings:"Administration"};
 let navCount = {at:0, v:{}};
 function navAlerts(){
   if (Date.now() - navCount.at < 4000) return navCount.v; navCount.at = Date.now();
@@ -1788,6 +1841,7 @@ render = window.render = function(){
   navBtns.forEach(b => { b.hidden = !canUse(b.dataset.tab); });
   if (!canUse(S.tab)){ S.tab = navBtns.find(b => !b.hidden)?.dataset.tab || "none"; }
   document.body.classList.toggle("no-newinv", !canUse("newinv"));
+  document.body.classList.toggle("on-sell", S.tab === "sell"); // the till uses the full width (see .pos in build.py)
   navGroups();
   const tb = document.querySelector(`nav.tabs [data-tab="${S.tab}"]`), st = $("#scrTitle"); if (st && tb && st.textContent !== tb.textContent) st.textContent = tb.textContent;
   $("#netDot")?.classList.toggle("off", !navigator.onLine);
@@ -1814,7 +1868,7 @@ if (document.readyState === "loading") document.addEventListener("DOMContentLoad
 let renderQueued = false;
 const queueRender = () => { if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); };
 (function start(){
-  const map = {staff:"staff", shifts:"shifts", counts:"counts", products:"prods", sales:"sales", moves:"moves", customers:"customers", custpays:"custpays", chronic:"chronic", expenses:"expenses", closes:"closes", events:"events", doserules:"doserules", doselog:"doselog", journal:"journal"};
+  const map = {staff:"staff", shifts:"shifts", counts:"counts", products:"prods", sales:"sales", moves:"moves", customers:"customers", custpays:"custpays", chronic:"chronic", expenses:"expenses", closes:"closes", events:"events", journal:"journal"};
   const total = Object.keys(map).length, got = new Set();
   const progress = () => { const B = window.BOOT; if (!B || B.done) return; B.set(15 + (S.ready ? 35 : 0) + 50 * got.size / total);
     if (S.ready && (got.size === total || !S.db)){ staffAfterData(); render(); B.finish(); } };
@@ -1888,6 +1942,12 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
 });
 Object.assign(AR, {"Tap a medicine to add it, check the quantity, then tap Pay. Made a mistake? Remove the line before you pay.":"اضغط على الدواء لإضافته، راجع الكمية، ثم اضغط دفع. أخطأت؟ احذف السطر قبل الدفع.","This is what is on the shelf now. Use Stocktaking to count a shelf and fix any difference.":"هذا ما هو موجود على الرف الآن. استعمل الجرد لعد رف وتصحيح أي فرق.","Set the selling price from the cost. The app shows the exact formula it used.":"حدد سعر البيع من الكلفة. التطبيق يعرض المعادلة التي استعملها.","Keep your regular customers here. Open a name to see what they bought.":"احفظ زبائنك الدائمين هنا. افتح الاسم لترى ما اشتراه.","Today's cash in and out. Check it at the end of the day.":"النقد الداخل والخارج اليوم. راجعه في نهاية اليوم.","Add each person with their own PIN, and choose which screens they can use.":"أضف كل شخص برقمه السري، واختر الشاشات التي يستطيع استعمالها.","Language, backup and cloud sync are here. Take a backup now and then.":"اللغة والنسخ الاحتياطي ومزامنة السحابة هنا. خذ نسخة احتياطية من حين لآخر.","Got it":"فهمت","Skip":"تخطي","Next":"التالي","Back":"رجوع","Start working":"ابدأ العمل","Welcome to Raihana":"أهلاً بك في ريحانة","A quick look in four steps. You can skip it any time.":"نظرة سريعة في أربع خطوات. يمكنك تخطيها في أي وقت.","Sell is your main screen":"البيع هو شاشتك الرئيسية","Tap a medicine to add it. Check the quantity, then tap Pay. The app tells you how much change to give back.":"اضغط على الدواء لإضافته. راجع الكمية ثم اضغط دفع. التطبيق يخبرك كم ترجع للزبون.","Your day":"يومك","At the start, count the cash in the drawer. At the end, count it again and tap End shift. The owner sees any difference.":"في البداية عدّ النقد في الصندوق. في النهاية عدّه مرة أخرى واضغط إنهاء الدوام. المالك يرى أي فرق.","Help is always near":"المساعدة دائماً قريبة","Every screen has a small tip at the top. You can show the tour and the tips again from Settings.":"في أعلى كل شاشة نصيحة صغيرة. يمكنك إظهار الجولة والنصائح مرة أخرى من الإعدادات.","✓ Shift started":"✓ بدأ الدوام","✓ Cash counted at the start":"✓ تم عدّ النقد في البداية","○ Count the cash before you sell":"○ عدّ النقد قبل البيع","Count the cash":"عدّ النقد","○ End of the day":"○ نهاية اليوم","Count cash and end shift":"عدّ النقد وإنهاء الدوام","Show the tour and tips again":"إظهار الجولة والنصائح مرة أخرى","Help":"مساعدة"});
 
+/* ---- Sell as a till (23 Oct 2026): split payment and quick button settings, in Arabic ---- */
+Object.assign(AR, {"All cash":"نقد بالكامل","All card":"بطاقة بالكامل","Card amount (IQD)":"مبلغ البطاقة (دينار)","Cash part":"الجزء النقدي","Quick buttons":"أزرار سريعة","Quick buttons on Sell":"الأزرار السريعة في البيع","How many buttons":"عدد الأزرار","Change the best sellers":"تغيير الأكثر مبيعاً","Every week (Saturday)":"كل أسبوع (السبت)","Every day":"كل يوم","Every month":"كل شهر","Never: only my pinned items":"أبداً: المواد المثبتة فقط","Pinned items always come first and stay in the same place every day. To pin or unpin an item, open it under Stock and tick \"Quick button on Sell\". The other buttons go to the items on the most receipts, and stay put until the next change.":"المواد المثبتة تظهر أولاً وتبقى في نفس المكان كل يوم. لتثبيت مادة أو إلغاء تثبيتها افتحها من المخزون وضع علامة على \"زر سريع في البيع\". باقي الأزرار للمواد الموجودة في أكثر الوصولات، وتبقى ثابتة حتى التغيير القادم.","Pinned now:":"المثبتة الآن:","No pinned items yet.":"لا توجد مواد مثبتة بعد.","Give the refund back by":"إرجاع المبلغ عن طريق","Cash, from the cash box":"نقداً من الصندوق","Paid by cash and card":"مدفوع نقداً وبالبطاقة","Cash and card":"نقد وبطاقة","Sale paid by cash and card":"بيع مدفوع نقداً وبالبطاقة"});
+AR_RX.push([/^Cash ([\d,]+) \+ card ([\d,]+)$/, "نقد $1 + بطاقة $2"], [/^This receipt was paid Cash ([\d,]+) \+ card ([\d,]+) IQD\.$/, "دُفع هذا الوصل: نقد $1 + بطاقة $2 دينار."],
+  [/^The card amount is more than the total \(([\d,]+) IQD\)\.$/, "مبلغ البطاقة أكثر من المجموع ($1 دينار)."], [/^Cash received \(([\d,]+) IQD\) is less than the cash part \(([\d,]+) IQD\)\.$/, "المبلغ المستلم ($1 دينار) أقل من الجزء النقدي ($2 دينار)."],
+  [/^Cash received \(([\d,]+) IQD\) is less than the total \(([\d,]+) IQD\)\. Take the rest, or put part on the card\.$/, "المبلغ المستلم ($1 دينار) أقل من المجموع ($2 دينار). خذ الباقي أو ادفع جزءاً بالبطاقة."]);
+
 /* ---- forgotten shifts: the owner closes them in one place and the hours are recounted ---- */
 const lateShifts = () => E.shifts.filter(x => !x.end && !x.voided && Date.now() - Date.parse(x.start) > LATE_H * 36e5).sort((a, b) => a.start.localeCompare(b.start));
 function fixLateSheet(){
@@ -1927,8 +1987,8 @@ function bkEntries(){
   const add = (date, src, ref, desc, lines, tag) => { const ls = [];
     for (const l of lines){ let dr = n0(l.dr), cr = n0(l.cr); if (dr < 0){ cr -= dr; dr = 0; } if (cr < 0){ dr -= cr; cr = 0; } if (dr || cr) ls.push({acct:l.acct, dr, cr, tag:l.tag || ""}); }
     if (ls.length) out.push({date:date || "", src, ref, desc, lines:ls, id:src + ref + out.length}); };
-  for (const s of E.sales) if (!s.voided){ const a = s.method === "card" ? "1010" : s.method === "debt" ? "1100" : "1000", c = saleCost(s);
-    add(s.date, "Sale", "#" + (s.no || s.id), s.method === "debt" ? "Sale on debt" : s.method === "card" ? "Sale paid by card" : "Sale paid in cash", [{acct:a, dr:s.total}, {acct:"4000", cr:s.total}, {acct:"5000", dr:c}, {acct:"1200", cr:c}]); }
+  for (const s of E.sales) if (!s.voided){ const p = payOf(s), c = saleCost(s);
+    add(s.date, "Sale", "#" + (s.no || s.id), s.method === "debt" ? "Sale on debt" : s.method === "card" ? "Sale paid by card" : s.method === "split" ? "Sale paid by cash and card" : "Sale paid in cash", [{acct:"1000", dr:p.cash}, {acct:"1010", dr:p.card}, {acct:"1100", dr:p.debt}, {acct:"4000", cr:s.total}, {acct:"5000", dr:c}, {acct:"1200", cr:c}]); }
   for (const m of refundsWhere(() => true)){ const a = m.refundBy === "card" ? "1010" : m.refundBy === "debt" ? "1100" : "1000", v = -n0(m.q) * n0(m.cost);
     add(m.date, "Return", "#" + (m.saleNo || m.saleId), "Customer return", [{acct:"4090", dr:m.refund}, {acct:a, cr:m.refund}, {acct:"1200", dr:v}, {acct:"5000", cr:v}]); }
   for (const inv of S.invoices) if (BOOKED.includes(inv.status)){ const t = calc(inv).total, sp = supplier(inv.supplierId);
@@ -2210,604 +2270,3 @@ document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && e
 document.head.insertAdjacentHTML("beforeend", `<style>.linkbtn{border:0;background:none;color:var(--accent);padding:0;min-height:0;text-decoration:underline;font:inherit}</style>`);
 Object.assign(AR, {"All keys":"كل الاختصارات","Keyboard keys":"اختصارات لوحة المفاتيح","Activity log":"سجل النشاط","The newest 100 actions, who did them and when.":"أحدث 100 عملية، ومن قام بها ومتى.","Copy the list":"انسخ القائمة","List copied.":"تم نسخ القائمة.","Nothing needs ordering.":"لا شيء يحتاج إلى طلب.","Nothing yet.":"لا شيء بعد.","Search or scan":"بحث أو مسح","Move through results":"التنقل بين النتائج","Add the result":"إضافة النتيجة","Change box, strip or tablet":"تغيير علبة/شريط/حبة","More or fewer of the last item":"زيادة أو إنقاص آخر مادة","Switch to debt (if allowed)":"التحويل إلى دين (إن كان مسموحاً)","Save the sale":"حفظ البيع","Print the receipt":"طباعة الوصل","Find any screen":"ابحث عن أي شاشة","Show this list":"إظهار هذه القائمة","Shift started":"بدء دوام","Cancelled sale":"بيع ملغى","Customer payment":"دفعة زبون","Manual accounting entry":"قيد محاسبي يدوي","Sale blocked":"بيع محظور","Return":"إرجاع","Stock":"المخزون","Shift ended":"انتهاء دوام","Shift closed by the owner":"أغلقه المالك"});
 AR_RX.push([/^Have (.+) · sold in 30 days (.+)$/, "المتوفر $1 · المباع خلال 30 يوماً $2"], [/^Stock: (.+)$/, "المخزون: $1"], [/^Sale #(.+) · (.+)$/, "بيع #$1 · $2"], [/^Expense (.*) · (.+)$/, "مصروف $1 · $2"]);
-
-/* ==== dose engine: a general dose calculator that never needs a stock item and never changes stock.
-   A. Drug identification: RxNorm (US National Library of Medicine, free), your rules, your stock and saved lookups. A medicine typed by
-      hand stays "unverified" until its active ingredient is matched and the pharmacist confirms the package.
-   B. Dose rules: one rule per active ingredient(s), indication, patient group and route, copied from an official source by the owner.
-      Rules keep every earlier version, can be rolled back or withdrawn, and are only used after the owner approves them with the PIN.
-      Text read from an FDA label only ever becomes a draft. Classes are information only and never decide if a dose can be worked out.
-   C. Calculation: fixed code, no AI. It shows every step, stops when something it needs is missing, impossible or outside the rule, and
-      never assumes a value. Every finished calculation goes into the calculation record (doselog), which is never edited. ==== */
-S.dose = {q:"", med:null, cands:null, rx:null, manual:false, rid:"", pt:{y:"", m:"", kg:"", cm:"", sex:"", scr:"", scrU:"mgdl", renal:false, hepatic:false, preg:false}, logKey:"", logAt:""};
-// international names that differ from the US names RxNorm and the FDA use (names only, no doses)
-const DRUG_ALIAS = {paracetamol:"acetaminophen", salbutamol:"albuterol", adrenaline:"epinephrine", noradrenaline:"norepinephrine", frusemide:"furosemide", lignocaine:"lidocaine", glibenclamide:"glyburide", pethidine:"meperidine", rifampicin:"rifampin", cefalexin:"cephalexin", aciclovir:"acyclovir", valaciclovir:"valacyclovir", ciclosporin:"cyclosporine", mesalazine:"mesalamine", colecalciferol:"cholecalciferol", amoxycillin:"amoxicillin", sulphamethoxazole:"sulfamethoxazole", beclometasone:"beclomethasone", "clavulanic acid":"clavulanate", "co-amoxiclav":"amoxicillin + clavulanate", "co-trimoxazole":"sulfamethoxazole + trimethoprim"};
-const canonIng = s => { const t = String(s || "").toLowerCase().replace(/\s+/g, " ").trim(); return DRUG_ALIAS[t] || t; };
-const splitIngs = s => [...new Set(canonIng(s).split(/\s*(?:\+|\/|,|;|&|\band\b)\s*/).map(canonIng).filter(Boolean))].sort();
-const ingKey = list => (list || []).join(" + ");
-const ROUTES = ["oral", "injection", "inhaled", "eye", "ear", "nose", "skin", "rectal", "vaginal"];
-const routeOf = f => { const t = String(f || "").toLowerCase(); if (!t) return "";
-  for (const [r, rx] of [["eye", /ophthalm|\beye\b/], ["ear", /\botic|\bear\b/], ["nose", /nasal|\bnose\b/], ["inhaled", /inhal|nebul|aerosol|inhaler/], ["rectal", /rectal|suppositor/], ["vaginal", /vaginal|pessar/], ["injection", /inject|vial|ampoul|infusion|syringe|\bpen\b|\biv\b|\bim\b|intraven|intramusc|subcut/], ["skin", /topical|cream|ointment|\bgel\b|lotion|patch|transdermal|cutaneous/], ["oral", /oral|tablet|capsule|caplet|syrup|suspension|elixir|chewable|lozenge|sachet|granule|powder for oral|drops/]]) if (rx.test(t)) return r;
-  return ""; };
-const releaseOf = f => /extended|sustained|modified|controlled|prolonged|\b(er|xr|sr|cr|mr|xl|la)\b|24 hr|12 hr/i.test(f || "") ? "extended" : /delayed|enteric|\b(dr|ec)\b/i.test(f || "") ? "delayed" : "";
-const isLiquid = f => /solution|suspension|syrup|elixir|drops|liquid|injectable|injection|infusion|\bml\b|emulsion/i.test(f || "");
-const isSolid = f => /tablet|capsule|caplet|\bpill\b/i.test(f || "");
-const MASS = {mcg:0.001, mg:1, g:1000};
-// "250 mg/5 mL", "400 mg + 57 mg / 5 mL", "50 MG/ML", "500mg", "0.5 g" -> one strength per ingredient, or null when it cannot be read safely
-function parseStrength(text, n){
-  const t = String(text || "").replace(/,/g, ".").replace(/\s+/g, " ").trim(); if (!t) return null;
-  const den = t.match(/\/\s*(\d+(?:\.\d+)?)?\s*ml\b/i), ml = den ? (den[1] ? +den[1] : 1) : null, body = den ? t.slice(0, den.index) : t;
-  const parts = [...body.matchAll(/(\d+(?:\.\d+)?)\s*(mcg|µg|mg|g|units?|iu)\b/gi)].map(m => ({amt:+m[1], unit:/^(units?|iu)$/i.test(m[2]) ? "units" : m[2].toLowerCase().replace("µg", "mcg"), ml}));
-  if (!parts.length || (n && parts.length !== n) || parts.some(p => !(p.amt > 0)) || (ml !== null && !(ml > 0))) return null;
-  return parts;
-}
-const dec = x => Math.round(x * 1e9) / 1e9;   // removes binary noise only (0.1 × 3 shows 0.3). Clinical rounding follows the rule
-const nfmt = v => !isNum(v) ? "—" : dec(v).toLocaleString("en-US", {maximumFractionDigits: Math.abs(v) >= 100 ? 1 : Math.abs(v) >= 1 ? 2 : 4});
-const rngf = (a, b, u) => nfmt(a) === nfmt(b) ? `${nfmt(a)} ${u}` : `${nfmt(a)} to ${nfmt(b)} ${u}`;
-
-/* ---- B. rules. Old rules (before the engine) are read as they were: mg, per dose, no indication, route or form limits ---- */
-const doseRules = () => E.doserules.filter(r => !r.deleted && !r.auto).sort((a, b) => (a.drug || "").localeCompare(b.drug || "") || (a.indication || "").localeCompare(b.indication || ""));
-function ruleN(r){
-  const conc = isNum(r.concAmt) && r.concAmt > 0 && isNum(r.concMl) && r.concMl > 0 ? {amt:r.concAmt, unit:r.concUnit || r.unit || "mg", ml:r.concMl} : isNum(r.mgPer5ml) && r.mgPer5ml > 0 ? {amt:r.mgPer5ml, unit:"mg", ml:5} : null;
-  const ings = Array.isArray(r.ingredients) && r.ingredients.length ? [...new Set(r.ingredients.map(canonIng))].sort() : splitIngs(r.labelName || r.drug);
-  return {...r, ings, unit:r.unit || "mg", per:r.per === "day" ? "day" : "dose", basis:["perkg", "fixed", "perm2"].includes(r.basis) ? r.basis : "perkg", route:r.route || "", forms:r.forms || "", release:r.release || "",
-    conc, tab:isNum(r.mgTab) && r.mgTab > 0 ? r.mgTab : null, tabStep:isNum(r.tabStep) ? r.tabStep : null, mlStep:isNum(r.mlStep) ? r.mlStep : null, ver:r.ver || 1, renal:Array.isArray(r.renal) ? r.renal : [],
-    doseOf:canonIng(r.doseOf || "") || (ings.length === 1 ? ings[0] : ""), classes:r.classes || r.class || "", indication:r.indication || "", status:r.status || "draft"};
-}
-const ruleUsable = r => r.status === "approved" && !r.deleted && !r.auto;
-const statusWord = s => ({approved:"Approved", draft:"Draft", requested:"Requested", withdrawn:"Withdrawn"})[s] || "Draft";
-const rulePill = s => `<span class="pill ${s === "approved" ? "good" : s === "withdrawn" ? "bad" : "warn"}">${statusWord(s)}</span>`;
-const formOk = (forms, form) => !forms || !form || forms.toLowerCase().split(/\s*,\s*/).filter(Boolean).some(w => form.toLowerCase().includes(w));
-const reviewDue = r => r.reviewDate && r.reviewDate < today();
-function doseNeeds(R){
-  const renal = R.renal.length > 0;
-  return {age:isNum(R.ageMin) || isNum(R.ageMax) || renal, kg:R.basis !== "fixed" || isNum(R.kgMin) || isNum(R.kgMax) || isNum(R.maxDayKg) || renal, cm:R.basis === "perm2", renal};
-}
-const ptAgeM = pt => (pt.y === "" && pt.m === "") ? NaN : n0(parseNum(pt.y)) * 12 + n0(parseNum(pt.m));
-
-/* ---- C. the calculation. Pure: the same rule, medicine and inputs always give the same answer ---- */
-function doseRun(rule, med, pt){
-  const R = ruleN(rule), need = doseNeeds(R), out = {state:"ok", missing:[], blocks:[], warns:[], steps:[], res:null, R};
-  const block = m => out.blocks.push(m), warn = m => out.warns.push(m), step = m => out.steps.push(m);
-  if (R.status === "withdrawn") block("This rule was withdrawn by the owner. Do not use it.");
-  else if (!ruleUsable(R)) block("This rule is not approved yet. The owner must check it against its source and approve it with the PIN.");
-  if (!med) block("Choose the medicine first.");
-  else {
-    if (!["verified", "confirmed"].includes(med.status)) block("The medicine is not confirmed. Check the package and confirm the active ingredient and strength first.");
-    if (ingKey(med.ings) !== ingKey(R.ings)) block("This rule is for a different active ingredient.");
-    if (R.route && !med.route) out.missing.push("Route of the product");
-    else if (R.route && med.route !== R.route) block(`This rule is only for the ${R.route} route. This product is ${med.route}.`);
-    if (R.forms && med.form && !formOk(R.forms, med.form)) block(`This rule is only for: ${R.forms}. This product is ${med.form}.`);
-    if (R.release && med.release && R.release !== med.release) block(`This rule is for ${R.release} release products. This product is ${med.release} release.`);
-    if (R.release === "immediate" && med.release && med.release !== "immediate") block(`This rule is for immediate release products. This product is ${med.release} release.`);
-  }
-  const ageM = ptAgeM(pt), kg = parseNum(pt.kg), cm = parseNum(pt.cm), scr = parseNum(pt.scr);
-  if (need.age && !isNum(ageM)) out.missing.push("Age"); if (need.kg && !isNum(kg)) out.missing.push("Weight (kg)"); if (need.cm && !isNum(cm)) out.missing.push("Height (cm)");
-  if (need.renal){ if (!pt.sex) out.missing.push("Sex"); if (!isNum(scr)) out.missing.push("Serum creatinine"); }
-  if (isNum(ageM) && (ageM < 0 || ageM > 1440)) block("The age is not possible. Check it.");
-  if (isNum(kg) && (kg < 0.3 || kg > 350)) block("The weight is not possible. Check it (kg, not pounds or grams).");
-  if (isNum(cm) && (cm < 30 || cm > 250)) block("The height is not possible. Check it (cm).");
-  if (isNum(scr) && (scr <= 0 || (pt.scrU === "umol" ? scr > 1770 : scr > 20))) block("The creatinine is not possible. Check the number and its unit.");
-  if (isNum(ageM) && isNum(kg) && ((ageM < 12 && kg > 20) || (ageM < 60 && kg > 60) || (ageM >= 216 && kg < 25))) warn("The weight is unusual for this age. Check both before you continue.");
-  if (out.missing.length) out.state = "missing"; if (out.blocks.length) out.state = "blocked"; if (out.state !== "ok") return out;
-  if ((isNum(R.ageMin) && ageM < R.ageMin) || (isNum(R.ageMax) && ageM > R.ageMax)){ block(`The age is outside this rule (${isNum(R.ageMin) ? R.ageMin : 0} to ${isNum(R.ageMax) ? R.ageMax : "any"} months). Do not use this rule.`); out.state = "blocked"; return out; }
-  if ((isNum(R.kgMin) && kg < R.kgMin) || (isNum(R.kgMax) && kg > R.kgMax)){ block(`The weight is outside this rule (${isNum(R.kgMin) ? R.kgMin : 0} to ${isNum(R.kgMax) ? R.kgMax : "any"} kg). Do not use this rule.`); out.state = "blocked"; return out; }
-  const u = R.unit, n = R.dosesPerDay; let base = 1, factor = 1, crcl = null;
-  if (R.basis === "perkg"){ base = kg; step(`Weight ${nfmt(kg)} kg (entered)`); }
-  if (R.basis === "perm2"){ base = dec(Math.sqrt(cm * kg / 3600)); step(`Body surface area (Mosteller) = √(${nfmt(cm)} cm × ${nfmt(kg)} kg ÷ 3600) = ${nfmt(base)} m²`); }
-  if (need.renal){
-    if (ageM < 216){ block("The kidney bands in this rule use creatinine clearance (Cockcroft-Gault), which is only for adults (18 years and over). Check the label."); out.state = "blocked"; return out; }
-    const ageY = Math.floor(ageM / 12), scrMg = pt.scrU === "umol" ? dec(scr / 88.4) : scr;
-    crcl = dec((140 - ageY) * kg / (72 * scrMg) * (pt.sex === "female" ? 0.85 : 1));
-    step(`Creatinine clearance (Cockcroft-Gault, actual weight) = (140 − ${ageY}) × ${nfmt(kg)} ÷ (72 × ${nfmt(scrMg)} mg/dL)${pt.sex === "female" ? " × 0.85" : ""} = ${nfmt(crcl)} mL/min`);
-    const band = R.renal.find(b => (!isNum(b.min) || crcl >= b.min) && (!isNum(b.max) || crcl < b.max));
-    if (band && band.avoid){ block(`Creatinine clearance ${nfmt(crcl)} mL/min: the rule says do not use.${band.note ? " " + band.note : ""}`); out.state = "blocked"; return out; }
-    if (band && isNum(band.factor)){ factor = band.factor; step(`Kidney band ${isNum(band.min) ? nfmt(band.min) : 0} to ${isNum(band.max) ? nfmt(band.max) : "any"} mL/min: multiply the dose by ${nfmt(factor)} (rule)`); if (band.note) warn(band.note); }
-    else step("No kidney band applies at this clearance, so the dose is not changed.");
-  }
-  const bLabel = R.basis === "perkg" ? `${u}/kg` : R.basis === "perm2" ? `${u}/m²` : u, perW = R.per === "day" ? "a day" : "each time";
-  let lo = dec(R.doseMin * base), hi = dec(R.doseMax * base);
-  step(R.basis === "fixed" ? `Rule dose ${rngf(R.doseMin, R.doseMax, u)} ${perW}` : `${rngf(R.doseMin, R.doseMax, bLabel)} ${perW} × ${nfmt(base)} = ${rngf(lo, hi, u)} ${perW}`);
-  let eLo, eHi, dLo, dHi;
-  if (R.per === "day"){ dLo = lo; dHi = hi; eLo = dec(lo / n); eHi = dec(hi / n); step(`Divided into ${n} doses: ${rngf(dLo, dHi, u)} ÷ ${n} = ${rngf(eLo, eHi, u)} each time`); }
-  else { eLo = lo; eHi = hi; dLo = dec(lo * n); dHi = dec(hi * n); step(`${n} times a day: ${rngf(eLo, eHi, u)} × ${n} = ${rngf(dLo, dHi, u)} a day`); }
-  if (factor !== 1){ eLo = dec(eLo * factor); eHi = dec(eHi * factor); dLo = dec(dLo * factor); dHi = dec(dHi * factor); step(`After the kidney change: ${rngf(eLo, eHi, u)} each time, ${rngf(dLo, dHi, u)} a day`); }
-  const capped = [];
-  if (isNum(R.maxSingle)){ if (eHi > R.maxSingle){ eHi = R.maxSingle; eLo = Math.min(eLo, eHi); capped.push("single"); step(`Largest single dose in the rule: ${nfmt(R.maxSingle)} ${u}. Each dose is limited to it.`); } else step(`Largest single dose ${nfmt(R.maxSingle)} ${u}: not reached`); dLo = Math.min(dLo, dec(eLo * n)); dHi = Math.min(dHi, dec(eHi * n)); }
-  const dayCaps = [[R.maxDay, `${nfmt(R.maxDay)} ${u}`], [isNum(R.maxDayKg) ? dec(R.maxDayKg * kg) : null, `${nfmt(R.maxDayKg)} ${u}/kg × ${nfmt(kg)} kg = ${nfmt(dec(R.maxDayKg * kg))} ${u}`]].filter(c => isNum(c[0]));
-  if (dayCaps.length){ const c = dayCaps.reduce((a, b) => b[0] < a[0] ? b : a);
-    if (dHi > c[0]){ dHi = c[0]; dLo = Math.min(dLo, dHi); eHi = Math.min(eHi, dec(c[0] / n)); eLo = Math.min(eLo, eHi); capped.push("day"); step(`Most per day in the rule: ${c[1]}. The daily total is limited to it, so each dose is at most ${nfmt(eHi)} ${u}.`); }
-    else step(`Most per day ${c[1]}: not reached`); }
-  const res = {each:[eLo, eHi], day:[dLo, dHi], unit:u, n, every:dec(24 / n), capped, crcl, load:null, vol:null, tabs:null};
-  if (isNum(R.loadMin) && R.loadMin > 0){ let a = dec(R.loadMin * base), b = dec((isNum(R.loadMax) ? R.loadMax : R.loadMin) * base);
-    if (isNum(R.maxLoad) && b > R.maxLoad){ b = R.maxLoad; a = Math.min(a, b); }
-    res.load = [a, b]; step(`Loading dose (first dose only): ${rngf(R.loadMin, isNum(R.loadMax) ? R.loadMax : R.loadMin, bLabel)}${R.basis === "fixed" ? "" : ` × ${nfmt(base)}`} = ${rngf(a, b, u)}${isNum(R.maxLoad) ? `, at most ${nfmt(R.maxLoad)} ${u}` : ""}`); }
-  // liquid volume: the rule's concentration, else the product's. If both are known they must agree
-  const ps = med.strengths && med.strengths.length === med.ings.length ? med.strengths[Math.max(0, med.ings.indexOf(R.doseOf))] : null;
-  const pconc = ps && ps.ml ? {amt:ps.amt, unit:ps.unit, ml:ps.ml} : null, perMl = c => c && MASS[c.unit] !== undefined ? c.amt * MASS[c.unit] / c.ml : c ? c.amt / c.ml : null;
-  if (R.conc && pconc && (R.conc.unit === "units") === (pconc.unit === "units") && Math.abs(perMl(R.conc) - perMl(pconc)) > 1e-9){ block(`The rule is for ${nfmt(R.conc.amt)} ${R.conc.unit} in ${nfmt(R.conc.ml)} mL, but this product is ${nfmt(pconc.amt)} ${pconc.unit} in ${nfmt(pconc.ml)} mL. Choose the matching product or rule.`); out.state = "blocked"; return out; }
-  const conc = R.conc || pconc;
-  if (conc){ const toC = v => u === conc.unit ? v : MASS[u] !== undefined && MASS[conc.unit] !== undefined ? dec(v * MASS[u] / MASS[conc.unit]) : null, a = toC(eLo), b = toC(eHi);
-    if (a === null) warn(`The dose is in ${u} but the concentration is in ${conc.unit}, so the volume cannot be worked out.`);
-    else { let va = dec(a / conc.amt * conc.ml), vb = dec(b / conc.amt * conc.ml); step(`Volume = dose ÷ ${nfmt(conc.amt)} ${conc.unit} × ${nfmt(conc.ml)} mL = ${rngf(va, vb, "mL")}${R.conc ? " (rule concentration)" : " (product strength)"}`);
-      res.vol = {exact:[va, vb], conc};
-      if (R.mlStep){ const ra = dec(Math.ceil(dec(va / R.mlStep)) * R.mlStep), rb = dec(Math.floor(dec(vb / R.mlStep)) * R.mlStep);
-        if (ra > rb) warn(`No volume measured in steps of ${nfmt(R.mlStep)} mL fits inside this range. Check the measuring device.`); else { res.vol.round = [ra, rb]; step(`Measured in steps of ${nfmt(R.mlStep)} mL (rule): ${rngf(ra, rb, "mL")}, kept inside the range`); } } } }
-  const tabMg = R.tab || (ps && !ps.ml && ps.unit === u && isSolid(med.form) ? ps.amt : null);
-  if (tabMg && (!conc || isSolid(med.form))){ const ta = dec(eLo / tabMg), tb = dec(eHi / tabMg); res.tabs = {exact:[ta, tb], mg:tabMg, step:R.tabStep};
-    if (R.tabStep){ const ra = dec(Math.ceil(dec(ta / R.tabStep)) * R.tabStep), rb = dec(Math.floor(dec(tb / R.tabStep)) * R.tabStep);
-      if (ra > rb) warn(`No ${R.tabStep === 1 ? "whole" : R.tabStep === 0.5 ? "half" : "quarter"} tablet dose of ${nfmt(tabMg)} ${u} fits inside this range. Use another strength or form.`); else res.tabs.round = [ra, rb];
-      step(`Tablets of ${nfmt(tabMg)} ${u}: ${rngf(ta, tb, "tablet")}${res.tabs.round ? `, as ${rngf(res.tabs.round[0], res.tabs.round[1], "tablet")} (split allowed: ${R.tabStep === 1 ? "whole only" : R.tabStep === 0.5 ? "halves" : "quarters"})` : ""}`); }
-    else { warn("The rule does not say whether this tablet can be split. Check the product before giving part of a tablet."); step(`Tablets of ${nfmt(tabMg)} ${u}: ${rngf(ta, tb, "tablet")} (exact)`); } }
-  if (reviewDue(R)) warn("This rule's review date has passed. Ask the owner to check it against the latest source.");
-  if (labelChanged(R)) warn("The FDA has published a newer label than the one this rule was copied from. Ask the owner to check the rule.");
-  out.res = res; out.state = out.blocks.length ? "blocked" : "ok"; return out;
-}
-
-/* ---- A. identification: local candidates (work offline) and RxNorm (online, saved on the device for 24 hours) ---- */
-const RX_BASE = () => window.ERP_RXNAV || "https://rxnav.nlm.nih.gov/REST", RX_FRESH = 864e5, DRUG_STALE_DAYS = 7;
-const extOn = () => navigator.onLine !== false && ERP_MODE === "device";
-const extLog = () => lsGet("erp.extlog", []);
-function extNote(src, ok, what, ms){ const l = extLog(); l.unshift({at:nowIso(), src, ok, what:String(what).slice(0, 140), ms}); lsSet("erp.extlog", l.slice(0, 60)); if (ok){ const s = lsGet("erp.extok", {}); s[src] = nowIso(); lsSet("erp.extok", s); } }
-let extNext = 0;   // at most about 6 requests a second (RxNorm allows 20)
-async function extGet(url, src){
-  for (let tries = 0; ; tries++){
-    const wait = Math.max(0, extNext - Date.now()); extNext = Math.max(Date.now(), extNext) + 160; if (wait) await new Promise(r => setTimeout(r, wait));
-    const ctl = new AbortController(), t0 = Date.now(), timer = setTimeout(() => ctl.abort(), 10000);
-    try { const res = await fetch(url, {signal:ctl.signal}); clearTimeout(timer);
-      if (res.status === 404){ extNote(src, true, "not found", Date.now() - t0); return null; }
-      if (!res.ok){ if (res.status >= 500 && tries < 1) continue; throw new Error("HTTP " + res.status); }
-      const j = await res.json(); extNote(src, true, url.replace(/^https?:\/\/[^/]+/, ""), Date.now() - t0); return j; }
-    catch(x){ clearTimeout(timer); const why = x.name === "AbortError" ? "timed out after 10 seconds" : x.message || "no answer";
-      if (tries < 1 && x.name !== "AbortError"){ await new Promise(r => setTimeout(r, 800)); continue; } extNote(src, false, why, Date.now() - t0); throw new Error(why); } }
-}
-const rxCache = () => lsGet("erp.rx", {}), rxPut = (k, v) => { const c = rxCache(); c[k] = {...v, at:Date.now()}; const keys = Object.keys(c); if (keys.length > 400) keys.sort((a, b) => c[a].at - c[b].at).slice(0, 100).forEach(x => delete c[x]); lsSet("erp.rx", c); };
-async function rxCached(key, fn){ const c = rxCache()[key]; if (c && (Date.now() - c.at < RX_FRESH || !extOn())) return c.v; if (!extOn()){ if (c) return c.v; throw new Error("offline"); }
-  try { const v = await fn(); rxPut(key, {v}); return v; } catch(x){ if (c) return c.v; throw x; } }
-const PRODUCT_TTY = ["SCD", "SBD", "GPCK", "BPCK"], ING_TTY = ["IN", "MIN", "PIN"];
-async function rxSearch(q){
-  const term = canonIng(q);
-  return rxCached("s:" + term, async () => {
-    const found = new Map(), add = c => { if (c && c.rxcui && !found.has(c.rxcui)) found.set(c.rxcui, {rxcui:String(c.rxcui), name:c.name || "", tty:c.tty || ""}); };
-    const ap = await extGet(`${RX_BASE()}/approximateTerm.json?term=${encodeURIComponent(term)}&maxEntries=8&option=1`, "RxNorm");
-    for (const c of ap?.approximateGroup?.candidate || []) if (!found.has(String(c.rxcui)) && found.size < 8) add({rxcui:String(c.rxcui), name:c.name || ""});
-    const dr = await extGet(`${RX_BASE()}/drugs.json?name=${encodeURIComponent(term)}`, "RxNorm");
-    for (const g of dr?.drugGroup?.conceptGroup || []) if (PRODUCT_TTY.includes(g.tty) || ING_TTY.includes(g.tty)) for (const c of (g.conceptProperties || []).slice(0, 60)) add({...c, tty:g.tty});
-    for (const c of [...found.values()].filter(c => !c.name || !c.tty).slice(0, 8)){ const p = await extGet(`${RX_BASE()}/rxcui/${encodeURIComponent(c.rxcui)}/properties.json`, "RxNorm").catch(() => null); if (p?.properties){ c.name = c.name || p.properties.name; c.tty = c.tty || p.properties.tty; } }
-    let suggest = [];
-    if (!found.size){ const sp = await extGet(`${RX_BASE()}/spellingsuggestions.json?name=${encodeURIComponent(term)}`, "RxNorm").catch(() => null); suggest = (sp?.suggestionGroup?.suggestionList?.suggestion || []).slice(0, 5); }
-    return {list:[...found.values()].filter(c => c.name), suggest};
-  });
-}
-// a chosen RxNorm concept: its ingredients, strengths, form and brands, from RxNorm's own links
-async function rxConcept(c){
-  return rxCached("c:" + c.rxcui, async () => {
-    const j = await extGet(`${RX_BASE()}/rxcui/${encodeURIComponent(c.rxcui)}/allrelated.json`, "RxNorm"), g = {};
-    for (const x of j?.allRelatedGroup?.conceptGroup || []) g[x.tty] = (x.conceptProperties || []).map(p => ({rxcui:String(p.rxcui), name:p.name}));
-    const product = PRODUCT_TTY.includes(c.tty), ins = (g.IN || []).map(x => x.name), ings = ins.length ? [...new Set(ins.map(canonIng))].sort() : splitIngs(c.name);
-    let strengths = null;
-    if (product && g.SCDC && g.SCDC.length === ings.length){ strengths = ings.map(i => { const s = g.SCDC.find(x => canonIng(x.name).startsWith(i + " ")); const p = s && parseStrength(s.name.slice(i.length), 1); return p ? p[0] : null; }); if (strengths.some(s => !s)) strengths = null; }
-    const form = product ? ((g.DF || [])[0]?.name || "") : "", brands = (g.BN || []).map(x => x.name).slice(0, 8);
-    return {rxcui:c.rxcui, tty:c.tty, name:c.name, ings, ingIds:(g.IN || []).map(x => x.rxcui), strengths, strengthText:product && g.SCDC ? g.SCDC.map(x => x.name).join(" + ") : "", form, route:routeOf(form || c.name), release:product ? releaseOf(form + " " + c.name) || "immediate" : "", brands};
-  });
-}
-async function rxClasses(ingIds){
-  const out = [];
-  for (const id of (ingIds || []).slice(0, 3)){ const v = await rxCached("k:" + id, async () => { const j = await extGet(`${RX_BASE()}/rxclass/class/byRxcui.json?rxcui=${encodeURIComponent(id)}&relaSource=ATC`, "RxClass");
-      return [...new Set((j?.rxclassDrugInfoList?.rxclassDrugInfo || []).map(x => x.rxclassMinConceptItem?.className).filter(Boolean))].slice(0, 6); }).catch(() => []);
-    out.push(...v); }
-  return [...new Set(out)];
-}
-/* names only (no doses), offered while typing. Any other medicine is found through RxNorm or typed by hand */
-const MED_NAMES = ["acetaminophen", "acyclovir", "albendazole", "albuterol", "amikacin", "amlodipine", "amoxicillin", "amoxicillin + clavulanate", "amphotericin b", "ampicillin", "atorvastatin", "azithromycin", "budesonide", "cefaclor", "cefadroxil", "cefdinir", "cefixime", "cefpodoxime", "cefprozil", "ceftriaxone", "cefuroxime", "cephalexin", "cetirizine", "ciprofloxacin", "clarithromycin", "clindamycin", "clotrimazole", "dexamethasone", "diclofenac", "doxycycline", "efavirenz", "entecavir", "enoxaparin", "erythromycin", "esomeprazole", "famciclovir", "fluconazole", "furosemide", "ganciclovir", "gentamicin", "griseofulvin", "heparin", "ibuprofen", "insulin glargine", "isoniazid", "itraconazole", "ivermectin", "ketoconazole", "lamivudine", "levofloxacin", "linezolid", "loratadine", "mebendazole", "metformin", "metronidazole", "miconazole", "minocycline", "montelukast", "nevirapine", "nitazoxanide", "nitrofurantoin", "nystatin", "ofloxacin", "omeprazole", "ondansetron", "oseltamivir", "penicillin v", "praziquantel", "prednisolone", "pyrantel", "ribavirin", "rifampin", "sofosbuvir", "sulfamethoxazole + trimethoprim", "tenofovir disoproxil", "terbinafine", "tinidazole", "valacyclovir", "vancomycin", "voriconazole", "warfarin", "zidovudine"];
-const medStatusWord = s => ({verified:"Verified (RxNorm)", confirmed:"Confirmed by the pharmacist", probable:"Probable match: confirm it", unverified:"Unverified manual entry"})[s] || "Not chosen";
-const knownIngs = () => { const s = new Set(MED_NAMES.flatMap(splitIngs)); for (const r of doseRules()) for (const i of ruleN(r).ings) s.add(i); for (const v of Object.values(rxCache())) for (const i of v.v?.ings || []) s.add(i); return s; };
-function localCands(q){
-  const t = q.trim().toLowerCase(), a = canonIng(t); if (t.length < 2) return [];
-  const hit = s => { const x = String(s || "").toLowerCase(); return x.includes(t) || (a !== t && x.includes(a)); }, out = [], seen = new Set(), push = c => { const k = c.kind + ":" + (c.pid || c.rxcui || ingKey(c.ings)); if (!seen.has(k)){ seen.add(k); out.push(c); } };
-  for (const r of doseRules()){ const R = ruleN(r); if (R.status !== "withdrawn" && (hit(R.drug) || R.ings.some(hit))) push({kind:"rule", name:ingKey(R.ings), ings:R.ings, src:"Your dose rules", status:"probable"}); }
-  let cat = []; try { cat = catalog(); } catch(e){}
-  for (const p of cat) if (hit(p.name) || hit(p.sci) || (p.barcode && String(p.barcode) === q.trim())){ const ings = splitIngs(p.sci || "");
-    push({kind:"stock", pid:p.id, name:p.name, ings, strengthText:p.strength || "", strengths:parseStrength(p.strength, ings.length), form:p.form || "", route:routeOf(p.form), release:releaseOf(p.name + " " + (p.form || "")), src:"Your stock", status:ings.length ? "probable" : "unverified"}); }
-  for (const v of Object.values(rxCache())) if (v.v && v.v.rxcui && v.v.ings && (hit(v.v.name) || v.v.ings.some(hit))) push({kind:"rxnorm", ...v.v, src:"RxNorm (saved " + new Date(v.at).toISOString().slice(0, 10) + ")", status:"verified"});
-  for (const n of MED_NAMES) if (hit(n)) push({kind:"list", name:n, ings:splitIngs(n), src:"Common names list", status:"probable"});
-  return out.slice(0, 40);
-}
-const candLine = c => [c.ings && c.ings.length > 1 ? "Ingredients: " + ingKey(c.ings) : c.ings && c.ings[0] && c.ings[0] !== String(c.name).toLowerCase() ? "Ingredient: " + c.ings[0] : "", c.strengthText, c.form, c.route ? "route " + c.route : "", c.release === "extended" ? "extended release" : c.release === "delayed" ? "delayed release" : "", c.rxcui ? "RxCUI " + c.rxcui : "", c.tty ? c.tty : ""].filter(Boolean).join(" · ");
-function candsHtml(){
-  const d = S.dose, loc = localCands(d.q), rx = d.rx && d.rx.q === d.q ? d.rx : null;
-  const row = (c, i, kind) => `<button type="button" class="row" data-xdcand="${kind}:${i}" style="min-height:44px"><span class="main"><span class="t" data-keep>${esc(c.name)}</span><span class="s" data-keep>${esc(candLine(c))}</span></span><span class="note">${esc(c.src || "RxNorm")}</span></button>`;
-  if (!d.q.trim()) return "";
-  let h = loc.length ? `<div class="list" style="max-height:260px;overflow:auto">${loc.map((c, i) => row(c, i, "l")).join("")}</div>` : `<p class="note">Nothing in your rules, stock or saved names matches.</p>`;
-  if (rx){ if (rx.busy) h += `<p class="note">Searching RxNorm...</p>`; else if (rx.err) h += `<div class="banner">${esc(rx.err)}</div>`;
-    else { h += `<p class="note"><span>RxNorm results</span> <span class="num">(${rx.list.length})</span></p>` + (rx.list.length ? `<div class="list" style="max-height:300px;overflow:auto">${rx.list.map((c, i) => row({...c, src:c.tty && PRODUCT_TTY.includes(c.tty) ? "RxNorm product" : "RxNorm ingredient"}, i, "r")).join("")}</div>` : `<p class="note">RxNorm has no medicine by this name.</p>`) + (rx.suggest?.length ? `<p class="note">Did you mean: ${rx.suggest.map(s => `<button type="button" class="linkbtn" data-xdsug="${esc(s)}" data-keep>${esc(s)}</button>`).join(", ")}</p>` : ""); } }
-  if (loc.length + (rx?.list?.length || 0) > 1) h += `<p class="note">Several medicines match. Tap the one in your hand. Nothing is chosen for you.</p>`;
-  return h;
-}
-function medCardHtml(){
-  const m = S.dose.med; if (!m) return "";
-  const st = m.status, ok = st === "verified" || st === "confirmed", known = m.ings.length && m.ings.every(i => knownIngs().has(i));
-  const field = (id, label, v, ph = "") => `<label>${label}<input id="${id}" value="${esc(v || "")}" placeholder="${esc(ph)}"></label>`;
-  const editable = m.kind !== "rxnorm" || !PRODUCT_TTY.includes(m.tty);
-  return `<div class="sum" style="gap:6px"><div class="r"><span class="t" data-keep><b>${esc(m.name)}</b></span><span class="pill ${ok ? "good" : "warn"}">${medStatusWord(st)}</span></div>
-    <p class="note" data-keep>${esc(candLine(m)) || "—"}</p><p class="note"><span>Source:</span> <span data-keep>${esc(m.src || "")}</span></p>
-    ${m.classes?.length ? `<p class="note"><span>Classes (information only):</span> <span data-keep>${esc(m.classes.join("; "))}</span></p>` : ""}
-    ${editable ? `<div class="grid2 stack">${m.kind === "manual" || !m.ings.length ? field("dsMIng", "Active ingredient(s)", ingKey(m.ings), "ibuprofen") : ""}${field("dsMStr", "Strength", m.strengthText, "250 mg/5 mL")}${field("dsMForm", "Dosage form", m.form, "Suspension")}
-      <label>Route<select id="dsMRoute"><option value="">Choose</option>${ROUTES.map(r => `<option value="${r}" ${m.route === r ? "selected" : ""}>${r}</option>`).join("")}</select></label></div>` : ""}
-    ${st === "probable" ? `<label class="check"><input type="checkbox" id="dsConfirm"> I checked the package: the active ingredient is <b data-keep>${esc(ingKey(m.ings))}</b>${m.strengthText ? ` and the strength is ${esc(m.strengthText)}` : ""}.</label>` : ""}
-    ${st === "unverified" ? `<div class="banner">${m.ings.length && !known ? "This active ingredient is not in RxNorm, your rules or the names list. Check the spelling or search RxNorm. A dose cannot be worked out for an unverified medicine." : m.ings.length ? "" : "Type the active ingredient from the package. A name alone is not enough to work out a dose."}</div>${m.ings.length && known ? `<label class="check"><input type="checkbox" id="dsConfirm"> I checked the package: the active ingredient is <b data-keep>${esc(ingKey(m.ings))}</b>.</label>` : ""}` : ""}
-    <div class="actions"><button type="button" data-xdmedclear="1">Change medicine</button></div></div>`;
-}
-function rulesForMed(m){ return m ? doseRules().filter(r => ingKey(ruleN(r).ings) === ingKey(m.ings)) : []; }
-function rulePickHtml(){
-  const m = S.dose.med; if (!m || !m.ings.length) return "";
-  const all = rulesForMed(m), live = all.filter(r => r.status !== "withdrawn");
-  if (!live.some(ruleUsable)) return `<div class="banner"><b>No approved dose rule.</b> <span>The medicine is identified, but there is no approved dosing rule for it yet. Manual clinical review is required.</span></div>
-    ${live.length ? `<div class="list">${live.map(r => `<div class="row" style="cursor:default"><span class="main"><span class="t" data-keep>${esc(r.indication || "Indication not stated")} · ${esc(r.group || "")}</span><span class="s">${statusWord(r.status)}</span></span>${rulePill(r.status)}</div>`).join("")}</div>` : ""}
-    ${isOwner() ? `<button type="button" class="primary" data-xdedit="__new" data-ings="${esc(ingKey(m.ings))}">Add a rule for this medicine</button>` : `<button type="button" data-xdask="1">Ask the owner for a rule</button>`}`;
-  const d = S.dose; if (d.rid && !live.some(r => r.id === d.rid && ruleUsable(r))) d.rid = "";
-  return `<p class="note">Choose the indication and patient group. Only approved rules can be used.</p><div class="list">${live.map(r => { const R = ruleN(r), use = ruleUsable(r), mis = (R.route && m.route && R.route !== m.route) || (R.forms && m.form && !formOk(R.forms, m.form));
-    return `<button type="button" class="row" ${use ? `data-xdrule="${esc(r.id)}"` : "disabled"} aria-pressed="${r.id === d.rid}" style="${r.id === d.rid ? "outline:2px solid var(--accent)" : ""}${use ? "" : ";opacity:.6"}"><span class="main"><span class="t" data-keep>${esc(R.indication || "Indication not stated")} · ${esc(R.group || "")}</span><span class="s" data-keep>${esc([R.route, R.forms, isNum(R.ageMin) || isNum(R.ageMax) ? `age ${isNum(R.ageMin) ? R.ageMin : 0}–${isNum(R.ageMax) ? R.ageMax : "any"} months` : ""].filter(Boolean).join(" · "))}</span></span>${mis ? `<span class="pill bad">Other route or form</span>` : rulePill(r.status)}<span class="num">v${R.ver}</span></button>`; }).join("")}</div>`;
-}
-function patientHtml(){
-  const d = S.dose, r = doseRules().find(x => x.id === d.rid); if (!r) return "";
-  const need = doseNeeds(ruleN(r)), p = d.pt, inp = (id, label, v, mode = "decimal") => `<label>${label}<input id="${id}" class="num" inputmode="${mode}" value="${esc(v)}"></label>`;
-  return `<div class="grid2 stack">${need.age ? inp("dsY", "Age (years)", p.y, "numeric") + inp("dsM", "Plus months", p.m, "numeric") : ""}${need.kg ? inp("dsKg", "Weight (kg)", p.kg) : ""}${need.cm ? inp("dsCm", "Height (cm)", p.cm) : ""}
-    ${need.renal ? `<label>Sex<select id="dsSex"><option value="">Choose</option><option value="female" ${p.sex === "female" ? "selected" : ""}>Female</option><option value="male" ${p.sex === "male" ? "selected" : ""}>Male</option></select></label>${inp("dsScr", "Serum creatinine", p.scr)}<label>Creatinine unit<select id="dsScrU"><option value="mgdl" ${p.scrU !== "umol" ? "selected" : ""}>mg/dL</option><option value="umol" ${p.scrU === "umol" ? "selected" : ""}>µmol/L</option></select></label>` : ""}</div>
-    ${!need.age && !need.kg && !need.cm ? `<p class="note">This rule is a fixed dose with no age or weight limits, so no patient numbers are needed.</p>` : ""}
-    <div class="chips"><label class="check"><input type="checkbox" id="dsRenal" ${p.renal ? "checked" : ""}> Kidney problem</label><label class="check"><input type="checkbox" id="dsHep" ${p.hepatic ? "checked" : ""}> Liver problem</label><label class="check"><input type="checkbox" id="dsPreg" ${p.preg ? "checked" : ""}> Pregnant or breastfeeding</label></div>`;
-}
-function extStateLine(){
-  if (ERP_MODE !== "device") return ["Online drug search and FDA labels work in the installed app. Your rules work here.", "warn"];
-  const ok = lsGet("erp.extok", {}), last = [ok.RxNorm, ok.openFDA].filter(Boolean).sort().pop(), old = last && Date.now() - Date.parse(last) > DRUG_STALE_DAYS * 864e5;
-  if (extOn()) return [last ? `Online. Last answer from the drug databases ${last.slice(0, 16).replace("T", " ")}.` : "Online. No answer from the drug databases yet.", "good"];
-  return [last ? `Offline. Using drug data saved on ${last.slice(0, 10)}${old ? " (more than 7 days old)" : ""}. Nothing was refreshed.` : "Offline. No drug data saved on this device yet.", "warn"];
-}
-function doseOut(){
-  const d = S.dose, m = d.med, r = doseRules().find(x => x.id === d.rid), [ext, extCls] = extStateLine();
-  const line = (label, val, cls) => `<div class="r"><span>${label}</span><span class="pill ${cls}">${val}</span></div>`;
-  const rule = !m ? ["Choose a medicine first", ""] : r ? [ruleUsable(r) ? "Approved rule" : "Rule requires review", ruleUsable(r) ? "good" : "warn"] : rulesForMed(m).some(ruleUsable) ? ["Choose the indication", ""] : ["No approved rule", "warn"];
-  const c = r && m ? doseRun(r, m, d.pt) : null;
-  const calc = !c ? ["Not ready", ""] : c.state === "ok" ? ["Ready", "good"] : c.state === "missing" ? ["Required information missing", "warn"] : ["Blocked by a safety check", "bad"];
-  let h = `<div class="sum" style="gap:4px">${line("Medicine", m ? medStatusWord(m.status) : "Not chosen", m && ["verified", "confirmed"].includes(m.status) ? "good" : m ? "warn" : "")}<p class="note" style="margin:0">${ext}</p>${line("Rule", rule[0], rule[1])}${line("Calculation", calc[0], calc[1])}</div>`;
-  if (!c) return h;
-  const R = c.R, row = (l, v) => `<div class="r"><span>${l}</span><span class="dv">${v}</span></div>`;
-  if (c.missing.length) h += `<div class="banner"><b>Type or choose:</b> <span>${c.missing.map(x => `<span>${x}</span>`).join(", ")}</span></div>`;
-  h += c.blocks.map(b => `<div class="banner bad">${esc(b)}</div>`).join("");
-  if (c.state === "ok"){ const s = c.res, u = s.unit;
-    h += `<div class="sum" style="border:2px solid var(--good)">${s.load ? row("Loading dose (first dose only)", rngf(s.load[0], s.load[1], u)) : ""}${row("Dose each time", rngf(s.each[0], s.each[1], u))}
-      ${s.vol ? row("As liquid", (s.vol.round ? rngf(s.vol.round[0], s.vol.round[1], "mL") : rngf(s.vol.exact[0], s.vol.exact[1], "mL")) + ` <span class="note">(${nfmt(s.vol.conc.amt)} ${s.vol.conc.unit} in ${nfmt(s.vol.conc.ml)} mL)</span>`) : ""}
-      ${s.tabs ? row("As tablets", (s.tabs.round ? rngf(s.tabs.round[0], s.tabs.round[1], "tablet") : rngf(s.tabs.exact[0], s.tabs.exact[1], "tablet")) + ` <span class="note">(${nfmt(s.tabs.mg)} ${u} each)</span>`) : ""}
-      ${row("Times a day", `${s.n}, about every ${nfmt(s.every)} hours`)}<div class="r big"><span>Do not give more than, in 24 hours</span><span class="dv">${nfmt(s.day[1])} ${u}</span></div>${R.duration ? row("Duration", esc(R.duration)) : ""}</div>`; }
-  h += c.warns.map(w => `<div class="banner">${esc(w)}</div>`).join("");
-  if (c.steps.length) h += `<details class="sum" ${c.state === "ok" ? "open" : ""}><summary><b>How it was worked out</b></summary><ol class="note" data-keep style="margin:6px 0 0;padding-inline-start:20px">${c.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ol></details>`;
-  const cond = [[d.pt.renal, "Kidney problem", R.renalNote], [d.pt.hepatic, "Liver problem", R.hepaticNote], [d.pt.preg, "Pregnant or breastfeeding", R.pregNote]].filter(x => x[0]).map(([, l, note]) => note ? `<div class="banner"><b>${l}</b> <span>${esc(note)}</span></div>` : `<div class="banner bad"><b>${l}</b> <span>This rule has no advice for this. Check the full label before giving it.</span></div>`).join("");
-  h += cond + (R.notes ? `<p class="note">${esc(R.notes)}</p>` : "");
-  h += `<p class="note"><span>Rule</span> <span class="num">v${R.ver}</span> · <span data-keep>${esc(R.indication || "Indication not stated")} · ${esc(R.group || "")}</span>${R.approvedBy ? ` · <span>approved by</span> <span data-keep>${esc(whoName(R.approvedBy))}</span> <span class="num">${esc((R.approvedAt || "").slice(0, 10))}</span>` : ""}</p>
-    <p class="note"><span>Source:</span> <span data-keep>${esc([R.srcOrg, R.srcName, R.srcSection, R.srcDate].filter(Boolean).join(" · "))}</span>${/^https?:\/\//.test(R.srcRef || "") ? ` <a href="${esc(R.srcRef)}" target="_blank" rel="noopener">Open the source</a>` : R.srcRef ? ` · <span data-keep>${esc(R.srcRef)}</span>` : ""}</p>
-    ${d.logAt ? `<p class="note"><span>Saved in the calculation record</span> <span class="num">${esc(d.logAt.slice(11, 16))}</span></p>` : ""}
-    <p class="note">This is an aid for the pharmacist. It is not a prescription and does not authorise treatment. The pharmacist checks it and decides.</p>`;
-  queueLog(r, m, c); return h;
-}
-function doseCalcHtml(){
-  const d = S.dose;
-  return `<div id="doseCalc" style="display:grid;gap:12px"><label>Medicine: name, brand, ingredient or barcode<input id="dsQ" type="search" value="${esc(d.q)}" placeholder="amoxicillin, Augmentin, paracetamol" autocomplete="off" enterkeyhint="search"></label>
-    <div class="actions"><button type="button" class="primary" data-xrxgo="1">Search RxNorm</button><button type="button" data-xdmanual="1">Enter by hand</button></div>
-    <div id="dsCands" style="display:grid;gap:8px">${d.med ? "" : candsHtml()}</div><div id="dsBody" style="display:grid;gap:12px">${doseBodyHtml()}</div></div>`;
-}
-function doseBodyHtml(){ const d = S.dose; if (!d.med) return "";
-  return `<div id="dsMed">${medCardHtml()}</div><div id="dsRules" style="display:grid;gap:8px">${rulePickHtml()}</div><div id="dsPt" style="display:grid;gap:10px">${patientHtml()}</div>
-    <div id="doseOut" style="display:grid;gap:10px">${doseOut()}</div><div id="doseLabel" style="display:grid;gap:8px">${(setTimeout(paintLabel, 0), "")}</div>`; }
-const paintIn = (sel, html) => { const el = $(sel); if (el){ el.innerHTML = html; if (S.lang === "ar") translate(el); } };
-const paintBody = () => { paintIn("#dsCands", S.dose.med ? "" : candsHtml()); paintIn("#dsBody", doseBodyHtml()); };
-const paintOut = () => { paintIn("#doseOut", doseOut()); paintLabel(); };
-async function chooseCand(c){
-  const d = S.dose; d.rid = ""; d.logKey = ""; d.logAt = "";
-  if (c.kind === "rxnorm" && !c.ings){ d.med = {kind:"rxnorm", name:c.name, ings:[], status:"probable", src:"RxNorm (loading details...)"}; paintBody();
-    try { const k = await rxConcept(c); d.med = {kind:"rxnorm", ...k, src:"RxNorm", status:"verified"}; } catch(x){ d.med = {kind:"rxnorm", name:c.name, rxcui:c.rxcui, ings:ING_TTY.includes(c.tty) ? splitIngs(c.name) : [], status:"unverified", src:"RxNorm (details not loaded: " + x.message + ")"}; } }
-  else d.med = {...c};
-  paintBody();
-  if (d.med.ingIds?.length && extOn()) rxClasses(d.med.ingIds).then(cl => { if (S.dose.med && S.dose.med.rxcui === d.med.rxcui && cl.length){ S.dose.med.classes = cl.map(x => x + " (ATC, via RxClass)"); paintIn("#dsMed", medCardHtml()); } });
-  const own = rulesForMed(d.med).map(r => ruleN(r).classes).filter(Boolean); if (own.length) d.med.classes = [...new Set([...(d.med.classes || []), ...own.map(x => x + " (your rule)")])];
-}
-async function runRx(){
-  const d = S.dose, q = d.q.trim(); if (q.length < 2){ toast("Type at least 2 letters."); return; }
-  if (!extOn()){ d.rx = {q:d.q, err:ERP_MODE !== "device" ? "Online drug search works in the installed app. Your rules, stock and saved names are searched here." : "Offline. RxNorm cannot be searched now. Saved results and your own records are shown.", list:[]}; const c = rxCache()["s:" + canonIng(q)]; if (c) d.rx = {q:d.q, ...c.v, err:""}; paintIn("#dsCands", candsHtml()); return; }
-  d.rx = {q:d.q, busy:true, list:[]}; paintIn("#dsCands", candsHtml());
-  try { const v = await rxSearch(q); if (S.dose.q === d.q) d.rx = {q:d.q, ...v}; } catch(x){ d.rx = {q:d.q, list:[], err:`RxNorm did not answer (${x.message}). Your own records are still searched. Try again later.`}; }
-  if (!S.dose.med) paintIn("#dsCands", candsHtml());
-}
-
-/* ---- calculation record: one entry per finished calculation, never edited. A checksum shows if an entry was changed ---- */
-const canonJSON = v => Array.isArray(v) ? "[" + v.map(canonJSON).join(",") + "]" : v && typeof v === "object" ? "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + canonJSON(v[k])).join(",") + "}" : JSON.stringify(v ?? null);
-async function sha256(s){ try { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join(""); } catch { return ""; } }
-let logTimer = null;
-function queueLog(r, m, c){
-  if (!c || c.state === "missing" || !ruleUsable(r) || !["verified", "confirmed"].includes(m.status)) return; const d = S.dose;   // only real attempts: approved rule, confirmed medicine
-  const rec = {ruleId:r.id, ruleVer:c.R.ver, ruleStatus:c.R.status, ruleApprovedBy:c.R.approvedBy || null, indication:c.R.indication || "", group:c.R.group || "", src:{org:c.R.srcOrg || "", name:c.R.srcName || "", ref:c.R.srcRef || "", section:c.R.srcSection || "", date:c.R.srcDate || ""},
-    med:{name:m.name, ings:m.ings, strength:m.strengthText || "", form:m.form || "", route:m.route || "", release:m.release || "", rxcui:m.rxcui || "", status:m.status, source:m.src || "", pid:m.pid || ""},
-    inputs:{ageMonths:isNum(ptAgeM(d.pt)) ? ptAgeM(d.pt) : null, kg:parseNum(d.pt.kg), cm:parseNum(d.pt.cm), sex:d.pt.sex || "", creatinine:parseNum(d.pt.scr), creatinineUnit:d.pt.scrU, kidney:d.pt.renal, liver:d.pt.hepatic, pregnant:d.pt.preg},
-    formula:`${c.R.basis} · ${c.R.per} · ${c.R.unit}`, steps:c.steps, result:c.res ? {each:c.res.each, day:c.res.day, unit:c.res.unit, timesADay:c.res.n, load:c.res.load, volume:c.res.vol, tablets:c.res.tabs, capped:c.res.capped, crcl:c.res.crcl} : null, outcome:c.state, blocks:c.blocks, warnings:c.warns};
-  const key = canonJSON(rec); if (key === d.logKey) return; clearTimeout(logTimer);
-  logTimer = setTimeout(async () => { if (key === d.logKey || !S.db) return; d.logKey = key; const at = nowIso(), id = newId("DL"), full = {...rec, at, by:S.staff?.id || S.meId || "", byName:S.staff?.name || ""};
-    try { await write("doselog/" + id, {id, rec:full, sum:await sha256(canonJSON(full))}); d.logAt = at; const n = $("#doseOut"); if (n && S.dose.rid === r.id) paintIn("#doseOut", doseOut()); } catch(x){ d.logKey = ""; } }, 1500);
-}
-async function logIntact(x){ return !!x.sum && x.sum === await sha256(canonJSON(x.rec)); }
-
-/* ---- the Dose screen ---- */
-function doseView(){
-  const own = isOwner();
-  return `<section class="sec"><h2>Dose calculator</h2><div class="sum" style="gap:12px">${doseCalcHtml()}</div></section>${own ? rulesSection() + logSection() + sourcesSection() : ""}`;
-}
-function rulesSection(){
-  const all = doseRules(), shown = all.filter(r => S.dose.showOld || r.status !== "withdrawn"), old = all.length - shown.length;
-  return `<section class="sec"><div class="sechead"><h2>Dose rules</h2><button type="button" class="primary" data-xdedit="__new">+ Rule</button></div>
-    <p class="note">Any medicine class. Copy each rule from an official source (FDA, EMA, WHO, BNF you are licensed to use) for one indication, patient group and route. A rule is only used after you approve it with the PIN. Changing a rule keeps the old version and puts it back to draft.</p>
-    <div class="list">${shown.length ? shown.map(r => { const R = ruleN(r), flags = [reviewDue(R) ? "Review due" : "", labelChanged(R) ? "Source label changed" : "", R.basis !== "fixed" && !isNum(R.maxSingle) && !isNum(R.maxDay) && !isNum(R.maxDayKg) ? "No maximum set" : "", !R.indication ? "Indication not stated" : ""].filter(Boolean);
-      return `<button type="button" class="row" data-xdedit="${esc(r.id)}"><span class="main"><span class="t"><span data-keep>${esc(R.drug)} · ${esc(R.indication || "—")} · ${esc(R.group || "")}</span> ${rulePill(R.status)} <span class="num">v${R.ver}</span></span><span class="s"><span data-keep>${esc([ingKey(R.ings), R.route, R.classes, R.srcName, R.srcDate].filter(Boolean).join(" · "))}</span>${flags.map(f => ` <span class="pill warn">${f}</span>`).join("")}</span></span></button>`; }).join("") : `<div class="empty">No rules yet.</div>`}</div>
-    ${old ? `<button type="button" class="linkbtn" data-xdshowold="1"><span>Show withdrawn rules</span> <span class="num">(${old})</span></button>` : ""}</section>`;
-}
-function logSection(){
-  const L = (E.doselog || []).slice().sort((a, b) => (b.rec?.at || "").localeCompare(a.rec?.at || "")), f = S.dose.logRule, list = (f ? L.filter(x => x.rec?.ruleId === f) : L).slice(0, 40);
-  setTimeout(async () => { for (const x of list){ const el = document.querySelector(`[data-xdlog="${CSS.escape(x.id)}"] .ok`); if (el){ const ok = await logIntact(x); el.className = "pill " + (ok ? "good" : "bad"); el.textContent = ok ? (S.lang === "ar" ? "سليم" : "Intact") : (S.lang === "ar" ? "تغيّر" : "Changed"); } } }, 0);
-  return `<section class="sec"><h2>Calculation record</h2><p class="note">Every finished calculation, newest first, with the rule version and who did it. No patient names are kept. Entries are never edited.</p>
-    ${f ? `<div class="banner"><span>Showing calculations that used one rule.</span> <button type="button" class="linkbtn" data-xdlogall="1">Show all</button></div>` : ""}
-    <div class="list">${list.length ? list.map(x => { const r = x.rec || {}; return `<button type="button" class="row" data-xdlog="${esc(x.id)}"><span class="main"><span class="t" data-keep>${esc(r.med?.name || "")} · ${esc(r.indication || "")}</span><span class="s"><span class="num">${esc((r.at || "").slice(0, 16).replace("T", " "))}</span> · <span data-keep>${esc(r.byName || "")}</span> · <span class="num">v${esc(String(r.ruleVer || ""))}</span> · <span>${r.outcome === "ok" ? "Calculated" : "Blocked"}</span></span></span><span class="ok pill">…</span></button>`; }).join("") : `<div class="empty">No calculations yet.</div>`}</div></section>`;
-}
-function sourcesSection(){
-  const ok = lsGet("erp.extok", {}), log = extLog().slice(0, 12);
-  return `<section class="sec"><h2>Drug data sources</h2><p class="note">RxNorm and RxClass (US National Library of Medicine) for names, ingredients, strengths, forms and ATC classes. openFDA for label text and alerts, DailyMed for the full label. Free, no key. Answers are saved on this device for 24 hours and used when offline. RxNorm lists US products, so local brands may need to be entered by hand.</p>
-    <div class="sum">${["RxNorm", "RxClass", "openFDA"].map(s => `<div class="r"><span>${s}</span><span class="num">${ok[s] ? esc(ok[s].slice(0, 16).replace("T", " ")) : "—"}</span></div>`).join("")}</div>
-    <button type="button" data-xdsync="1">Refresh saved drug data now</button>
-    <div class="list">${log.length ? log.map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t"><span>${esc(x.src)}</span> <span class="pill ${x.ok ? "good" : "bad"}">${x.ok ? "OK" : "Failed"}</span></span><span class="s"><span class="num">${esc(x.at.slice(0, 19).replace("T", " "))} · ${x.ms} ms</span> · <span data-keep>${esc(x.what)}</span></span></span></div>`).join("") : `<div class="empty">No requests yet.</div>`}</div></section>`;
-}
-function logSheet(id){
-  const x = (E.doselog || []).find(y => y.id === id); if (!x) return; const r = x.rec || {};
-  openSheet("Calculation", `<div style="display:grid;gap:8px" data-keep><p><b>${esc(r.med?.name || "")}</b> · ${esc((r.med?.ings || []).join(" + "))} · ${esc(r.med?.status || "")}</p><p class="note">${esc(r.at || "")} · ${esc(r.byName || "")} · rule ${esc(r.ruleId || "")} v${esc(String(r.ruleVer))} (${esc(r.ruleStatus || "")})</p>
-    <p class="note">${esc(r.indication)} · ${esc(r.group)} · ${esc(r.formula)}</p><pre style="white-space:pre-wrap;font-size:12px;margin:0">${esc(JSON.stringify(r.inputs, null, 1))}</pre><ol class="note">${(r.steps || []).map(s => `<li>${esc(s)}</li>`).join("")}</ol>
-    ${(r.blocks || []).map(b => `<div class="banner bad">${esc(b)}</div>`).join("")}${(r.warnings || []).map(w => `<div class="banner">${esc(w)}</div>`).join("")}<p class="note">Source: ${esc([r.src?.org, r.src?.name, r.src?.section, r.src?.date, r.src?.ref].filter(Boolean).join(" · "))}</p><p class="note">Checksum ${esc((x.sum || "").slice(0, 16))}</p></div>`);
-}
-
-/* ---- rule form: required fields depend on the rule type. Saving keeps the previous version ---- */
-function doseSheet(id, pre = {}){
-  const r0 = E.doserules.find(x => x.id === id) || {}, r = {...r0, ...pre}, R = ruleN({...r, drug:r.drug || ""}), v = k => esc(r[k] ?? ""), sel = (id2, opts, cur) => `<select id="dr_${id2}">${opts.map(([val, lab]) => `<option value="${val}" ${String(cur) === String(val) ? "selected" : ""}>${lab}</option>`).join("")}</select>`;
-  const f = (k, l, ph = "") => `<label>${l}<input id="dr_${k}" class="num" inputmode="decimal" value="${v(k)}" ${ph ? `placeholder="${ph}"` : ""}></label>`, t = (k, l, ph = "") => `<label>${l}<input id="dr_${k}" value="${v(k)}" ${ph ? `placeholder="${ph}"` : ""}></label>`;
-  const conc = R.conc, bands = [0, 1, 2].map(i => R.renal[i] || {});
-  openSheet(r0.id ? "Edit dose rule" : "New dose rule", `<form id="doseForm" data-id="${esc(r0.id && r0.status !== "requested" ? r0.id : "")}" data-req="${esc(r0.status === "requested" ? r0.id : "")}" style="display:grid;gap:10px">
-    ${r0.id ? `<p class="note"><span>Version</span> <span class="num">${R.ver}</span> · ${rulePill(R.status)}${r0.withdrawnReason ? ` · <span data-keep>${esc(r0.withdrawnReason)}</span>` : ""}</p>` : ""}
-    ${r.fromLabel ? `<div class="banner"><b>Read from the FDA label by the program.</b> <span>Check every number against the label sentence and the full label before you save and approve it.</span><p data-keep style="margin:6px 0 0">${esc(r.fromLabel.text)}</p></div>` : ""}
-    <div class="grid2 stack">${t("drug", "Medicine")}${t("ingredients", "Active ingredient(s), separate with +", "amoxicillin + clavulanate")}${t("doseOf", "For combinations: the dose is of", "amoxicillin")}${t("rxcui", "RxNorm ID (optional)")}${t("classes", "Classes (optional, information only)", "Analgesic; NSAID")}${t("indication", "Indication", "Fever, Otitis media")}${t("group", "Patient group", "Child, Adult")}</div>
-    <div class="grid2 stack"><label>Route${sel("route", [["", "Choose"], ...ROUTES.map(x => [x, x])], R.route)}</label>${t("forms", "Only these dosage forms (optional)", "suspension, syrup")}<label>Release${sel("release", [["", "Any"], ["immediate", "Immediate"], ["extended", "Extended"], ["delayed", "Delayed"]], R.release)}</label></div>
-    <div class="grid2 stack">${f("ageMin", "Age from (months)")}${f("ageMax", "Age to (months)")}${f("kgMin", "Weight from (kg)")}${f("kgMax", "Weight to (kg)")}</div>
-    <div class="grid2 stack"><label>Dose is${sel("basis", [["perkg", "per kg of body weight"], ["fixed", "a fixed amount"], ["perm2", "per m² of body surface"]], R.basis)}</label><label>Unit${sel("unit", [["mg", "mg"], ["mcg", "mcg"], ["g", "g"], ["units", "units"]], R.unit)}</label><label>The dose is${sel("per", [["dose", "each time"], ["day", "the total for a day, divided"]], R.per)}</label></div>
-    <div class="grid2 stack">${f("doseMin", "Dose from")}${f("doseMax", "Dose to")}${f("dosesPerDay", "Times a day")}${f("maxSingle", "Largest single dose")}${f("maxDay", "Most per day")}${f("maxDayKg", "Most per day per kg")}${f("loadMin", "Loading dose from (optional)")}${f("loadMax", "Loading dose to")}${f("maxLoad", "Largest loading dose")}${t("duration", "Duration (optional)", "5 to 7 days")}</div>
-    <div class="grid2 stack"><label>Liquid: amount<input id="dr_concAmt" class="num" inputmode="decimal" value="${esc(conc ? conc.amt : "")}"></label><label>in mL<input id="dr_concMl" class="num" inputmode="decimal" value="${esc(conc ? conc.ml : "")}" placeholder="5"></label><label>Measure liquid in steps of${sel("mlStep", [["", "exact"], ["0.1", "0.1 mL"], ["0.5", "0.5 mL"], ["1", "1 mL"], ["2.5", "2.5 mL"], ["5", "5 mL"]], R.mlStep ?? "")}</label>
-      ${f("mgTab", "Tablet: amount each")}<label>Tablet may be split into${sel("tabStep", [["1", "whole only"], ["0.5", "halves"], ["0.25", "quarters"]], R.tabStep ?? 1)}</label></div>
-    <p class="note">Kidney bands (optional). Creatinine clearance in mL/min by Cockcroft-Gault, adults only. Leave empty if the source gives no change.</p>
-    ${bands.map((b, i) => `<div class="grid2 stack"><label>Clearance from<input id="dr_rMin${i}" class="num" inputmode="decimal" value="${esc(b.min ?? "")}"></label><label>to (below)<input id="dr_rMax${i}" class="num" inputmode="decimal" value="${esc(b.max ?? "")}"></label><label>Multiply dose by<input id="dr_rFac${i}" class="num" inputmode="decimal" value="${esc(b.factor ?? "")}" placeholder="0.5"></label><label class="check"><input type="checkbox" id="dr_rAvoid${i}" ${b.avoid ? "checked" : ""}> Do not use</label><label>Note<input id="dr_rNote${i}" value="${esc(b.note || "")}"></label></div>`).join("")}
-    <label>Kidney advice<input id="dr_renalNote" value="${v("renalNote")}"></label><label>Liver advice<input id="dr_hepaticNote" value="${v("hepaticNote")}"></label><label>Pregnancy and breastfeeding advice<input id="dr_pregNote" value="${v("pregNote")}"></label><label>Other notes<input id="dr_notes" value="${v("notes")}"></label>
-    <div class="grid2 stack"><label>Source organisation${sel("srcOrg", [["", "Choose"], ["FDA", "FDA"], ["EMA", "EMA"], ["WHO", "WHO"], ["BNF", "BNF"], ["Manufacturer", "Manufacturer leaflet"], ["Other", "Other"]], r.srcOrg || (r.srcName ? "Other" : ""))}</label>${t("srcName", "Source document")}${t("srcRef", "Document title or link")}${t("srcSection", "Section", "Dosage and administration")}${t("srcDate", "Label date", "2024-05")}${t("effDate", "Rule starts (optional)", "2026-10-23")}${t("reviewDate", "Review by (optional)", "2027-10-23")}</div>
-    <p class="err" id="drErr"></p><div class="actions"><button type="submit" class="primary">Save as draft</button>${r0.id && r0.status === "draft" ? `<button type="button" data-xdappr="${esc(r0.id)}">Approve this rule</button>` : ""}${r0.id && r0.status === "approved" ? `<button type="button" class="danger" data-xdwd="${esc(r0.id)}">Withdraw</button>` : ""}${r0.id && r0.status !== "approved" && r0.status !== "withdrawn" && !(r0.versions || []).length ? `<button type="button" class="danger" data-xddel="${esc(r0.id)}">Delete</button>` : ""}</div>
-    ${r0.id && r0.status === "approved" ? `<label>Reason for withdrawing<input id="dr_wdWhy" placeholder="Source changed, unsafe, replaced"></label>` : ""}
-    ${(r0.versions || []).length ? `<p class="note">Earlier versions</p><div class="list">${r0.versions.slice().reverse().map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t"><span class="num">v${x.ver || 1}</span> ${rulePill(x.status)}</span><span class="s" data-keep>${esc([x.indication, x.group, rngf(x.doseMin, x.doseMax, x.unit || "mg"), x.approvedAt ? "approved " + x.approvedAt.slice(0, 10) : "", x.savedAt ? "replaced " + x.savedAt.slice(0, 10) : ""].filter(Boolean).join(" · "))}</span></span><button type="button" data-xdroll="${esc(r0.id)}" data-ver="${x.ver || 1}">Restore</button></div>`).join("")}</div>` : ""}
-    ${r0.id ? `<button type="button" class="linkbtn" data-xdlogrule="${esc(r0.id)}"><span>Calculations that used this rule</span> <span class="num">(${(E.doselog || []).filter(x => x.rec?.ruleId === r0.id).length})</span></button>` : ""}</form>`);
-  if (S.lang === "ar") translate($("#sheet"));
-}
-const snapRule = r => { const {versions, lastBy, lastAt, staffBy, staffByName, staffAt, ...rest} = r; return {...rest, savedAt:nowIso()}; };
-const pushVersion = r => [...(r.versions || []), snapRule(r)].slice(-20);
-const overlap = (a1, a2, b1, b2) => (isNum(a1) ? a1 : -Infinity) <= (isNum(b2) ? b2 : Infinity) && (isNum(b1) ? b1 : -Infinity) <= (isNum(a2) ? a2 : Infinity);
-document.addEventListener("submit", async ev => { if (ev.target.id !== "doseForm") return; ev.preventDefault();
-  if (!isOwner()){ toast("Only the owner can do this."); return; }
-  const g = k => ($("#dr_" + k)?.value || "").trim(), num = k => { const x = parseNum($("#dr_" + k)?.value); return x === null || isNaN(x) ? null : x; }, err = m => { $("#drErr").textContent = m; };
-  const ings = splitIngs(g("ingredients") || g("drug"));
-  const renal = [0, 1, 2].map(i => ({min:num("rMin" + i), max:num("rMax" + i), factor:num("rFac" + i), avoid:$("#dr_rAvoid" + i)?.checked || false, note:g("rNote" + i)})).filter(b => isNum(b.min) || isNum(b.max) || isNum(b.factor) || b.avoid);
-  const rule = {schema:2, drug:g("drug"), ingredients:ings, doseOf:canonIng(g("doseOf")) || (ings.length === 1 ? ings[0] : ""), rxcui:g("rxcui"), classes:g("classes"), indication:g("indication"), group:g("group"), route:g("route"), forms:g("forms"), release:g("release"),
-    ageMin:num("ageMin"), ageMax:num("ageMax"), kgMin:num("kgMin"), kgMax:num("kgMax"), basis:g("basis"), unit:g("unit"), per:g("per"), doseMin:num("doseMin"), doseMax:num("doseMax"), dosesPerDay:num("dosesPerDay"), maxSingle:num("maxSingle"), maxDay:num("maxDay"), maxDayKg:num("maxDayKg"),
-    loadMin:num("loadMin"), loadMax:num("loadMax"), maxLoad:num("maxLoad"), duration:g("duration"), concAmt:num("concAmt"), concUnit:g("unit"), concMl:num("concMl"), mlStep:num("mlStep"), mgTab:num("mgTab"), tabStep:num("tabStep"), mgPer5ml:null, renal,
-    renalNote:g("renalNote"), hepaticNote:g("hepaticNote"), pregNote:g("pregNote"), notes:g("notes"), srcOrg:g("srcOrg"), srcName:g("srcName"), srcRef:g("srcRef"), srcSection:g("srcSection"), srcDate:g("srcDate"), effDate:g("effDate"), reviewDate:g("reviewDate"), labelName:E.doserules.find(x => x.id === ev.target.dataset.id)?.labelName || ""};
-  if (!rule.drug || !ings.length) return err("Type the medicine and its active ingredient(s).");
-  if (!rule.indication || !rule.group || !rule.route) return err("Type the indication and patient group, and choose the route. A rule is for one indication, group and route.");
-  if (ings.length > 1 && !ings.includes(rule.doseOf)) return err("For a combination, type which ingredient the dose numbers are of (one of the ingredients).");
-  if (!rule.srcOrg || !rule.srcName || !rule.srcRef || !rule.srcDate) return err("Type the source: organisation, document, title or link, and date.");
-  if (!isNum(rule.doseMin) || !isNum(rule.doseMax) || rule.doseMin <= 0 || rule.doseMax < rule.doseMin) return err("Type the dose from and to, with the largest not smaller than the smallest.");
-  if (!isNum(rule.dosesPerDay) || rule.dosesPerDay < 1 || rule.dosesPerDay > 24) return err("Type how many times a day (1 to 24).");
-  for (const [a, b, l] of [["ageMin", "ageMax", "age"], ["kgMin", "kgMax", "weight"]]) if (isNum(rule[a]) && isNum(rule[b]) && rule[b] < rule[a]) return err(`The ${l} range is back to front.`);
-  if ([rule.maxSingle, rule.maxDay, rule.maxDayKg, rule.maxLoad, rule.mgTab].some(x => x !== null && !(x > 0))) return err("Limits and tablet amounts must be more than zero.");
-  if ((rule.concAmt === null) !== (rule.concMl === null) || (rule.concAmt !== null && !(rule.concAmt > 0 && rule.concMl > 0))) return err("For a liquid, type both the amount and the mL it is in.");
-  if (rule.loadMax !== null && (rule.loadMin === null || rule.loadMax < rule.loadMin)) return err("Type the loading dose from and to, with the largest not smaller than the smallest.");
-  for (const b of renal){ if (isNum(b.min) && isNum(b.max) && b.max <= b.min) return err("A kidney band's clearance range is back to front.");
-    if (!b.avoid && !(isNum(b.factor) && b.factor > 0 && b.factor <= 1)) return err("Each kidney band needs a multiplier between 0 and 1, or Do not use."); }
-  const id = ev.target.dataset.id || newId("DR"), old = E.doserules.find(x => x.id === ev.target.dataset.id);
-  const dup = doseRules().find(x => { const X = ruleN(x); return x.id !== id && X.status !== "withdrawn" && X.status !== "requested" && ingKey(X.ings) === ingKey(ings) && X.indication.toLowerCase() === rule.indication.toLowerCase() && (X.group || "").toLowerCase() === rule.group.toLowerCase() && X.route === rule.route && overlap(X.ageMin, X.ageMax, rule.ageMin, rule.ageMax) && overlap(X.kgMin, X.kgMax, rule.kgMin, rule.kgMax); });
-  if (dup) return err(`This overlaps an existing rule (${dup.drug} · ${dup.indication} · ${dup.group}, same route and age or weight). Edit that rule instead, or narrow the age or weight range.`);
-  const req = ev.target.dataset.req;
-  try { await write("doserules/" + id, {...rule, id, ver:old ? (old.ver || 1) + 1 : 1, versions:old ? pushVersion(old) : [], fromLabel:old?.fromLabel || S.dose.draftFrom || null, status:"draft", approvedBy:null, approvedAt:null, deleted:false, createdAt:old?.createdAt || nowIso()});
-    if (req) await write("doserules/" + req, {deleted:true, answeredBy:id}, true);
-    S.dose.draftFrom = null; closeSheet(); toast("Rule saved as a draft. Approve it to use it."); } catch(x){ err(x.message); }
-});
-document.addEventListener("click", async ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset, own = () => { if (isOwner()) return true; toast("Only the owner can do this."); return false; };
-  if (d.xdosepop){ openSheet("Dose calculator", doseCalcHtml()); if (S.lang === "ar") translate($("#sheet")); setTimeout(() => $("#dsQ")?.focus(), 80); return; }
-  if (d.xdedit !== undefined){ if (!own()) return; const pre = d.ings ? {ingredients:d.ings, drug:S.dose.med?.name || d.ings, rxcui:S.dose.med?.rxcui || ""} : {}; doseSheet(d.xdedit === "__new" ? "" : d.xdedit, pre); return; }
-  if (d.xdappr){ if (!own()) return; const r = E.doserules.find(x => x.id === d.xdappr); if (!r) return;
-    const by = await ownerOK([`Approve dose rule ${r.drug} · ${r.indication || ""} · ${r.group || ""} (version ${r.ver || 1}). You checked it against ${r.srcName || "its source"}.`], {always:true}); if (!by) return;
-    try { await write("doserules/" + r.id, {status:"approved", approvedBy:by, approvedAt:nowIso()}, true); closeSheet(); toast("Rule approved."); } catch(x){ toast(x.message); } return; }
-  if (d.xdwd){ if (!own()) return; const r = E.doserules.find(x => x.id === d.xdwd), why = ($("#dr_wdWhy")?.value || "").trim(); if (!r) return; if (!why){ toast("Type the reason for withdrawing."); $("#dr_wdWhy")?.focus(); return; }
-    const used = (E.doselog || []).filter(x => x.rec?.ruleId === r.id).length, by = await ownerOK([`Withdraw dose rule ${r.drug} · ${r.indication || ""}. ${used} earlier calculations used it.`], {always:true}); if (!by) return;
-    try { await write("doserules/" + r.id, {status:"withdrawn", withdrawnBy:by, withdrawnAt:nowIso(), withdrawnReason:why, versions:pushVersion(r)}, true); closeSheet(); S.dose.logRule = r.id; S.tab = "dose"; render(); toast("Rule withdrawn. The calculations that used it are listed in the record."); } catch(x){ toast(x.message); } return; }
-  if (d.xdroll){ if (!own()) return; const r = E.doserules.find(x => x.id === d.xdroll), v = (r?.versions || []).find(x => String(x.ver || 1) === d.ver); if (!r || !v) return;
-    const by = await ownerOK([`Restore version ${d.ver} of ${r.drug} as a draft. You approve it again before it is used.`], {always:true}); if (!by) return;
-    const {savedAt, approvedBy, approvedAt, status, ver, withdrawnBy, withdrawnAt, withdrawnReason, ...keep} = v;
-    try { await write("doserules/" + r.id, {...keep, id:r.id, ver:(r.ver || 1) + 1, versions:pushVersion(r), restoredFrom:+d.ver, status:"draft", approvedBy:null, approvedAt:null, deleted:false}); closeSheet(); toast("Version restored as a draft."); } catch(x){ toast(x.message); } return; }
-  if (d.xddel){ if (!own()) return; if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Tap again to delete"; setTimeout(() => { t.dataset.sure = ""; t.textContent = "Delete"; }, 4000); return; }
-    try { await write("doserules/" + d.xddel, {deleted:true, status:"draft"}, true); closeSheet(); toast("Rule deleted."); } catch(x){ toast(x.message); } return; }
-  if (d.xdask){ const m = S.dose.med; if (!m) return; const id = newId("DQ");
-    try { await write("doserules/" + id, {id, status:"requested", request:true, drug:m.name, ingredients:m.ings, rxcui:m.rxcui || "", notes:"Asked for by " + (S.staff?.name || "staff") + " from the calculator", deleted:false, ver:1}); toast("Sent to the owner."); paintIn("#dsRules", rulePickHtml()); } catch(x){ toast(x.message); } return; }
-  if (d.xdcand){ const [k, i] = d.xdcand.split(":"), c = k === "r" ? S.dose.rx?.list?.[+i] : localCands(S.dose.q)[+i]; if (c) chooseCand(k === "r" ? {...c, kind:"rxnorm"} : c); return; }
-  if (d.xdsug){ S.dose.q = d.xdsug; const q = $("#dsQ"); if (q) q.value = d.xdsug; runRx(); return; }
-  if (d.xrxgo){ S.dose.med = null; paintBody(); runRx(); return; }
-  if (d.xdmanual){ const q = S.dose.q.trim(); S.dose.med = {kind:"manual", name:q || "Entered by hand", ings:[], strengthText:"", form:"", route:"", status:"unverified", src:"Entered by hand"}; S.dose.rid = ""; paintBody(); setTimeout(() => $("#dsMIng")?.focus(), 50); return; }
-  if (d.xdmedclear){ S.dose.med = null; S.dose.rid = ""; paintBody(); $("#dsQ")?.focus(); return; }
-  if (d.xdrule){ S.dose.rid = d.xdrule; S.dose.logAt = ""; paintIn("#dsRules", rulePickHtml()); paintIn("#dsPt", patientHtml()); paintOut(); return; }
-  if (d.xdlog){ logSheet(d.xdlog); return; }
-  if (d.xdlogrule){ S.dose.logRule = d.xdlogrule; closeSheet(); S.tab = "dose"; render(); return; }
-  if (d.xdlogall){ S.dose.logRule = ""; render(); return; }
-  if (d.xdshowold){ S.dose.showOld = true; render(); return; }
-  if (d.xdsync){ t.disabled = true; await syncDrugData(true); t.disabled = false; render(); return; }
-  if (d.xdlinedraft !== undefined){ if (!own()) return; draftFromLine(+d.xdlinedraft); return; }
-});
-const doseLive = ev => { const t = ev.target; if (!t.id || !t.id.startsWith("ds")) return; const d = S.dose, p = d.pt;
-  if (t.id === "dsQ"){ if (ev.type !== "input") return; /* redrawing on blur would move the list under the finger */ d.q = t.value; d.rx = d.rx && d.rx.q === d.q ? d.rx : null; if (d.med){ d.med = null; d.rid = ""; paintBody(); } else paintIn("#dsCands", candsHtml()); return; }
-  if (["dsMIng", "dsMStr", "dsMForm", "dsMRoute"].includes(t.id)){ const m = d.med; if (!m) return;
-    if (t.id === "dsMIng"){ m.ings = splitIngs(t.value); const known = knownIngs(); m.status = m.ings.length && m.ings.every(i => known.has(i)) ? "probable" : "unverified"; }
-    if (t.id === "dsMStr"){ m.strengthText = t.value; m.strengths = parseStrength(t.value, m.ings.length); }
-    if (t.id === "dsMForm"){ m.form = t.value; m.route = m.route || routeOf(t.value); m.release = releaseOf(t.value); }
-    if (t.id === "dsMRoute") m.route = t.value;
-    if (m.status === "confirmed" && t.id !== "dsMRoute") m.status = m.kind === "rxnorm" ? "verified" : "probable";   // a change after confirming needs a new check
-    if (ev.type === "change") setTimeout(() => { paintIn("#dsMed", medCardHtml()); paintIn("#dsRules", rulePickHtml()); paintOut(); }, 0); else paintOut(); return; }   // after the blur has finished
-  if (t.id === "dsConfirm"){ if (t.checked && d.med){ d.med.status = "confirmed"; d.med.confirmedBy = S.staff?.id || S.meId || ""; paintIn("#dsMed", medCardHtml()); paintIn("#dsRules", rulePickHtml()); paintOut(); } return; }
-  const map = {dsY:"y", dsM:"m", dsKg:"kg", dsCm:"cm", dsScr:"scr", dsSex:"sex", dsScrU:"scrU"}, chk = {dsRenal:"renal", dsHep:"hepatic", dsPreg:"preg"};
-  if (map[t.id]) p[map[t.id]] = t.value; else if (chk[t.id]) p[chk[t.id]] = t.checked; else return;
-  d.logAt = ""; paintOut(); };
-document.addEventListener("input", doseLive); document.addEventListener("change", doseLive);
-document.addEventListener("keydown", ev => { if (ev.target.id === "dsQ" && ev.key === "Enter"){ ev.preventDefault(); runRx(); } });
-
-/* ---- FDA drug label alerts: for the chosen medicine the app downloads the official FDA label (openFDA) when online and keeps a
-   saved copy for offline use. Boxed warnings, contraindications and the pregnancy, children and elderly sections show as
-   alerts, each with a link to the source. The text is shown as the label wrote it. UpToDate is licensed, so it is only a link ---- */
-const FDA_BASE = () => window.ERP_FDA || "https://api.fda.gov", LABEL_DAYS = 7, LABEL_KEYS = ["dosage_and_administration", "boxed_warning", "contraindications", "warnings", "pregnancy", "pediatric_use", "geriatric_use"];
-const labelCache = () => lsGet("erp.labels", {}), labelOnline = extOn;
-const labelKey = r => (r.labelName || ingKey(ruleN(r).ings).replace(/ \+ /g, " and ") || r.drug || "").trim().toLowerCase();
-const medLabelKey = m => { const r = doseRules().find(x => x.id === S.dose.rid); return r && r.labelName ? r.labelName.toLowerCase() : ingKey(m.ings).replace(/ \+ /g, " and "); };
-async function fetchLabel(name){
-  const now = Date.now(), j = await extGet(`${FDA_BASE()}/drug/label.json?search=${encodeURIComponent('openfda.generic_name:"' + name + '" openfda.brand_name:"' + name + '"')}&limit=5`, "openFDA");
-  let entry;
-  if (!j) entry = {found:false, at:now};
-  else {
-    const list = j.results || [], want = name.toLowerCase();
-    const names = x => [...(x.openfda?.generic_name || []), ...(x.openfda?.brand_name || [])].map(g => g.toLowerCase()), named = x => names(x).includes(want), near = x => names(x).some(g => g.includes(want));
-    const hit = list.find(x => named(x) && x.dosage_and_administration) || list.find(named) || list.find(x => near(x) && x.dosage_and_administration);
-    if (!hit) entry = {found:false, at:now};
-    else { entry = {found:true, at:now, setid:hit.set_id || "", date:hit.effective_time || "", title:(hit.openfda?.brand_name || [name])[0], generic:(hit.openfda?.generic_name || [name])[0], pharm:["pharm_class_epc", "pharm_class_moa", "pharm_class_cs", "pharm_class_pe"].flatMap(k => hit.openfda?.[k] || []).join("; ")};
-      for (const k of LABEL_KEYS) if (hit[k]) entry[k] = [].concat(hit[k]).join(" ").replace(/\s+/g, " ").trim().slice(0, k === "dosage_and_administration" || k === "pediatric_use" ? 20000 : 6000); }
-  }
-  const c = labelCache(); c[name.toLowerCase()] = entry; lsSet("erp.labels", c); return entry;
-}
-const labelSrc = e => e.setid ? `https://dailymed.nlm.nih.gov/dailymed/lookup.cfm?setid=${encodeURIComponent(e.setid)}` : "";
-// conflict check: a rule copied from an FDA label whose set has since been republished with a newer date
-const labelChanged = R => { const k = labelKey(R), e = k && labelCache()[k]; return !!(e && e.found && R.srcOrg === "FDA" && R.fromLabel?.setid && e.setid === R.fromLabel.setid && R.fromLabel.date && e.date && String(e.date) > String(R.fromLabel.date)); };
-function labelHtml(key, e){
-  const d = S.dose, ageM = ptAgeM(d.pt), src = labelSrc(e);
-  const link = src ? ` <a href="${esc(src)}" target="_blank" rel="noopener">Open the source</a>` : "";
-  const box = (cls, title, txt, open) => `<details class="banner ${cls}" style="border:0" ${open ? "open" : ""}><summary><b>${title}</b>${link}</summary><p data-keep style="margin:6px 0 0;white-space:pre-wrap">${esc(txt)}</p></details>`;
-  let h = "";
-  if (e.dosage_and_administration) h += box("", "Dosing in the FDA label", e.dosage_and_administration, false);
-  if (e.boxed_warning) h += box("bad", "Boxed warning", e.boxed_warning, true);
-  if (e.contraindications) h += box("", "Do not use if (contraindications)", e.contraindications, true);
-  if (d.pt.preg && e.pregnancy) h += box("", "Pregnancy and breastfeeding", e.pregnancy, true);
-  if (isNum(ageM) && ageM < 216 && e.pediatric_use) h += box("", "Use in children", e.pediatric_use, true);
-  if (isNum(ageM) && ageM >= 780 && e.geriatric_use) h += box("", "Use in the elderly", e.geriatric_use, true);
-  if (e.warnings) h += box("", "Warnings and precautions", e.warnings, false);
-  const when = e.at ? new Date(e.at).toISOString().slice(0, 10) : "", old = e.at && Date.now() - e.at > LABEL_DAYS * 864e5;
-  const st = labelOnline() ? `FDA label, checked ${when}.` : `Offline. Showing the saved FDA label from ${when}.`;
-  return h + (e.pharm ? `<p class="note"><span>FDA class (information only):</span> <span data-keep>${esc(e.pharm)}</span></p>` : "") + `<p class="note">${st}${old ? ` <span class="pill warn">Older than 7 days</span>` : ""}${link}${e.date ? ` Label date ${esc(String(e.date))}.` : ""} <a href="https://www.uptodate.com/contents/search?search=${encodeURIComponent(key)}" target="_blank" rel="noopener">Search UpToDate</a> (needs your own login). The pharmacist checks and decides.</p>`;
-}
-function paintLabel(){
-  const box = $("#doseLabel"); if (!box) return; const m = S.dose.med; if (!m || !m.ings.length){ box.innerHTML = ""; return; }
-  const k = medLabelKey(m), set = html => { box.innerHTML = html; if (S.lang === "ar") translate(box); };
-  if (ERP_MODE !== "device") return set(`<p class="note">FDA label alerts work in the installed app.</p>`);
-  const e = labelCache()[k], stale = !e || Date.now() - e.at > LABEL_DAYS * 864e5;
-  if (e && e.found) set(labelHtml(k, e) + labelLinesHtml(k, e));
-  else if (e) set(`<p class="note">No FDA label was found for "${esc(k)}". Check the name in the rule, or look at the full label yourself.</p>`);
-  else set(`<p class="note">${labelOnline() ? "Loading the FDA label..." : "Offline and no saved FDA label for this medicine yet. Connect to the internet once to download it."}</p>`);
-  if (stale && labelOnline() && k) fetchLabel(k).then(x => { if (S.dose.med && medLabelKey(S.dose.med) === k){ saveLabelLines(k, x); paintLabel(); } }).catch(() => { if (!e && $("#doseLabel") && S.dose.med) set(`<p class="note">Could not reach the FDA label service. Try again later.</p>`); });
-}
-async function syncDrugData(manual){
-  if (!doseOn()) return;
-  if (!extOn()){ if (manual) toast("Offline. Nothing was refreshed. It will run when you are online."); return; }
-  let ok = 0, bad = 0; const c = labelCache(), seen = new Set();
-  for (const r of doseRules().filter(ruleUsable)){ const k = labelKey(r); if (!k || seen.has(k)) continue; seen.add(k); const e = c[k];
-    if (!manual && e && Date.now() - e.at < LABEL_DAYS * 864e5) continue; try { await fetchLabel(k); ok++; } catch { bad++; }
-    if (r.rxcui){ try { const x = await rxConcept({rxcui:r.rxcui, tty:"", name:r.drug}); if (ingKey(x.ings) !== ingKey(ruleN(r).ings)) extNote("RxNorm", false, `RxNorm ingredients for ${r.drug} (${x.ings.join(" + ")}) differ from the rule. Check the rule.`, 0); ok++; } catch { bad++; } } }
-  if (manual) toast(bad ? `Refreshed ${ok}. ${bad} could not be reached; saved copies are kept.` : `Refreshed ${ok}. Saved copies are up to date.`);
-  paintLabel();
-}
-window.addEventListener("online", () => syncDrugData(false)); setTimeout(() => syncDrugData(false), 8000); setInterval(() => syncDrugData(false), 6 * 36e5);
-
-/* ---- dosing sentences in the FDA label: read by a program, so they are only ever a starting point for a draft rule. They are saved
-   once (the same on every device) and change only when the owner accepts a newer label. Older saved copies stay readable ---- */
-const WORDN = {once:1, twice:2, two:2, three:3, four:4, "three times":3, "four times":4};
-function doseLines(e){
-  const text = [e.dosage_and_administration, e.pediatric_use].filter(Boolean).join(" "), out = [], seen = new Set();
-  for (const sent of text.split(/(?<=[.;:])\s+(?=[A-Z0-9•\-])/)){
-    const kgm = sent.match(/(\d+(?:\.\d+)?)\s*(?:(?:to|-|–|—)\s*(\d+(?:\.\d+)?))?\s*mg\s*(?:\/|per)\s*kg(?:\s*(?:\/|per)\s*(day|dose|d)\b)?/i);
-    const fix = !kgm && sent.match(/(\d+(?:\.\d+)?)\s*(?:(?:to|-|–|—)\s*(\d+(?:\.\d+)?))?\s*(mg|mcg|g)\b(?!\s*(?:\/|per)\s*(?:kg|m2|m²|ml|mL|5))/i);
-    let n = null, q;
-    if ((q = sent.match(/every\s+(\d+)\s*(?:to\s*\d+\s*)?hours?/i))) n = Math.round(24 / +q[1]);
-    else if ((q = sent.match(/\bq\s*(\d+)\s*h\b/i))) n = Math.round(24 / +q[1]);
-    else if ((q = sent.match(/\b(once|twice|three times|four times)\s+(?:daily|a day|per day|each day)/i))) n = WORDN[q[1].toLowerCase()];
-    else if ((q = sent.match(/divided\s+(?:in|into)\s+(?:equally\s+)?(?:(?:\w+\s+)?)?(\d|two|three|four)\s+(?:equal\s+)?doses/i))) n = WORDN[q[1].toLowerCase()] || +q[1];
-    const m = kgm || (fix && n ? fix : null); if (!m) continue;
-    const lo = parseFloat(m[1]), hi = m[2] ? parseFloat(m[2]) : lo; if (!(lo > 0) || hi < lo || (kgm && hi > 500)) continue;
-    const per = kgm ? (m[3] ? (/dose/i.test(m[3]) ? "dose" : "day") : /per day|daily|a day|each day|divided|\/day/i.test(sent) ? "day" : "dose") : "dose";
-    const key = sent.slice(0, 120); if (seen.has(key)) continue; seen.add(key);
-    out.push({text: sent.trim().slice(0, 420), lo, hi, per, n: n >= 1 && n <= 12 ? n : null, basis: kgm ? "perkg" : "fixed", unit: kgm ? "mg" : fix[3].toLowerCase()});
-  }
-  return out.slice(0, 16);
-}
-const medSlug = n => "FDA-" + String(n).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const savedAuto = name => E.doserules.find(x => x.id === medSlug(name) && x.auto && !x.deleted) || null;
-function saveLabelLines(k, e){
-  if (!e || !e.found || savedAuto(k) || S.dose.saving === k) return; const lines = doseLines(e); if (!lines.length) return; S.dose.saving = k;
-  write("doserules/" + medSlug(k), {id:medSlug(k), auto:true, drug:k, generic:e.generic || k, lines, labelDate:e.date || "", setid:e.setid || "", savedAt:nowIso(), status:"extracted", deleted:false}).catch(() => {}).finally(() => { S.dose.saving = ""; });
-}
-function labelLinesHtml(k, e){
-  const saved = savedAuto(k), lines = saved?.lines || doseLines(e); if (!lines.length) return `<p class="note">The label has no dose sentence the program can read. Read the dosing text above.</p>`;
-  const fresh = saved && e.date && saved.labelDate && String(e.date) !== String(saved.labelDate);
-  return `<p class="note"><b>Dose sentences in the FDA label, not approved.</b> <span>They are not used to work out a dose. ${isOwner() ? "Tap one to start a draft rule, then check it against the label and approve it." : "Ask the owner to turn the right one into a rule."}</span></p>
-    ${saved ? `<p class="note"><span>Saved from the FDA label dated</span> <span class="num">${esc(String(saved.labelDate || "—"))}</span>. <span>They do not change by themselves.</span></p>` : ""}
-    ${fresh ? `<div class="banner" style="border:0">The FDA has published a newer label (<span class="num">${esc(String(e.date))}</span>). ${isOwner() ? `<button type="button" data-xfdanew="${esc(k)}">Use the new label</button>` : "Ask the owner to update the rules."}</div>` : ""}
-    <div class="list" data-keep>${lines.map((L, i) => `<button type="button" class="row" ${isOwner() ? `data-xdlinedraft="${i}"` : "disabled"}><span class="main"><span class="s" style="white-space:normal">${esc(L.text)}</span></span></button>`).join("")}</div>
-    ${isOwner() ? `<button type="button" data-xfdacheck="${esc(k)}">Check for a newer FDA label</button>` : ""}`;
-}
-function draftFromLine(i){
-  const m = S.dose.med; if (!m) return; const k = medLabelKey(m), e = labelCache()[k] || {}, saved = savedAuto(k), L = (saved?.lines || doseLines(e))[i]; if (!L) return;
-  const setid = saved?.setid || e.setid || "", date = String(saved?.labelDate || e.date || "");
-  S.dose.draftFrom = {setid, date, text:L.text};
-  doseSheet("", {drug:m.name, ingredients:ingKey(m.ings), rxcui:m.rxcui || "", basis:L.basis || "perkg", unit:L.unit || "mg", per:L.per, doseMin:L.lo, doseMax:L.hi, dosesPerDay:L.n, route:m.route || "", srcOrg:"FDA", srcName:"FDA drug label (structured product label)", srcRef:labelSrc({setid}) || "openFDA", srcSection:"Dosage and administration", srcDate:date, notes:"Label sentence: " + L.text, fromLabel:{setid, date, text:L.text}, labelName:k});
-}
-document.addEventListener("click", async ev => { const t = ev.target.closest("button"); if (!t) return;
-  if (t.dataset.xfdacheck){ if (!isOwner()) return; const n = t.dataset.xfdacheck, c = labelCache(); delete c[n]; lsSet("erp.labels", c);
-    try { const e = await fetchLabel(n), sv = savedAuto(n); toast(e.found && sv && String(e.date) !== String(sv.labelDate) ? "A newer FDA label is available." : "Your saved label sentences match the latest FDA label."); } catch(x){ toast("Could not reach the FDA label service."); } paintLabel(); return; }
-  if (t.dataset.xfdanew){ if (!isOwner()) return; const n = t.dataset.xfdanew, e = labelCache()[n]; if (!e || !e.found) return;
-    const by = await ownerOK([`Replace the saved label sentences for ${n} with the new FDA label (${e.date}). Rules made from the old label are flagged for review.`], {always:true}); if (!by) return;
-    const lines = doseLines(e); if (!lines.length){ toast("The new label has no dose sentence the program can read. The saved sentences stay."); return; }
-    try { await write("doserules/" + medSlug(n), {lines, labelDate:e.date || "", setid:e.setid || "", savedAt:nowIso(), updatedBy:by, status:"extracted"}, true); toast("Label sentences updated from the new label."); } catch(x){ toast(x.message); } paintLabel(); } });
-TIPS.dose = "Find the medicine (any class), confirm it, choose the indication, type what the rule asks for, and read the dose with every step and its source. Only rules the owner approved are used.";
-document.head.insertAdjacentHTML("beforeend", `<style>.dv{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:end}#doseCalc .row[disabled]{cursor:default}#doseCalc .sum p.note{margin:0}#doseCalc .r .pill{align-self:flex-start;flex:none}</style>`);
-Object.assign(AR, {"Dose":"الجرعة","Dose calculator":"حاسبة الجرعات","Dose rules":"قواعد الجرعات","+ Rule":"+ قاعدة","Medicine: name, brand, ingredient or barcode":"الدواء: الاسم أو الماركة أو المادة الفعالة أو الباركود","Search RxNorm":"ابحث في RxNorm","Enter by hand":"إدخال يدوي","Change medicine":"تغيير الدواء","Source:":"المصدر:","Classes (information only):":"الفئات (للمعلومة فقط):","Active ingredient(s)":"المادة الفعالة","Strength":"التركيز","Dosage form":"الشكل الدوائي","Route":"طريقة الإعطاء","Choose":"اختر","oral":"فموي","injection":"حقن","inhaled":"استنشاق","eye":"عين","ear":"أذن","nose":"أنف","skin":"جلد","rectal":"شرجي","vaginal":"مهبلي",
-  "Verified (RxNorm)":"موثّق (RxNorm)","Confirmed by the pharmacist":"أكده الصيدلي","Probable match: confirm it":"تطابق محتمل: أكّده","Unverified manual entry":"إدخال يدوي غير موثّق","Not chosen":"لم يُختر","Medicine":"الدواء","Rule":"القاعدة","Calculation":"الحساب","Approved rule":"قاعدة معتمدة","Rule requires review":"القاعدة تحتاج مراجعة","No approved rule":"لا توجد قاعدة معتمدة","Choose the indication":"اختر دواعي الاستعمال","Choose a medicine first":"اختر دواءً أولاً","Ready":"جاهز","Not ready":"غير جاهز","Required information missing":"معلومات مطلوبة ناقصة","Blocked by a safety check":"أوقفه فحص السلامة",
-  "Type or choose:":"اكتب أو اختر:","Age":"العمر","Weight (kg)":"الوزن (كغم)","Height (cm)":"الطول (سم)","Sex":"الجنس","Female":"أنثى","Male":"ذكر","Serum creatinine":"كرياتينين المصل","Creatinine unit":"وحدة الكرياتينين","Route of the product":"طريقة إعطاء المنتج","Age (years)":"العمر (سنوات)","Plus months":"مع أشهر","Kidney problem":"مشكلة في الكلى","Liver problem":"مشكلة في الكبد","Pregnant or breastfeeding":"حامل أو مرضعة",
-  "Loading dose (first dose only)":"جرعة التحميل (الجرعة الأولى فقط)","Dose each time":"الجرعة في كل مرة","As liquid":"كشراب","As tablets":"كأقراص","Times a day":"عدد المرات في اليوم","Do not give more than, in 24 hours":"لا تعطِ أكثر من ذلك خلال 24 ساعة","Duration":"المدة","How it was worked out":"طريقة الحساب","approved by":"اعتمدها","Saved in the calculation record":"حُفظ في سجل الحسابات","This is an aid for the pharmacist. It is not a prescription and does not authorise treatment. The pharmacist checks it and decides.":"هذه أداة مساعدة للصيدلي. ليست وصفة ولا تجيز العلاج. الصيدلي يراجعها ويقرر.",
-  "This rule has no advice for this. Check the full label before giving it.":"لا توجد نصيحة في هذه القاعدة لهذه الحالة. راجع النشرة الكاملة قبل الإعطاء.","Choose the indication and patient group. Only approved rules can be used.":"اختر دواعي الاستعمال وفئة المريض. تُستعمل القواعد المعتمدة فقط.","Other route or form":"طريقة أو شكل آخر","No approved dose rule.":"لا توجد قاعدة جرعة معتمدة.","The medicine is identified, but there is no approved dosing rule for it yet. Manual clinical review is required.":"تم التعرف على الدواء، لكن لا توجد له قاعدة جرعة معتمدة بعد. يلزم مراجعة سريرية يدوية.","Add a rule for this medicine":"أضف قاعدة لهذا الدواء","Ask the owner for a rule":"اطلب قاعدة من المالك","Sent to the owner.":"أُرسل إلى المالك.",
-  "This rule is a fixed dose with no age or weight limits, so no patient numbers are needed.":"هذه القاعدة جرعة ثابتة بلا حدود للعمر أو الوزن، فلا حاجة لأرقام المريض.","Several medicines match. Tap the one in your hand. Nothing is chosen for you.":"أكثر من دواء مطابق. اضغط على الذي بيدك. لا يُختار شيء نيابة عنك.","Nothing in your rules, stock or saved names matches.":"لا يوجد تطابق في قواعدك أو مخزونك أو الأسماء المحفوظة.","RxNorm results":"نتائج RxNorm","RxNorm has no medicine by this name.":"لا يوجد في RxNorm دواء بهذا الاسم.","Searching RxNorm...":"جارٍ البحث في RxNorm...","Did you mean:":"هل تقصد:",
-  "Your dose rules":"قواعد جرعاتك","Your stock":"مخزونك","Common names list":"قائمة الأسماء الشائعة","RxNorm product":"منتج RxNorm","RxNorm ingredient":"مادة فعالة RxNorm","Entered by hand":"إدخال يدوي",
-  "Calculation record":"سجل الحسابات","Every finished calculation, newest first, with the rule version and who did it. No patient names are kept. Entries are never edited.":"كل حساب مكتمل، الأحدث أولاً، مع إصدار القاعدة ومن قام به. لا تُحفظ أسماء المرضى. لا تُعدّل السجلات أبداً.","Showing calculations that used one rule.":"تُعرض الحسابات التي استعملت قاعدة واحدة.","Show all":"عرض الكل","Calculated":"محسوبة","Blocked":"موقوفة","No calculations yet.":"لا حسابات بعد.","Calculation":"الحساب",
-  "Drug data sources":"مصادر بيانات الأدوية","Refresh saved drug data now":"حدّث بيانات الأدوية المحفوظة الآن","No requests yet.":"لا طلبات بعد.","Failed":"فشل","Show withdrawn rules":"عرض القواعد المسحوبة","No rules yet.":"لا توجد قواعد بعد.",
-  "Approved":"معتمدة","Draft":"مسودة","Requested":"مطلوبة","Withdrawn":"مسحوبة","Review due":"حان موعد المراجعة","Source label changed":"تغيرت نشرة المصدر","No maximum set":"لا يوجد حد أعلى","Indication not stated":"دواعي الاستعمال غير مذكورة",
-  "Any medicine class. Copy each rule from an official source (FDA, EMA, WHO, BNF you are licensed to use) for one indication, patient group and route. A rule is only used after you approve it with the PIN. Changing a rule keeps the old version and puts it back to draft.":"أي فئة دوائية. انسخ كل قاعدة من مصدر رسمي (FDA أو EMA أو WHO أو BNF المرخص لك) لدواعٍ واحدة وفئة مريض وطريقة إعطاء. لا تُستعمل القاعدة إلا بعد اعتمادها برمز PIN. تعديل القاعدة يحفظ الإصدار القديم ويعيدها مسودة.",
-  "Edit dose rule":"تعديل قاعدة جرعة","New dose rule":"قاعدة جرعة جديدة","Version":"الإصدار","Active ingredient(s), separate with +":"المادة الفعالة، افصل بـ +","For combinations: the dose is of":"للمركبات: الجرعة هي لـ","RxNorm ID (optional)":"رقم RxNorm (اختياري)","Classes (optional, information only)":"الفئات (اختياري، للمعلومة فقط)","Indication":"دواعي الاستعمال","Patient group":"فئة المريض","Only these dosage forms (optional)":"هذه الأشكال الدوائية فقط (اختياري)","Release":"التحرر","Any":"أي","Immediate":"فوري","Extended":"ممتد","Delayed":"مؤجل",
-  "Age from (months)":"العمر من (أشهر)","Age to (months)":"العمر إلى (أشهر)","Weight from (kg)":"الوزن من (كغم)","Weight to (kg)":"الوزن إلى (كغم)","Dose is":"الجرعة","per kg of body weight":"لكل كغم من وزن الجسم","a fixed amount":"كمية ثابتة","per m² of body surface":"لكل م² من مساحة الجسم","Unit":"الوحدة","units":"وحدات","The dose is":"الجرعة هي","each time":"في كل مرة","the total for a day, divided":"مجموع اليوم، مقسّماً",
-  "Dose from":"الجرعة من","Dose to":"الجرعة إلى","Largest single dose":"أكبر جرعة مفردة","Most per day":"الأكثر في اليوم","Most per day per kg":"الأكثر في اليوم لكل كغم","Loading dose from (optional)":"جرعة التحميل من (اختياري)","Loading dose to":"جرعة التحميل إلى","Largest loading dose":"أكبر جرعة تحميل","Duration (optional)":"المدة (اختياري)","Liquid: amount":"الشراب: الكمية","in mL":"في مل","Measure liquid in steps of":"قِس الشراب بخطوات","exact":"بالضبط","Tablet: amount each":"القرص: الكمية لكل قرص","Tablet may be split into":"يمكن قسم القرص إلى","whole only":"كامل فقط","halves":"أنصاف","quarters":"أرباع",
-  "Kidney bands (optional). Creatinine clearance in mL/min by Cockcroft-Gault, adults only. Leave empty if the source gives no change.":"نطاقات الكلى (اختياري). تصفية الكرياتينين بالمل/دقيقة حسب Cockcroft-Gault، للبالغين فقط. اتركها فارغة إن لم يذكر المصدر تغييراً.","Clearance from":"التصفية من","to (below)":"إلى (أقل من)","Multiply dose by":"اضرب الجرعة في","Do not use":"لا يُستعمل","Note":"ملاحظة",
-  "Kidney advice":"نصيحة للكلى","Liver advice":"نصيحة للكبد","Pregnancy and breastfeeding advice":"نصيحة للحمل والرضاعة","Other notes":"ملاحظات أخرى","Source organisation":"جهة المصدر","Manufacturer leaflet":"نشرة الشركة المصنعة","Other":"أخرى","Source document":"وثيقة المصدر","Document title or link":"عنوان الوثيقة أو رابطها","Section":"القسم","Label date":"تاريخ النشرة","Rule starts (optional)":"تبدأ القاعدة (اختياري)","Review by (optional)":"تُراجع قبل (اختياري)",
-  "Save as draft":"حفظ كمسودة","Approve this rule":"اعتماد هذه القاعدة","Withdraw":"سحب","Delete":"حذف","Reason for withdrawing":"سبب السحب","Earlier versions":"الإصدارات السابقة","Restore":"استرجاع","Calculations that used this rule":"الحسابات التي استعملت هذه القاعدة","Read from the FDA label by the program.":"قرأها البرنامج من نشرة FDA.","Check every number against the label sentence and the full label before you save and approve it.":"راجع كل رقم مقابل جملة النشرة والنشرة الكاملة قبل الحفظ والاعتماد.",
-  "Rule saved as a draft. Approve it to use it.":"تم حفظ القاعدة كمسودة. اعتمدها لاستعمالها.","Rule approved.":"تم اعتماد القاعدة.","Rule deleted.":"تم حذف القاعدة.","Tap again to delete":"اضغط مرة أخرى للحذف","Version restored as a draft.":"تم استرجاع الإصدار كمسودة.","Type the reason for withdrawing.":"اكتب سبب السحب.","Rule withdrawn. The calculations that used it are listed in the record.":"سُحبت القاعدة. الحسابات التي استعملتها معروضة في السجل.",
-  "English generic name for the FDA label":"الاسم العلمي بالإنجليزية لنشرة FDA","Boxed warning":"تحذير الإطار الأسود","Dosing in the FDA label":"الجرعات في نشرة FDA","Do not use if (contraindications)":"لا يُستعمل في حال (موانع الاستعمال)","Pregnancy and breastfeeding":"الحمل والرضاعة","Use in children":"الاستعمال عند الأطفال","Use in the elderly":"الاستعمال عند كبار السن","Warnings and precautions":"تحذيرات واحتياطات","Open the source":"افتح المصدر","Search UpToDate":"ابحث في UpToDate","FDA class (information only):":"فئة FDA (للمعلومة فقط):","Older than 7 days":"أقدم من 7 أيام",
-  "FDA label alerts work in the installed app.":"تنبيهات نشرة FDA تعمل في التطبيق المثبت.","Could not reach the FDA label service. Try again later.":"تعذر الوصول إلى خدمة نشرة FDA. حاول لاحقاً.","Loading the FDA label...":"جارٍ تحميل نشرة FDA...","Offline and no saved FDA label for this medicine yet. Connect to the internet once to download it.":"لا يوجد اتصال ولا نشرة محفوظة لهذا الدواء. اتصل بالإنترنت مرة واحدة لتنزيلها.",
-  "Dose sentences in the FDA label, not approved.":"جمل الجرعات في نشرة FDA، غير معتمدة.","Saved from the FDA label dated":"محفوظة من نشرة FDA بتاريخ","They do not change by themselves.":"لا تتغير من تلقاء نفسها.","Use the new label":"استعمل النشرة الجديدة","Check for a newer FDA label":"تحقق من نشرة FDA أحدث","A newer FDA label is available.":"توجد نشرة FDA أحدث.","Ask the owner to update the rules.":"اطلب من المالك تحديث القواعد.","The label has no dose sentence the program can read. Read the dosing text above.":"لا تحتوي النشرة على جملة جرعة يقرأها البرنامج. اقرأ نص الجرعات أعلاه.",
-  "Online drug search and FDA labels work in the installed app. Your rules work here.":"البحث عن الأدوية ونشرات FDA يعمل في التطبيق المثبت. قواعدك تعمل هنا.","Online. No answer from the drug databases yet.":"متصل. لا رد من قواعد بيانات الأدوية بعد.","Offline. No drug data saved on this device yet.":"بلا اتصال. لا توجد بيانات أدوية محفوظة على هذا الجهاز بعد.",
-  "Find the medicine (any class), confirm it, choose the indication, type what the rule asks for, and read the dose with every step and its source. Only rules the owner approved are used.":"ابحث عن الدواء (أي فئة)، أكّده، اختر دواعي الاستعمال، اكتب ما تطلبه القاعدة، واقرأ الجرعة مع كل خطوة ومصدرها. تُستعمل فقط القواعد التي اعتمدها المالك."});
-AR_RX.push([/^FDA label, checked ([\d-]+)\.$/, "نشرة FDA، آخر فحص $1."], [/^Offline\. Showing the saved FDA label from ([\d-]+)\.$/, "بلا اتصال. تُعرض نشرة FDA المحفوظة بتاريخ $1."], [/^No FDA label was found for "(.+)"\. Check the name in the rule, or look at the full label yourself\.$/, "لم تُوجد نشرة FDA لـ \"$1\". تحقق من الاسم أو راجع النشرة الكاملة بنفسك."],
-  [/^([\d,.]+) to ([\d,.]+) (mg|mcg|g|units|mL|tablet)$/, "$1 إلى $2 $3"], [/^([\d,.]+) (mg|mcg|g|units|mL|tablet)$/, "$1 $2"], [/^(\d+), about every ([\d,.]+) hours$/, "$1، تقريباً كل $2 ساعة"],
-  [/^Online\. Last answer from the drug databases (.+)\.$/, "متصل. آخر رد من قواعد بيانات الأدوية $1."], [/^Offline\. Using drug data saved on ([\d-]+)( \(more than 7 days old\))?\. Nothing was refreshed\.$/, (m, a, b) => "بلا اتصال. تُستعمل بيانات الأدوية المحفوظة في " + a + (b ? " (أقدم من 7 أيام)" : "") + ". لم يُحدَّث شيء."],
-  [/^The age is outside this rule \((\d+) to (\d+|any) months\)\. Do not use this rule\.$/, "العمر خارج نطاق هذه القاعدة ($1 إلى $2 شهراً). لا تستعمل هذه القاعدة."], [/^The weight is outside this rule \(([\d.]+) to ([\d.]+|any) kg\)\. Do not use this rule\.$/, "الوزن خارج نطاق هذه القاعدة ($1 إلى $2 كغم). لا تستعمل هذه القاعدة."]);

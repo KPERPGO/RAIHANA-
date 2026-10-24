@@ -210,7 +210,7 @@ body.navshut nav.tabs{width:auto}}
 #botbar,#botdim{display:none}
 @media (max-width:760px){
 body{--botP:calc(60px + env(safe-area-inset-bottom,0px));--botH:var(--botP)}body.bothide:not(.botmenu){--botH:0px}
-main#view{padding-bottom:calc(24px + var(--botP))}
+main#view{padding-bottom:calc(8px + var(--botP))}
 .sticky-save,.posswitch{bottom:var(--botH)!important;transition:bottom .28s ease}
 .toast{bottom:calc(16px + var(--botH))!important}
 #botbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:18;direction:ltr;gap:4px;height:var(--botP);padding:5px max(8px,env(safe-area-inset-left,0px)) env(safe-area-inset-bottom,0px) max(8px,env(safe-area-inset-right,0px));background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -4px 16px rgba(0,0,0,.06);transition:transform .28s ease,opacity .28s ease}

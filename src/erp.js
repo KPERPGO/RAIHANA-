@@ -79,7 +79,8 @@ const r6 = v => Math.round(v * 1e6) / 1e6;
    (cost of one tablet can be 412.5 IQD) and are only rounded on screen, so totals add up exactly */
 const wIQD = v => Math.round(n0(v));
 const lineTot = c => wIQD(n0(c.qty) * wIQD(c.price));
-const cartTotals = (lines, meta) => { const sub = lines.reduce((a,c) => a + lineTot(c), 0), disc = Math.min(sub, Math.max(0, wIQD(meta?.disc))); return {sub, disc, total: sub - disc}; };
+// the sale discount is typed in IQD, or as a % of the subtotal (meta.discPct); either way it is saved as whole IQD
+const cartTotals = (lines, meta) => { const sub = lines.reduce((a,c) => a + lineTot(c), 0), raw = meta?.discMode === "pct" ? sub * Math.min(100, Math.max(0, n0(meta.discPct))) / 100 : meta?.disc, disc = Math.min(sub, Math.max(0, wIQD(raw))); return {sub, disc, total: sub - disc}; };
 /* PRICING: the one place every price and profit % is worked out (Pricing, bulk %, import, item card, Sell, Excel).
    Formulas as given by the owner; m is a decimal (25% = 0.25):
      Markup % = (Selling price − Cost) ÷ Cost × 100          Selling price = Cost × (1 + m)
@@ -421,7 +422,10 @@ function sellView(){
       ${pay.method === "debt" ? `<div class="r"><span>On debt</span><span class="num">${iqd(total)}</span></div>` : `<div class="r" id="billCardRow" ${pay.card ? "" : "hidden"}><span>Card</span><span class="num" id="billCard">${iqd(pay.card)}</span></div><div class="r"><span>Cash</span><span class="num" id="billCash">${iqd(pay.cash)}</span></div>`}
     </div>` : ""}
   </section>`;
-  return `<div class="pos">${inputs}${bill}</div>
+  // phone: one part at a time, with a switch at the bottom (Items / Invoice); wider screens show both and hide the switch
+  const pane = S.posPane === "bill" ? "bill" : "in", n = lines.reduce((a, x) => a + n0(x.c.qty), 0);
+  const sw = `<div class="posswitch" role="tablist" aria-label="Till parts"><button type="button" role="tab" data-xpane="in" aria-selected="${pane === "in"}">Items</button><button type="button" role="tab" data-xpane="bill" aria-selected="${pane === "bill"}"><span>Invoice</span>${lines.length ? ` <span class="num">${n} · ${iqd(total)}</span>` : ""}</button></div>`;
+  return `<div class="pos" data-pane="${pane}">${inputs}${bill}${sw}</div>
   ${sellDash()}
   <section class="sec"><div class="sechead"><h2>Receipts</h2><span class="note">${esc(S.sellPeriod === "custom" ? [S.sellFrom, S.sellTo].filter(Boolean).join(" to ").replace(/T/g, " ") : periodRange(S.sellPeriod).join(" to "))}</span></div>
     <div class="list">${E.sales.filter(s => inPeriod(s, S.sellPeriod)).sort((a,b) => (b.at || "").localeCompare(a.at || "")).slice(0, 50).map(saleRow).join("") || `<div class="empty">No receipts yet.</div>`}</div></section>`;
@@ -441,7 +445,9 @@ function payForm(sub, total, pay){
       ${debt ? "" : `<div class="grid2"><label>Card amount (IQD)<input id="xCard" class="num" inputmode="numeric" placeholder="0" value="${esc(m === "card" ? total : S.cartMeta.card ?? "")}"></label><label>Cash part<input id="xCashPart" class="num" value="${f0(pay.cash)}" disabled></label></div>
       <p class="err" id="xCardErr">${pay.over ? `The card amount is more than the total (${esc(f0(total))} IQD).` : ""}</p>
       <div class="grid2" ${pay.cash > 0 ? "" : "hidden"} id="xCashRow"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(given) && given >= pay.cash ? (given - pay.cash).toLocaleString("en-US") : ""}" disabled></label></div>`}
-      <label>Discount (IQD)<input id="xDisc" class="num" inputmode="numeric" value="${esc(S.cartMeta.disc ?? "")}"></label>
+      ${(() => { const pct = S.cartMeta.discMode === "pct"; return `<div class="discrow"><label>${pct ? "Discount (%)" : "Discount (IQD)"}<input id="xDisc" class="num" inputmode="decimal" value="${esc((pct ? S.cartMeta.discPct : S.cartMeta.disc) ?? "")}"></label>
+        <div class="chips" role="group" aria-label="Discount as"><button type="button" data-xdisc="iqd" aria-pressed="${!pct}">IQD</button><button type="button" data-xdisc="pct" aria-pressed="${pct}">%</button></div></div>
+        ${pct && sub ? `<p class="note" id="xDiscIqd">= <span class="num">${iqd(cartTotals(S.cart, S.cartMeta).disc)}</span></p>` : ""}`; })()}
       <label>${debt ? "Customer" : "Customer (optional)"}<select id="xCust"><option value="">${debt ? "Choose customer" : "No customer"}</option>${E.customers.filter(c => !c.deleted).map(c => `<option value="${esc(c.id)}" ${S.cartMeta.customerId === c.id ? "selected" : ""}>${esc(c.name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("")}<option value="__new" ${S.cartMeta.customerId === "__new" ? "selected" : ""}>+ New customer</option></select></label>
       ${S.cartMeta.customerId === "__new" ? `<div class="grid2"><label>Customer name<input id="xCName" value="${esc(S.cartMeta.newName || "")}"></label><label>Phone<input id="xCPhone" inputmode="tel" value="${esc(S.cartMeta.newPhone || "")}"></label></div>` : ""}
       <div class="r big"><span>Total</span><span class="num">${iqd(total)}</span></div>
@@ -1228,7 +1234,7 @@ async function saveSaleNow(){
     S.sellErr = {cart:JSON.stringify(S.cart), html: short.map(x => `<span style="display:block">${esc(STOCK.shortText(x.p, x.avail))}</span>`).join("") + `<button type="button" data-xoversell="1" style="margin-top:8px">Owner: sell anyway (owner PIN)</button>`};
     err.innerHTML = S.sellErr.html; return; }
   S.sellErr = null;
-  const {sub, disc} = cartTotals(lines.map(x => x.c), {disc:parseNum($("#xDisc").value)});
+  const {sub, disc} = cartTotals(lines.map(x => x.c), S.cartMeta);
   const pay = cartPay(sub - disc), method = pay.method;
   if (pay.over){ err.textContent = `The card amount is more than the total (${f0(sub - disc)} IQD).`; return; }
   const given = pay.cash > 0 ? parseNum($("#xGiven")?.value) : null; // audit P-07: cash received is for the cash part
@@ -1237,7 +1243,7 @@ async function saveSaleNow(){
   let approvedBy = null; if (why.length && (!isOwner() || overs)){ approvedBy = await ownerOK(why, {always:overs}); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
   if (customerId === "__new"){ customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
   const id = newId("SL"), d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
-  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, total:sub - disc, method, ...(method === "split" ? {card:pay.card, cash:pay.cash} : {}), customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - pay.cash} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
+  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, ...(disc && S.cartMeta.discMode === "pct" ? {discPct:n0(S.cartMeta.discPct)} : {}), total:sub - disc, method, ...(method === "split" ? {card:pay.card, cash:pay.cash} : {}), customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - pay.cash} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
   try {
     await write("sales/" + id, sale);
     if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) await write("chronic/" + ch.id, {given:{...(ch.given || {}), [ym(d)]:id}}, true); }
@@ -1250,7 +1256,7 @@ function receiptHtml(s){
     <div style="text-align:center;font-weight:600">${esc(E.cfg.name || "صيدلية ريحانة · Raihana Pharmacy")}</div>${E.cfg.phone ? `<div style="text-align:center">${esc(E.cfg.phone)}</div>` : ""}
     <div style="text-align:center">Receipt ${esc(s.no)} · ${esc(s.date)} ${esc(hm(s.at))}</div>${s.staffName ? `<div style="text-align:center">Pharmacist: ${esc(s.staffName)}</div>` : ""}<hr>
     ${(s.lines || []).map(l => `<div>${esc(l.name)}</div><div style="display:flex;justify-content:space-between"><span>${l.qty} ${esc(l.unit)} × ${Math.round(l.price).toLocaleString("en-US")}</span><span>${Math.round(l.total).toLocaleString("en-US")}</span></div>`).join("")}<hr>
-    ${s.discount ? `<div style="display:flex;justify-content:space-between"><span>Discount</span><span>−${Math.round(s.discount).toLocaleString("en-US")}</span></div>` : ""}
+    ${s.discount ? `<div style="display:flex;justify-content:space-between"><span>Discount${s.discPct ? ` ${s.discPct}%` : ""}</span><span>−${Math.round(s.discount).toLocaleString("en-US")}</span></div>` : ""}
     <div style="display:flex;justify-content:space-between;font-weight:600"><span>Total IQD</span><span>${Math.round(s.total).toLocaleString("en-US")}</span></div>
     ${s.method === "split" ? `<div style="display:flex;justify-content:space-between"><span>Card</span><span>${Math.round(payOf(s).card).toLocaleString("en-US")}</span></div>${isNum(s.given) ? "" : `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(payOf(s).cash).toLocaleString("en-US")}</span></div>`}` : ""}
     ${isNum(s.given) ? `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(s.given).toLocaleString("en-US")}</span></div><div style="display:flex;justify-content:space-between"><span>Change</span><span>${Math.round(s.change).toLocaleString("en-US")}</span></div>` : ""}
@@ -1411,6 +1417,8 @@ document.addEventListener("click", ev => {
   if (d.xper){ S.sellPeriod = d.xper; lsSet("erp.sellPeriod", d.xper); render(); return; }
   if (d.xrm !== undefined){ S.cart.splice(+d.xrm, 1); if (!S.cart.length) S.cartMeta = {}; saveCart(); render(); return; }
   if (d.xclear){ S.cart = []; S.cartMeta = {}; saveCart(); render(); return; }
+  if (d.xpane){ S.posPane = d.xpane; render(); $("#view")?.scrollTo(0, 0); return; }
+  if (d.xdisc){ if ((S.cartMeta.discMode || "iqd") !== d.xdisc){ S.cartMeta.discMode = d.xdisc; S.cartMeta.disc = null; S.cartMeta.discPct = null; saveCart(); render(); setTimeout(() => $("#xDisc")?.focus(), 0); } return; }
   if (d.xpay){ S.cartMeta.method = d.xpay; if (d.xpay !== "debt") S.cartMeta.card = null; saveCart(); render(); return; }
   if (d.xsale){ receiptSheet(d.xsale); return; }
   if (d.xsaleret){ returnSheet(d.xsaleret); return; }
@@ -1448,7 +1456,7 @@ document.addEventListener("input", ev => {
   if (t.id === "chrQ"){ S.chrQ = t.value; render(); keep("chrQ"); return; }
   if (d.xq !== undefined){ S.cart[+d.xq].qty = n0(parseNum(t.value)); saveCart(); return; }
   if (d.xp !== undefined){ const v = parseNum(t.value); S.cart[+d.xp].price = isNum(v) ? wIQD(v) : null; saveCart(); return; }
-  if (t.id === "xDisc"){ S.cartMeta.disc = wIQD(parseNum(t.value)); saveCart(); return; }
+  if (t.id === "xDisc"){ const v = parseNum(t.value); if (S.cartMeta.discMode === "pct") S.cartMeta.discPct = isNum(v) ? Math.min(100, Math.max(0, v)) : null; else S.cartMeta.disc = wIQD(v); saveCart(); return; }
   if (t.id === "xGiven"){ const v = parseNum(t.value); S.cartMeta.given = isNum(v) ? v : null; saveCart(); payLive(); return; }
   if (t.id === "xCard"){ const v = parseNum(t.value); S.cartMeta.card = isNum(v) ? wIQD(v) : null; if (S.cartMeta.method === "card") S.cartMeta.method = "cash"; saveCart(); payLive(); return; }
   if (t.id === "xCName"){ S.cartMeta.newName = t.value; return; } if (t.id === "xCPhone"){ S.cartMeta.newPhone = t.value; return; }
@@ -1640,7 +1648,7 @@ Object.assign(AR, {
 "Subtotal":"المجموع الفرعي","Discount (IQD)":"الخصم (دينار)","On debt (دين)":"دين","Customer":"الزبون","Choose customer":"اختر الزبون","+ New customer":"+ زبون جديد","Customer name":"اسم الزبون","Phone":"الهاتف",
 "Sell even if stock shows less (fix stock later)":"بع حتى لو المخزون أقل (صحح المخزون لاحقاً)","Today's sales":"مبيعات اليوم","No sales yet today.":"لا مبيعات اليوم بعد.","Scan or search an item to start a sale.":"امسح أو ابحث عن مادة لبدء البيع.",
 "Sales today":"مبيعات اليوم","Low or out of stock":"قليل أو نافد","Customers owe you":"ديون الزبائن","Customers owe you (دين)":"ديون الزبائن","stock is enough":"المخزون كافٍ","Chronic patients: order now":"المرضى المزمنين: اطلب الآن",
-"Stock value at cost (after discounts and bonus)":"قيمة المخزون بالكلفة (بعد الخصم والبونص)","+ Item":"+ مادة","Low":"قليل","Expiring 3 months":"تنتهي خلال 3 أشهر","No sell price":"بدون سعر بيع","Out":"نافد","Search results on Sell":"ترتيب نتائج البحث في البيع","A to Z":"من أ إلى ي","Fastest selling first (last 30 days)":"الأسرع بيعاً أولاً (آخر 30 يوماً)","No price":"بدون سعر",
+"Stock value at cost (after discounts and bonus)":"قيمة المخزون بالكلفة (بعد الخصم والبونص)","+ Item":"+ مادة","Low":"قليل","Expiring 3 months":"تنتهي خلال 3 أشهر","No sell price":"بدون سعر بيع","Out":"نافد","Till parts":"أقسام البيع","Discount (%)":"الخصم (%)","Discount as":"الخصم بـ","Search results on Sell":"ترتيب نتائج البحث في البيع","A to Z":"من أ إلى ي","Fastest selling first (last 30 days)":"الأسرع بيعاً أولاً (آخر 30 يوماً)","No price":"بدون سعر",
 "Add item":"إضافة مادة","In stock":"في المخزون","Value at cost":"القيمة بالكلفة","Scientific name":"الاسم العلمي","Barcode":"الباركود","Shelf / place":"الرف / المكان","Sell smaller units?":"بيع وحدات أصغر؟","How many in one box":"كم واحدة في العلبة",
 "Sell price per box (IQD)":"سعر بيع العلبة (دينار)","Sell price per small unit (IQD)":"سعر بيع الوحدة الصغيرة (دينار)","Alert when below (boxes)":"نبه عندما يقل عن (علب)","Refrigerated (براد)":"براد","Save item":"حفظ المادة",
 "Batches (nearest expiry sold first)":"الوجبات (الأقرب انتهاءً تباع أولاً)","Came in":"الوارد","Left":"المتبقي","Cost each":"كلفة الواحدة","Write off or correct stock":"شطب أو تصحيح المخزون","Quantity":"الكمية","Unit":"الوحدة","Note":"ملاحظة","Save stock change":"حفظ تغيير المخزون","Stock changes":"تغييرات المخزون",

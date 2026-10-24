@@ -48,7 +48,16 @@ const SHOTS = process.env.SHOTS; // folder for screenshots, when set
     ok(`${name}: nothing wider than the screen`, L.overflow <= 0 && L.doc <= 0, [L.overflow, L.doc]);
     ok(`${name}: 12 square quick buttons inside the inputs part`, L.n === 12 && L.square && L.inside && L.minW >= 56, L);
     if (side) ok(`${name}: invoice on the left, inputs on the right`, L.bill.r <= L.inn.l + 1 && L.bill.t < L.inn.b, [L.bill, L.inn]);
-    else ok(`${name}: inputs on top, invoice under them`, L.inn.b <= L.bill.t + 1, [L.inn, L.bill]);
+    if (side) ok(`${name}: no switch on a wide screen`, await p.evaluate(() => getComputedStyle(document.querySelector('.posswitch')).display === 'none'));
+    else {
+      const sw = async () => p.evaluate(() => ({inn: getComputedStyle(document.querySelector('.posin')).display, bill: getComputedStyle(document.querySelector('.posbill')).display, sw: getComputedStyle(document.querySelector('.posswitch')).display, label: document.querySelector('[data-xpane="bill"]').innerText.replace(/\s+/g, ' ')}));
+      let v = await sw(); ok(`${name}: one part at a time, Items first, switch shows count and total`, v.inn !== 'none' && v.bill === 'none' && v.sw !== 'none' && /3 · 15,000/.test(v.label), v);
+      const swBox = await box(p, '.posswitch'); ok(`${name}: switch sits at the bottom of the screen`, swBox && swBox.b <= 844 + 1 && swBox.b > 844 - 80, swBox);
+      await p.click('[data-xpane="bill"]'); await p.waitForTimeout(150); v = await sw();
+      if (SHOTS) await p.screenshot({ path: `${SHOTS}/pos-${name}-invoice.png` });
+      ok(`${name}: switch to Invoice hides the inputs`, v.inn === 'none' && v.bill !== 'none', v);
+      await p.click('[data-xpane="in"]'); await p.waitForTimeout(150); v = await sw(); ok(`${name}: and back to Items`, v.inn !== 'none' && v.bill === 'none', v);
+    }
     ok(`${name}: no page errors`, !p.errs.length, p.errs);
     await p.close();
   }
@@ -137,6 +146,21 @@ const SHOTS = process.env.SHOTS; // folder for screenshots, when set
   { const p = await fresh({width:360, height:740}); await p.evaluate(async () => { await write('meta/erp', {...E.cfg, quickN:16}); }); await pin(p, 18);
     const L = await layout(p, 'pos-phone-16');
     ok('16 buttons on a small phone: square, inside, nothing off the edge', L.n === 16 && L.square && L.inside && L.overflow <= 0, L);
+    await p.close(); }
+  // ---- discount in IQD (default) or as a % of the subtotal
+  { const p = await fresh();
+    await fill(p, 3); // 15,000
+    ok('Discount starts in IQD', await p.evaluate(() => document.querySelector('[data-xdisc="iqd"]').getAttribute('aria-pressed') === 'true'));
+    await p.click('[data-xdisc="pct"]'); await p.waitForTimeout(100);
+    await type(p, '#xDisc', 10); await p.evaluate(() => $('#xDisc').dispatchEvent(new Event('change', {bubbles:true}))); await p.waitForTimeout(150);
+    const v = await p.evaluate(() => ({total: document.querySelector('#sellForm .r.big .num').textContent, eq: $('#xDiscIqd')?.textContent, cash: $('#xCashPart').value}));
+    ok('10% of 15,000 = 1,500 off, total 13,500', /13,500/.test(v.total) && /1,500/.test(v.eq) && v.cash === '13,500', v);
+    const r = await save(p);
+    ok('Sale saves the IQD discount and the %', r.saved === 1 && r.last.discount === 1500 && r.last.discPct === 10 && r.last.total === 13500, r.last);
+    ok('Receipt shows Discount 10%', /Discount 10%\s*−1,500/.test(await p.evaluate(() => document.getElementById('receipt').innerText)));
+    await fill(p, 3); await type(p, '#xDisc', 2000); await p.evaluate(() => $('#xDisc').dispatchEvent(new Event('change', {bubbles:true}))); await p.waitForTimeout(150);
+    const r2 = await save(p); ok('IQD discount still works', r2.saved === 1 && r2.last.discount === 2000 && r2.last.discPct === undefined, r2.last);
+    ok('No page errors (discount)', !p.errs.length, p.errs);
     await p.close(); }
   // ---- search box: barcode + Tx icon instead of words; results A to Z or fastest selling first (owner's choice)
   { const p = await fresh({width:390, height:844});

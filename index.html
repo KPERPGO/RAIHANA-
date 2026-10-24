@@ -260,6 +260,12 @@ input,select{min-height:44px}
 .quick button .qs{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.quick button .num{font-size:clamp(12px,3.2cqi,14px);color:var(--fg);font-weight:600}
 .quick button.pin{box-shadow:inset 0 -3px 0 var(--accent)}.quick button.out{opacity:.55;box-shadow:inset 0 -3px 0 var(--bad)}
 .quick button .pill{align-self:flex-start}
+.quick button.ph{position:relative;padding:0;justify-content:flex-end}.quick button .qph{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.quick button.ph b,.quick button.ph .num,.quick button.ph .pill{position:relative;margin:0 6px;padding:0 4px;border-radius:4px;background:color-mix(in srgb,var(--surface) 85%,transparent);align-self:flex-start}.quick button.ph .num{margin-bottom:6px}.quick button.ph .qs{display:none}
+/* phone: smaller squares, 5 across, name and price only */
+@media (max-width:760px){.quick{grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}.quick button{padding:5px;border-radius:10px}.quick button b{font-size:10.5px;line-height:1.15}.quick button .qs{display:none}.quick button .num{font-size:11px}
+  .quick button.ph b{display:none}.quick button.ph .num{margin:0 3px 3px;font-size:10.5px}}
+.photorow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.photorow label{flex:1;min-width:180px}.phbox{flex:none;width:56px;height:56px;border-radius:10px;background:var(--sunk);overflow:hidden}.phbox img{width:100%;height:100%;object-fit:cover}.phbox:empty{display:none}
 .stepper{display:flex;gap:6px;align-items:stretch}.stepper button{min-width:52px;font-size:22px;line-height:1;padding:0}.stepper input{flex:1;text-align:center;font-size:18px;min-width:0}.stepper select{width:auto;flex:none}
 table.prt tr.chg td{background:color-mix(in srgb,var(--accent2) 10%,transparent)}table.prt input{min-height:40px}
 @media (max-width:640px){table.prt{min-width:0}table.prt thead{display:none}table.prt tr{display:grid;grid-template-columns:36px repeat(2,minmax(0,1fr));gap:4px 10px;padding:10px 12px;border-top:1px solid var(--line)}table.prt td{border:0;padding:0;text-align:start}table.prt td.ck{grid-row:span 3;padding-top:2px}table.prt td.nm{grid-column:2/-1}table.prt td[data-l]::before{content:attr(data-l);display:block;font-size:11.5px;color:var(--muted);font-family:var(--sans)}table.prt td input{width:100%!important;text-align:start!important}}
@@ -2403,6 +2409,13 @@ function sellDash(){
     </div>
     ${st.byStaff.length > 1 || (st.byStaff[0] && st.byStaff[0].id !== "-") ? `<div class="list"><div class="row" style="cursor:default"><span class="main"><span class="t">By pharmacist</span></span></div>${st.byStaff.map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.name)}</span><span class="s"><span class="num">${x.count}</span> receipts</span></span><span class="end num">${iqd(x.total)}</span></div>`).join("")}</div>` : ""}` : `<p class="note">No sales ${k === "today" ? "today" : k === "week" ? "this week" : "this month"} yet.</p>`}</section>`;
 }
+// item photo for the quick button: cut to a square and made small (128 px JPEG, a few KB) so it syncs quickly
+function photoSmall(file){
+  return new Promise((ok, bad) => { const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => { const n = 128, c = document.createElement("canvas"), k = Math.min(img.width, img.height); c.width = c.height = n;
+      c.getContext("2d").drawImage(img, (img.width - k) / 2, (img.height - k) / 2, k, k, 0, 0, n, n); URL.revokeObjectURL(url); ok(c.toDataURL("image/jpeg", 0.75)); };
+    img.onerror = () => { URL.revokeObjectURL(url); bad(new Error("bad image")); }; img.src = url; });
+}
 // the till's search box shows a barcode with "Tx" (treatment) instead of words: scan or type into it
 const SCAN_ICON = `<svg class="scanico" viewBox="0 0 46 24" width="46" height="24" aria-hidden="true"><g fill="currentColor"><rect x="1" y="3" width="2" height="18"/><rect x="5" y="3" width="1" height="18"/><rect x="8" y="3" width="3" height="18"/><rect x="13" y="3" width="1" height="18"/><rect x="16" y="3" width="2" height="18"/><rect x="20" y="3" width="1" height="18"/></g><text x="24" y="17.5" font-size="13" font-weight="700" font-family="var(--sans)" fill="var(--accent2)">Tx</text></svg>`;
 // search results: A to Z, or the fastest sellers of the last 30 days first (owner's choice in Settings)
@@ -2430,7 +2443,7 @@ function sellView(){
     <div style="display:flex;gap:8px"><span class="scanbox">${SCAN_ICON}<input id="sellQ" type="search" autocomplete="off" enterkeyhint="search" aria-label="Scan barcode or type a name" value="${esc(S.sellQ)}"></span>${window.BarcodeDetector && window.ERP_MODE === "device" ? `<button type="button" data-xcam="1" aria-label="Scan with camera">📷</button>` : ""}</div>
     <p class="note kbdhint">Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print <button type="button" class="linkbtn" data-xkeys="1">All keys</button></p>
     ${q ? `<div class="list">${hits.length ? hits.map(p => { const s = stockOf(p, used); return `<button type="button" class="row" data-xadd="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""} · ${esc(qtyText(p, s.good))} in stock${s.next ? ` · exp ${esc(s.next.expiry)}` : ""}</span></span><span class="end num">${p.sellBox ? iqd(p.sellBox) : `<span class="pill warn">No price</span>`}</span></button>`; }).join("") : `<div class="empty">No item matches. Items appear here once they are on a purchase invoice, or add one under Stock.</div>`}</div>` : ""}
-    ${!q && quick.length ? `<div class="quick" role="group" aria-label="Quick buttons">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" class="${[s.good <= 0 ? "out" : "", p.m?.quick ? "pin" : ""].join(" ").trim()}" title="${esc(pname(p))}"><b>${esc(p.name)}</b><span class="qs">${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : p.sellBox ? `<span class="num">${f0(p.sellBox)}</span>` : `<span class="qs">No price</span>`}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
+    ${!q && quick.length ? `<div class="quick" role="group" aria-label="Quick buttons">${quick.map(({p, s}) => `<button type="button" data-xadd="${esc(p.id)}" class="${[s.good <= 0 ? "out" : "", p.m?.quick ? "pin" : "", p.m?.photo ? "ph" : ""].join(" ").trim()}" title="${esc(pname(p))}">${p.m?.photo ? `<img class="qph" src="${esc(p.m.photo)}" alt="">` : ""}<b>${esc(p.name)}</b><span class="qs">${esc(p.strength ? p.strength.slice(0, 28) : p.form || "")}</span>${s.good <= 0 ? `<span class="pill bad">Out</span>` : p.sellBox ? `<span class="num">${f0(p.sellBox)}</span>` : `<span class="qs">No price</span>`}</button>`).join("")}</div>` : !q ? `<p class="note">Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick "Quick button on Sell".</p>` : ""}
     ${lines.length ? payForm(sub, total, pay) : ""}
   </section>`;
   const bill = `<section class="sec posbill" aria-label="Invoice"><div class="sechead"><h2>${esc(tabName(actTab()))}</h2><div class="actions">${lines.length ? `<button type="button" data-xclear="1">Clear</button>` : ""}${S.tabs.length > 1 ? `<button type="button" class="danger" data-xclosetab="1">Close</button>` : ""}</div></div>
@@ -2456,7 +2469,6 @@ function sellView(){
   const pane = S.posPane === "bill" ? "bill" : "in", n = lines.reduce((a, x) => a + n0(x.c.qty), 0);
   const sw = `<div class="posswitch" role="tablist" aria-label="Till parts"><button type="button" role="tab" data-xpane="in" aria-selected="${pane === "in"}">Items</button><button type="button" role="tab" data-xpane="bill" aria-selected="${pane === "bill"}"><span>Invoice</span>${lines.length ? ` <span class="num">${n} · ${iqd(total)}</span>` : ""}</button></div>`;
   return `<div class="pos" data-pane="${pane}">${inputs}${bill}${sw}</div>
-  ${sellDash()}
   <section class="sec"><div class="sechead"><h2>Receipts</h2><span class="note">${esc(S.sellPeriod === "custom" ? [S.sellFrom, S.sellTo].filter(Boolean).join(" to ").replace(/T/g, " ") : periodRange(S.sellPeriod).join(" to "))}</span></div>
     <div class="list">${E.sales.filter(s => inPeriod(s, S.sellPeriod)).sort((a,b) => (b.at || "").localeCompare(a.at || "")).slice(0, 50).map(saleRow).join("") || `<div class="empty">No receipts yet.</div>`}</div></section>`;
 }
@@ -2515,6 +2527,7 @@ function stockView(){
     <p class="note">Stock comes from your purchase invoices (paid + bonus, or what you counted in Receiving), minus returns to suppliers, sales and write-offs. Expired batches are not sold.</p></section>`;
 }
 function prodSheet(id){
+  if (S.prodPhoto && S.prodPhoto.id !== id) S.prodPhoto = null; // a photo picked but not saved belongs to the item it was picked for
   const cat = catalog(), p = id === "__new" ? {id:"__new", name:"", strength:"", form:"", sub:1, subName:"piece", lines:[], fridge:false} : cat.find(x => x.id === id); if (!p) return;
   const used = usedMap(), s = id === "__new" ? null : stockOf(p, used), m = p.m || {};
   openSheet(id === "__new" ? "Add item" : pname(p), `
@@ -2533,6 +2546,7 @@ function prodSheet(id){
         <p class="note">Example for tablets: box → strip (3 in a box) → tablet (10 in a strip). For syrup or cream, leave both as None. Stock already sold or counted stays exact if you change this later.</p></div>
       <div class="grid2"><label>Alert when below (boxes)<input id="pMin" class="num" inputmode="numeric" value="${esc(m.min ?? "")}" placeholder="${s && isNum(usageOf(p, s).auto) ? "auto " + usageOf(p, s).auto / p.sub : "auto"}"></label><label class="check" style="align-self:end"><input type="checkbox" id="pCold" ${p.fridge ? "checked" : ""}> Refrigerated (براد)</label></div>
       <label class="check"><input type="checkbox" id="pQuick" ${m.quick ? "checked" : ""}> Quick button on Sell</label>
+      ${(() => { const ph = S.prodPhoto?.id === p.id ? S.prodPhoto.v : m.photo; return `<div class="photorow"><span class="phbox" id="pPhotoBox">${ph ? `<img src="${esc(ph)}" alt="">` : ""}</span><label>Photo on the quick button (optional)<input type="file" id="pPhoto" accept="image/*"></label>${ph ? `<button type="button" class="danger" data-xphotodel="1">Remove photo</button>` : ""}</div>`; })()}
       ${s && s.bs.length && s.bs.some(b => b.left !== b.in) && p.sub !== (isNum(m.sub) ? m.sub : 1) ? "" : ""}
       <p class="err" id="pErr"></p><button type="submit" class="primary">Save item</button></form>
     ${s ? `<div class="sec"><h2>Batches (nearest expiry sold first)</h2><div class="tablewrap"><table><thead><tr><th>Batch</th><th>Expiry</th><th>Supplier · invoice</th><th class="n">Came in</th><th class="n">Left</th><th class="n">Cost each</th></tr></thead><tbody>
@@ -3452,6 +3466,7 @@ document.addEventListener("click", ev => {
   if (d.xper){ S.sellPeriod = d.xper; lsSet("erp.sellPeriod", d.xper); render(); return; }
   if (d.xrm !== undefined){ S.cart.splice(+d.xrm, 1); if (!S.cart.length) S.cartMeta = {}; saveCart(); render(); return; }
   if (d.xclear){ S.cart = []; S.cartMeta = {}; saveCart(); render(); return; }
+  if (d.xphotodel){ const f = t.closest("form"); S.prodPhoto = {id:f?.dataset.id, v:null}; const b = $("#pPhotoBox"); if (b) b.innerHTML = ""; t.remove(); return; }
   if (d.xpane){ S.posPane = d.xpane; render(); $("#view")?.scrollTo(0, 0); return; }
   if (d.xdisc){ if ((S.cartMeta.discMode || "iqd") !== d.xdisc){ S.cartMeta.discMode = d.xdisc; S.cartMeta.disc = null; S.cartMeta.discPct = null; saveCart(); render(); setTimeout(() => $("#xDisc")?.focus(), 0); } return; }
   if (d.xpay){ S.cartMeta.method = d.xpay; if (d.xpay !== "debt") S.cartMeta.card = null; saveCart(); render(); return; }
@@ -3520,6 +3535,7 @@ document.addEventListener("change", ev => {
   if (t.id === "sellTo"){ S.sellTo = t.value; render(); return; }
   if (t.id === "sellStaff"){ S.sellStaff = t.value; render(); return; }
   if (t.id === "moneyM" && t.value){ S.moneyM = t.value; render(); return; }
+  if (t.id === "pPhoto" && t.files?.[0]){ const pid = t.form?.dataset.id; photoSmall(t.files[0]).then(v => { S.prodPhoto = {id:pid, v}; const b = $("#pPhotoBox"); if (b) b.innerHTML = `<img src="${v}" alt="">`; }).catch(() => toast("This photo could not be read.")); return; }
   if (t.id === "restoreIn" && t.files?.[0]){ if (!isOwner()){ toast("Only the owner can do this."); t.value = ""; return; } restoreFile(t.files[0]); t.value = ""; return; }
 });
 /* keys on Sell (audit P-08, P-09). Only keys the browser leaves free: F1, F3, F5, F6, F7 and F11 stay with the browser.
@@ -3580,8 +3596,8 @@ document.addEventListener("submit", async ev => {
       const priceChanged = (om.sellBox ?? null) !== nb || (om.sellSub ?? null) !== ns || (om.sellMid ?? null) !== nmid;
       const okBy = priceChanged && !canUse("pricing") ? await ownerOK([`Change the sell price of ${name}`]) : S.staff?.id || null; if (priceChanged && !canUse("pricing") && !okBy) return fail("#pErr", NEED_OWNER);
       const priceHistory = priceChanged ? [...(om.priceHistory || []), {at:nowIso(), by:S.meId, staffBy:S.staff?.id || null, approvedBy:okBy, box:nb, mid:nmid, sub:ns, oldBox:om.sellBox ?? null, oldMid:om.sellMid ?? null, oldSub:om.sellSub ?? null, source:"Item card"}].slice(-30) : (om.priceHistory || []);
-      await write("products/" + pid, {...om, priceHistory, id:pid, name, strength:$("#pStr").value.trim(), form:$("#pForm").value.trim(), sci:$("#pSci").value.trim(), barcode:bc, shelf:$("#pShelf").value.trim(), sub, subName, midName, midN, sellBox:nb, sellMid:midName ? nmid : null, sellSub:ns, min:num("#pMin"), fridge:$("#pCold").checked, quick:$("#pQuick").checked});
-      toast("Item saved."); prodSheet(pid); return;
+      await write("products/" + pid, {...om, priceHistory, id:pid, name, strength:$("#pStr").value.trim(), form:$("#pForm").value.trim(), sci:$("#pSci").value.trim(), barcode:bc, shelf:$("#pShelf").value.trim(), sub, subName, midName, midN, sellBox:nb, sellMid:midName ? nmid : null, sellSub:ns, min:num("#pMin"), fridge:$("#pCold").checked, quick:$("#pQuick").checked, photo: S.prodPhoto?.id === f.dataset.id ? S.prodPhoto.v : om.photo || null});
+      S.prodPhoto = null; toast("Item saved."); prodSheet(pid); return;
     }
     if (id === "adjForm"){
       const pid = f.dataset.id, p = catalog().find(x => x.id === pid), q = num("#aQty"); if (!(q > 0)) return fail("#aErr", "Enter a quantity above 0.");
@@ -3655,6 +3671,7 @@ homeExtras = window.homeExtras = function(){
     ${owed || E.cfg.debtOn ? `<button type="button" class="kpi tap" data-tab="customers"><span class="l">Customers owe you</span><span class="v num">${iqd(owed)}</span><span class="l">tap to see</span></button>` : ""}
   </section>
   ${alertsHome()}
+  ${canUse("sell") ? sellDash() : ""}
   ${soon.length ? `<section class="sec"><div class="sechead"><h2>Chronic patients: order now</h2></div><div class="list">${soon.slice(0,5).map(n => `<button type="button" class="alert row" data-xprod="${esc(n.p.id)}"><span class="dot ${n.missing ? "bad" : ""}"></span><span><b>${esc(pname(n.p))}</b> ${n.missing ? "is missing" : "is short"}: need ${esc(qtyText(n.p, n.q))}, have ${esc(qtyText(n.p, n.have))}.</span></button>`).join("")}</div></section>` : ""}
   ${baseHomeExtras()}`;
 };
@@ -3683,7 +3700,7 @@ Object.assign(AR, {
 "Subtotal":"المجموع الفرعي","Discount (IQD)":"الخصم (دينار)","On debt (دين)":"دين","Customer":"الزبون","Choose customer":"اختر الزبون","+ New customer":"+ زبون جديد","Customer name":"اسم الزبون","Phone":"الهاتف",
 "Sell even if stock shows less (fix stock later)":"بع حتى لو المخزون أقل (صحح المخزون لاحقاً)","Today's sales":"مبيعات اليوم","No sales yet today.":"لا مبيعات اليوم بعد.","Scan or search an item to start a sale.":"امسح أو ابحث عن مادة لبدء البيع.",
 "Sales today":"مبيعات اليوم","Low or out of stock":"قليل أو نافد","Customers owe you":"ديون الزبائن","Customers owe you (دين)":"ديون الزبائن","stock is enough":"المخزون كافٍ","Chronic patients: order now":"المرضى المزمنين: اطلب الآن",
-"Stock value at cost (after discounts and bonus)":"قيمة المخزون بالكلفة (بعد الخصم والبونص)","+ Item":"+ مادة","Low":"قليل","Expiring 3 months":"تنتهي خلال 3 أشهر","No sell price":"بدون سعر بيع","Out":"نافد","Till parts":"أقسام البيع","Discount (%)":"الخصم (%)","Discount as":"الخصم بـ","Search results on Sell":"ترتيب نتائج البحث في البيع","A to Z":"من أ إلى ي","Fastest selling first (last 30 days)":"الأسرع بيعاً أولاً (آخر 30 يوماً)","No price":"بدون سعر",
+"Stock value at cost (after discounts and bonus)":"قيمة المخزون بالكلفة (بعد الخصم والبونص)","+ Item":"+ مادة","Low":"قليل","Expiring 3 months":"تنتهي خلال 3 أشهر","No sell price":"بدون سعر بيع","Out":"نافد","Photo on the quick button (optional)":"صورة على الزر السريع (اختياري)","Remove photo":"حذف الصورة","This photo could not be read.":"تعذّرت قراءة هذه الصورة.","Till parts":"أقسام البيع","Discount (%)":"الخصم (%)","Discount as":"الخصم بـ","Search results on Sell":"ترتيب نتائج البحث في البيع","A to Z":"من أ إلى ي","Fastest selling first (last 30 days)":"الأسرع بيعاً أولاً (آخر 30 يوماً)","No price":"بدون سعر",
 "Add item":"إضافة مادة","In stock":"في المخزون","Value at cost":"القيمة بالكلفة","Scientific name":"الاسم العلمي","Barcode":"الباركود","Shelf / place":"الرف / المكان","Sell smaller units?":"بيع وحدات أصغر؟","How many in one box":"كم واحدة في العلبة",
 "Sell price per box (IQD)":"سعر بيع العلبة (دينار)","Sell price per small unit (IQD)":"سعر بيع الوحدة الصغيرة (دينار)","Alert when below (boxes)":"نبه عندما يقل عن (علب)","Refrigerated (براد)":"براد","Save item":"حفظ المادة",
 "Batches (nearest expiry sold first)":"الوجبات (الأقرب انتهاءً تباع أولاً)","Came in":"الوارد","Left":"المتبقي","Cost each":"كلفة الواحدة","Write off or correct stock":"شطب أو تصحيح المخزون","Quantity":"الكمية","Unit":"الوحدة","Note":"ملاحظة","Save stock change":"حفظ تغيير المخزون","Stock changes":"تغييرات المخزون",

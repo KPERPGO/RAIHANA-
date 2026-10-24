@@ -134,6 +134,16 @@ let fails = 0; const ok = (m, c, x) => { console.log(c ? 'ok  ' : 'FAIL', m, x =
   v = await p.evaluate(() => document.querySelector('#view').innerText);
   ok('11 Arabic settings', /المخزون الآمن وقائمة النواقص/.test(v) && !/Days the supplier takes to deliver|Extra safety days/.test(v));
 
+  // 12. the morning list for the cloud: both parts whoever is signed in, saved only when turned on and changed
+  v = await p.evaluate(async () => { S.staff = E.staff.find(x => x.id === 'ST-C'); const both = phoneParts(true), mine = phoneParts(false);
+    window.ERP_SYNC = {cfg: () => ({url:'https://ref.supabase.co', anon:'pub'})};
+    pushNoteSave(true); await new Promise(r => setTimeout(r, 100)); const before = !!__store.meta?.pushnote;
+    lsSet('erp.pushOn', true); pushNoteSave(true); await new Promise(r => setTimeout(r, 100)); const n1 = structuredClone(__store.meta?.pushnote || null), w1 = __writes;
+    pushNoteSave(true); await new Promise(r => setTimeout(r, 100)); const again = __writes - w1;
+    delete window.ERP_SYNC; lsSet('erp.pushOn', false);
+    return {both, mine, before, n1, again, fn: pushFn()}; });
+  ok('12 cashier view leaves out the shortage list; the cloud copy has both', !v.mine.short && v.mine.near && /Fasty 20mg x/.test(v.both.short) && /to sell first/.test(v.both.near), v);
+  ok('12 saved to meta/pushnote only after this phone turned it on, and not again when nothing changed', !v.before && v.n1 && v.n1.short === v.both.short && v.n1.date && v.again === 0, v);
   ok('no page errors', !errs.length, errs);
   await b.close();
   console.log(fails ? `${fails} FAILED` : 'PASS all stock-out checks'); process.exit(fails ? 1 : 0);

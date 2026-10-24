@@ -49,4 +49,23 @@ for f in "create or replace function public.erp_locked_change" "create or replac
   [ "$(fn "$ROOT/src/supabase-setup.sql" "$f")" = "$(fn "$ROOT/src/supabase-update-2026-10-23.sql" "$f")" ] || { echo "FAIL - update script differs from setup: $f"; exit 1; }
 done
 echo "PASS update script matches setup"
+# the morning notification script (24 Oct): runs twice without error, keeps one schedule, and the scheduled call works.
+# pg_cron and pg_net are Supabase extensions, so small stand-ins take their place here
+run <<'SQL' >/dev/null || exit 1
+create schema cron; create schema net; create schema if not exists extensions;
+create table cron.job(jobid serial, jobname text, command text);
+create function cron.schedule(n text, s text, c text) returns int language sql as $f$ insert into cron.job(jobname, command) values (n, c) returning jobid $f$;
+create function cron.unschedule(id int) returns boolean language sql as $f$ delete from cron.job where jobid = id; select true $f$;
+create table net.calls(url text, body jsonb);
+create function net.http_post(url text, headers jsonb, body jsonb) returns bigint language sql as $f$ insert into net.calls values (url, body); select 1::bigint $f$;
+SQL
+for i in 1 2; do sed '/create extension/d' "$ROOT/src/supabase-push.sql" | run >/dev/null || { echo "FAIL - push script does not run (time $i)"; exit 1; }; done
+out=$(run -At 2>/dev/null <<'SQL'
+insert into erp_push_keys values (1, 'pub', 'priv', 'tok', 'https://ref.supabase.co', null);
+do $d$ begin execute (select command from cron.job where jobname = 'raihana-daily-push'); end $d$;
+select (select count(*) from cron.job) || ' ' || url || ' ' || (body->>'token') from net.calls;
+set role authenticated; select count(*) from erp_push_keys; -- must be refused: app users never see the keys
+SQL
+)
+[ "$(echo "$out" | head -1)" = "1 https://ref.supabase.co/functions/v1/daily-stock-push tok" ] && ! echo "$out" | grep -q '^0$\|^1$' && echo "PASS push schedule checks" || { echo "FAIL - push schedule: $out"; exit 1; }
 psql -q -U postgres -c "drop database $DB" >/dev/null

@@ -16,5 +16,8 @@ self.addEventListener("fetch", e => {
 // wakes the installed app about once a day for this, even when it is closed. Other phones get it when the app opens
 self.addEventListener("periodicsync", e => { if (e.tag !== "raihana-daily") return;
   e.waitUntil(caches.open(NOTES).then(c => c.match("./daily-note.json")).then(r => r ? r.json() : null).then(n => n && n.title ? self.registration.showNotification(n.title, {body:n.body, tag:"raihana-daily", icon:"icon-192.png"}) : null).catch(() => {})); });
+// the morning list sent by the pharmacy's Supabase function (all phones, also iPhone with the app on the Home Screen)
+self.addEventListener("push", e => { let n = {}; try { n = e.data ? e.data.json() : {}; } catch { n = {body: e.data ? e.data.text() : ""}; }
+  e.waitUntil(self.registration.showNotification(n.title || "Raihana", {body:n.body || "", tag:"raihana-daily", icon:"icon-192.png"})); });
 self.addEventListener("notificationclick", e => { e.notification.close();
   e.waitUntil(self.clients.matchAll({type:"window", includeUncontrolled:true}).then(ws => ws.length ? ws[0].focus() : self.clients.openWindow("./"))); });

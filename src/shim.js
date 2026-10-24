@@ -7,29 +7,36 @@
   window.ERP_MODE = "device";
   const DBNAME = "raihana-erp";
   let dbp = null;
+  // iPhones drop the database connection when the app sits in the background; forget it so the next save opens a new one
   const idb = () => dbp || (dbp = new Promise((res, rej) => {
     const r = indexedDB.open(DBNAME, 1);
     r.onupgradeneeded = () => { r.result.createObjectStore("docs"); r.result.createObjectStore("blobs"); };
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    r.onsuccess = () => { const d = r.result; d.onclose = () => { dbp = null; }; d.onversionchange = () => { d.close(); dbp = null; }; res(d); };
+    r.onerror = () => { dbp = null; rej(r.error); };
   }));
-  const tx = (store, mode, fn) => idb().then(d => new Promise((res, rej) => { const t = d.transaction(store, mode); const out = fn(t.objectStore(store)); t.oncomplete = () => res(out && out.result !== undefined ? out.result : out); t.onerror = () => rej(t.error); }));
+  const tx1 = (store, mode, fn) => idb().then(d => new Promise((res, rej) => { const t = d.transaction(store, mode); const out = fn(t.objectStore(store)); t.oncomplete = () => res(out && out.result !== undefined ? out.result : out); t.onerror = t.onabort = () => rej(t.error || new DOMException("aborted", "AbortError")); }));
+  const isFull = e => e && (e.name === "QuotaExceededError" || /quota/i.test(e.message || ""));
+  const tx = (store, mode, fn) => tx1(store, mode, fn).catch(e => { if (isFull(e)) throw e; try { dbp && dbp.then(d => d.close(), () => {}); } catch {} dbp = null; return tx1(store, mode, fn); }); // one retry on a fresh connection
   const cache = new Map(), subs = new Map();
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
-  const loaded = idb().then(d => new Promise(res => {
+  const readAll = () => idb().then(d => new Promise((res, rej) => {
     const rq = d.transaction("docs").objectStore("docs").openCursor();
     rq.onsuccess = () => { const c = rq.result; if (c){ cache.set(c.key, c.value); c.continue(); } else res(); };
-    rq.onerror = () => res();
-  })).catch(() => {});
+    rq.onerror = () => rej(rq.error);
+  }));
+  const loaded = readAll().catch(() => { dbp = null; return readAll(); }).catch(e => console.error("local load failed", e));
   const strip = v => { const o = {...v}; delete o.__ver; return o; };
   const clean = v => { const o = {...v}; delete o.__deleted; delete o.__rev; delete o.__ver; return o; };
   const snap = coll => ({docs: [...cache].filter(([p, v]) => p.split("/")[0] === coll && !v.__deleted).map(([p, v]) => ({id: p.split("/").slice(1).join("/"), data: () => clean(v)}))});
   const emit = coll => (subs.get(coll) || []).forEach(cb => { try { cb(snap(coll)); } catch(e){ console.error(e); } });
   let dirty = new Set(lsGet("erp.dirty", []));
   async function put(path, val, fromSync){
+    const had = cache.has(path), prev = cache.get(path);
     cache.set(path, val);
     try { await tx("docs", "readwrite", s => s.put(val, path)); }
-    catch(e){ throw Object.assign(new Error("Storage is full or blocked on this device."), {code: "quota_exceeded"}); }
+    catch(e){ had ? cache.set(path, prev) : cache.delete(path); // the screen must not show what the phone did not keep
+      console.error("local save failed", e); window.ERP_STORE && ERP_STORE.check(); throw isFull(e) ? Object.assign(new Error("Storage is full on this device."), {code: "quota_exceeded"}) : Object.assign(new Error("Couldn't save on this device."), {code: "local_failed", detail: (e && (e.name + ": " + e.message)) || ""}); }
     if (!fromSync){ dirty.add(path); lsSet("erp.dirty", [...dirty]); SYNC.soon(); }
     emit(path.split("/")[0]);
   }
@@ -46,6 +53,20 @@
       return () => subs.get(coll).delete(cb);
     } }; }
   };
+  /* how full the phone's storage is for this app; ask the phone to keep it (not clear it when space runs low) */
+  const STORE = window.ERP_STORE = {
+    info: null,
+    async check(){
+      try {
+        const st = navigator.storage; if (!st || !st.estimate) return null;
+        const {usage = 0, quota = 0} = await st.estimate(), persisted = st.persisted ? await st.persisted() : null;
+        this.info = {usage, quota, pct: quota ? usage / quota : 0, persisted, at: Date.now()};
+        window.render && window.render();
+        return this.info;
+      } catch { return null; }
+    }
+  };
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist().catch(() => {}).finally(() => STORE.check()); } catch {}
   window.ERP_LOCAL = {all: async () => { await loaded; return [...cache].filter(([, v]) => !v.__deleted).map(([p, v]) => [p, clean(v)]); }, put: (p, v) => put(p, {...v, __rev: Date.now(), __ver: cache.get(p)?.__ver || 0})};
 
   /* photos of paper invoices stay on the device (and sync as files later) */

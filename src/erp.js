@@ -646,11 +646,12 @@ function moneyView(){
     ${dc.closed && dc.after ? `<div class="r"><span>Changes after closing (new sales, payments, cancels)</span><span class="num" style="color:var(--warn)">${dc.after > 0 ? "+" : "−"}${iqd(Math.abs(dc.after))}</span></div>` : ""}</div>
     <form id="closeForm" class="sum" style="gap:10px"><b>Close the day</b><label>Cash counted in the box (IQD)<input id="clAmt" class="num" inputmode="numeric" value="${cl ? esc(cl.counted) : ""}" required></label>${cl ? `<p class="note">Closed${cl.lastBy ? " by " + esc(whoName(cl.lastBy)) : ""}: difference <b class="num" style="color:var(--${Math.abs(cl.diff) <= TOL ? "good" : "bad"})">${iqd(cl.diff)}</b></p>` : ""}<label>Note<input id="clNote" value="${esc(cl?.note || "")}"></label><button type="submit">${cl ? "Update day close" : "Save day close"}</button></form></section>
   <section class="sec"><div class="sechead"><h2>Profit by month</h2><input id="moneyM" type="month" value="${esc(S.moneyM)}" style="width:auto"></div>
+    ${moneyCharts(S.moneyM)}
     <div class="sum"><div class="r"><span>Sales (${mm.count})</span><span class="num">${iqd(mm.sales)}</span></div><div class="r"><span>Cost of what was sold</span><span class="num">−${iqd(mm.cost)}</span></div><div class="r big"><span>Gross profit</span><span class="num">${iqd(mm.gross)}</span></div><div class="r"><span>Expenses</span><span class="num">−${iqd(mm.expenses)}</span></div><div class="r"><span>${mm.writeoff < 0 ? "Extra stock found at counts" : "Expired, damaged or lost stock (less any found)"}</span><span class="num">${mm.writeoff < 0 ? "+" : "−"}${iqd(Math.abs(mm.writeoff))}</span></div><div class="r big"><span>Net profit</span><span class="num" style="color:var(--${mm.net >= 0 ? "good" : "bad"})">${iqd(mm.net)}</span></div><div class="r"><span>Bought from suppliers this month</span><span class="num">${iqd(mm.purchases)}</span></div></div>
     ${mm.noCost ? `<p class="note">Some sales or stock changes have no cost because the item has no purchase invoice yet, so profit may be a little off.</p>` : ""}</section>
   <section class="sec"><div class="sechead"><h2>Expenses</h2><button type="button" class="primary" data-xexp="1">+ Expense</button></div>
     <div class="list">${exps.length ? exps.map(x => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(x.category)}</span><span class="s">${esc(x.date)}${x.note ? " · " + esc(x.note) : ""}${x.fromCash === false ? " · not from cash box" : ""}</span></span><span class="end"><span class="num">${iqd(x.amount)}</span><button type="button" class="danger" data-xexpvoid="${esc(x.id)}" style="padding:4px 10px">Cancel</button></span></div>`).join("") : `<div class="empty">No expenses this month.</div>`}</div>
-    ${Object.keys(mm.byCat).length ? `<p class="note">${Object.entries(mm.byCat).map(([k,v]) => `${esc(k)}: <span class="num">${iqd(v)}</span>`).join(" · ")}</p>` : ""}</section>`;
+    ${Object.keys(mm.byCat).length ? `<div style="margin-top:10px">${expenseChart(mm.byCat)}</div>` : ""}</section>`;
 }
 function quickSettings(){
   const pins = catalog().filter(p => p.m?.quick).sort((a, b) => pname(a).localeCompare(pname(b)));
@@ -672,7 +673,7 @@ function settingsView(){
         <label>Order enough for this many days<input id="sOrder" class="num" inputmode="numeric" value="${fcCfg("fcOrder")}"></label><label>Stagnant after this many days without a sale<input id="sSlow" class="num" inputmode="numeric" value="${fcCfg("fcSlow")}"></label></div>
         <p class="note">Each item's safe level = what it sells per day (average of the last 90 days) × (delivery days + safety days). Below that it goes on the shortage list, and it leaves the list once enough stock comes in.</p></fieldset>
       <label>Discount staff may give without your PIN (% of the receipt)<input id="sDisc" class="num" inputmode="decimal" value="${esc(n0(E.cfg.staffDiscPct))}"></label>
-      <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}${quickSettings()}<button type="submit">Save settings</button></form></section>
+      <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}${quickSettings()}${botSettings()}<button type="submit">Save settings</button></form></section>
   <section class="sec"><h2>Where your data is</h2><div class="sum">
     ${window.ERP_MODE === "claude" ? `<p>You are using the claude.ai version. Data is saved online in your Claude account and shared on every device where you open this link. It needs internet. Photo scan works here.</p>` :
     `<p>Installed app. Data is saved on this device first, so it works with no internet.</p>
@@ -1010,7 +1011,7 @@ document.addEventListener("change", ev => { const t = ev.target, d = t.dataset;
 S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice(0,7);
 /* screen permissions: the owner ticks which screens each employee may use. "newinv" is the + Invoice / Scan buttons.
    Staff stays owner-only, so nobody can give themselves more screens */
-const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["money","Cash box"],["reports","Reports"],["settings","Settings"]];
+const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","POS"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["money","Cash box"],["reports","Reports"],["settings","Settings"]];
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
 const canUse = k => isOwner() || (k !== "staff" && myPerms().includes(k));
@@ -1662,7 +1663,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved()}); toast("Settings saved."); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved(), botbar: [0, 1, 2].map(i => $("#sBot" + i).value)}); toast("Settings saved."); botBar(); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -1680,7 +1681,7 @@ homeExtras = window.homeExtras = function(){
   const td = E.sales.filter(s => !s.voided && s.date === today());
   const owed = E.customers.reduce((a,c) => a + Math.max(0, custBalance(c.id).bal), 0); // debt selling is off unless switched on in Settings: the tile shows only when it matters
   // quick buttons for the day's most common jobs; each only for people who may open that screen. They call the same actions as the screens do
-  const quick = [canUse("sell") && `<button type="button" class="primary" data-tab="sell">Sell</button>`, `<button type="button" data-xfind="1">Find</button>`,
+  const quick = [canUse("sell") && `<button type="button" class="primary" data-tab="sell">POS</button>`, `<button type="button" data-xfind="1">Find</button>`,
     canUse("newinv") && `<button type="button" data-act="newInv">+ Invoice</button>`, canUse("stock") && `<button type="button" data-xcount="1">Stocktaking</button>`,
     canUse("stock") && `<button type="button" data-xreorder="1">Reorder list</button>`, canUse("stock") && `<button type="button" data-xrepgo="stock-low">Low stock</button>`].filter(Boolean);
   return `<div class="quickacts" role="group" aria-label="Quick actions">${quick.join("")}</div>
@@ -1813,7 +1814,7 @@ write = async function(path, data, merge){ clearMemo(); if (data && typeof data 
 // pages scroll inside the middle area now, so "go to top" scrolls that area
 window.scrollTo = function(){ const v = document.getElementById("view"); if (v) v.scrollTop = 0; };
 /* ---- grouped menu: group headings with an alert count, a "Screen > group" crumb in the top bar and a screen finder (Ctrl+K, or the search button) ---- */
-const GROUP_OF = {sell:"Dispensing and sales", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Purchasing", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", books:"Finance", staff:"Administration", settings:"Administration"};
+const GROUP_OF = {sell:"Sales/POS", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Purchasing", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", books:"Finance", staff:"Administration", settings:"Administration"};
 let navCount = {at:0, v:{}};
 function navAlerts(){
   if (Date.now() - navCount.at < 4000) return navCount.v; navCount.at = Date.now();
@@ -1869,9 +1870,65 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (t.dataset.xfindgo){ closeSheet(); document.querySelector(`nav.tabs [data-tab="${t.dataset.xfindgo}"]`)?.click(); }
   if (t.dataset.xfindsell){ closeSheet(); S.sellQ = t.dataset.xfindsell; document.querySelector('nav.tabs [data-tab="sell"]')?.click(); } });
 document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k" && !$("#lockScreen")){ ev.preventDefault(); finderSheet(); } });
+/* ---- phone (up to 760px wide): bottom bar with three screens and Menu at the right. Menu opens the grouped screen list upward.
+   Owner's choice (24 Oct 2026): the bar slides away while the page scrolls down and comes back on a small scroll up.
+   It always shows at the top of a page and on a page too short to scroll, so it can never get lost.
+   A slot is a screen ("stock") or a group ("grp:purchasing", which opens the group's last used screen) ---- */
+const BOT_DEFAULT = ["home", "sell", "grp:purchasing"], BOT_SPARE = ["home", "sell", "grp:purchasing", "stock", "customers", "reports", "grp:finance", "settings"];
+const botLast = {};
+const navBtn = k => document.querySelector(`nav.tabs [data-tab="${k}"]`);
+function botTarget(v){
+  if (!v.startsWith("grp:")) return navBtn(v) && canUse(v) ? v : null;
+  const ks = [...document.querySelectorAll(`nav.tabs [data-g="${v.slice(4)}"]`)].map(b => b.dataset.tab).filter(canUse);
+  return ks.includes(botLast[v]) ? botLast[v] : ks[0] || null;
+}
+function botSlots(){
+  const want = Array.isArray(E.cfg.botbar) && E.cfg.botbar.length === 3 ? E.cfg.botbar : BOT_DEFAULT, out = [];
+  for (const v of [...want, ...BOT_SPARE]){ if (out.length === 3) break; const k = botTarget(v); if (k && !out.some(o => o.k === k)) out.push({v, k}); }
+  return out;
+}
+function botLabel(v){
+  const el = v.startsWith("grp:") ? document.querySelector(`nav.tabs .ng[data-grp="${v.slice(4)}"]`) || navBtn(botTarget(v)) : navBtn(v);
+  return {svg: el?.querySelector("svg.ic")?.outerHTML || "", name: (el?.querySelector(".gl,.tx")?.textContent || "").trim()};
+}
+let botSig = "", botTab = "";
+function botBar(){
+  const bar = $("#botbar"); if (!bar) return;
+  if (S.tab !== botTab){ botTab = S.tab; if (document.body.classList.contains("botmenu")) botMenu(false); } // any way of changing screen closes the menu
+  const g = navBtn(S.tab)?.dataset.g, slots = botSlots();
+  for (const o of slots) if (o.v.startsWith("grp:") && o.v.slice(4) === g) botLast[o.v] = S.tab;
+  const sig = JSON.stringify([slots, S.tab, S.lang]); if (sig === botSig) return; botSig = sig;
+  const menuOpen = document.body.classList.contains("botmenu");
+  bar.innerHTML = slots.map(o => { const l = botLabel(o.v), on = o.v.startsWith("grp:") ? o.v.slice(4) === g : o.k === S.tab;
+    return `<button type="button" data-xbot="${esc(o.v)}"${on ? ' aria-current="page"' : ""}>${l.svg}<span>${esc(l.name)}</span></button>`; }).join("")
+    + `<button type="button" class="botmenu" data-xbotmenu="1" aria-expanded="${menuOpen}" aria-label="Menu">${botLabel("menu").svg || `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`}<span>Menu</span></button>`;
+  if (S.lang === "ar") translate(bar);
+}
+function botMenu(on){ document.body.classList.toggle("botmenu", on); $("#botdim").hidden = !on; $("#botbar [data-xbotmenu]")?.setAttribute("aria-expanded", String(on)); if (on) document.querySelector("nav.tabs")?.scrollTo?.(0, 0); }
+let botY = 0;
+function botShow(on){ document.body.classList.toggle("bothide", !on); }
+$("#view")?.addEventListener("scroll", ev => { const v = ev.currentTarget, y = v.scrollTop, d = y - botY;
+  if (y <= 4 || v.scrollHeight - v.clientHeight < 40) botShow(true); else if (d > 6) botShow(false); else if (d < -6) botShow(true);
+  if (Math.abs(d) > 6 || y <= 4) botY = y; }, {passive:true});
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("#botbar button, #botdim, nav.tabs [data-tab]"); if (!b) return;
+  if (b.id === "botdim"){ botMenu(false); return; }
+  if (b.dataset.xbotmenu){ botMenu(!document.body.classList.contains("botmenu")); return; }
+  if (b.dataset.xbot){ botMenu(false); const k = botTarget(b.dataset.xbot); if (k) navBtn(k)?.click(); return; }
+  if (b.dataset.tab && document.body.classList.contains("botmenu")) botMenu(false);
+});
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && document.body.classList.contains("botmenu")) botMenu(false); });
+AR_RX.push([/^(.+) \(group\)$/, "$1 (مجموعة)"]);
+function botSettings(){
+  const opts = [...document.querySelectorAll("nav.tabs .ng")].map(h => ["grp:" + h.dataset.grp, h.querySelector(".gl").textContent.trim() + " (group)"])
+    .concat([...document.querySelectorAll("nav.tabs [data-tab]")].map(b => [b.dataset.tab, b.querySelector(".tx").textContent.trim()]));
+  const cur = Array.isArray(E.cfg.botbar) && E.cfg.botbar.length === 3 ? E.cfg.botbar : BOT_DEFAULT;
+  return `<div class="sum" style="gap:10px"><b>Phone bottom bar</b><p class="note">On a phone, the bar at the bottom has these three buttons, from the left, and Menu at the right. A group button opens the screen last used in that group. Staff who may not open a screen get another one instead.</p>
+    <div class="grid2">${[0, 1, 2].map(i => `<label>Button ${i + 1}<select id="sBot${i}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${cur[i] === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`).join("")}</div></div>`;
+}
 document.addEventListener("click", ev => { const h = ev.target.closest("nav.tabs .ng"); if (h) navToggle(h.dataset.grp); });
 document.addEventListener("keydown", ev => { const h = ev.target.closest?.("nav.tabs .ng"); if (h && (ev.key === "Enter" || ev.key === " ")){ ev.preventDefault(); navToggle(h.dataset.grp); } });
-Object.assign(AR, {"Admin":"الإدارة","Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick \"Quick button on Sell\".":"تظهر هنا أزرار سريعة للمواد الأكثر بيعاً. يمكنك أيضاً تثبيت مادة: افتحها من المخزون وضع علامة على \"زر سريع في البيع\".","Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Find":"بحث","Screen, medicine, barcode, customer, invoice or receipt":"شاشة، دواء، باركود، زبون، فاتورة أو وصل","Nothing matches.":"لا توجد نتيجة.","Chronic card":"بطاقة مزمن","Invoice":"فاتورة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
+Object.assign(AR, {"POS":"نقطة البيع","Sales/POS":"المبيعات / نقطة البيع","Sales/POS ›":"المبيعات / نقطة البيع ›","Phone bottom bar":"الشريط السفلي في الهاتف","Button 1":"الزر 1","Button 2":"الزر 2","Button 3":"الزر 3","On a phone, the bar at the bottom has these three buttons, from the left, and Menu at the right. A group button opens the screen last used in that group. Staff who may not open a screen get another one instead.":"في الهاتف، يحمل الشريط السفلي هذه الأزرار الثلاثة من اليسار، والقائمة في اليمين. زر المجموعة يفتح آخر شاشة استُخدمت فيها. الموظف الذي لا يملك صلاحية شاشة يظهر له زر آخر بدلها.","Admin":"الإدارة","Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick \"Quick button on Sell\".":"تظهر هنا أزرار سريعة للمواد الأكثر بيعاً. يمكنك أيضاً تثبيت مادة: افتحها من المخزون وضع علامة على \"زر سريع في البيع\".","Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Find":"بحث","Screen, medicine, barcode, customer, invoice or receipt":"شاشة، دواء، باركود، زبون، فاتورة أو وصل","Nothing matches.":"لا توجد نتيجة.","Chronic card":"بطاقة مزمن","Invoice":"فاتورة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
 let lastTabERP = null;
 const baseRenderERP = render;
 render = window.render = function(){
@@ -1881,8 +1938,8 @@ render = window.render = function(){
   if (!canUse(S.tab)){ S.tab = navBtns.find(b => !b.hidden)?.dataset.tab || "none"; }
   document.body.classList.toggle("no-newinv", !canUse("newinv"));
   document.body.classList.toggle("on-sell", S.tab === "sell"); // the till uses the full width (see .pos in build.py)
-  navGroups();
-  const tb = document.querySelector(`nav.tabs [data-tab="${S.tab}"]`), st = $("#scrTitle"); if (st && tb && st.textContent !== tb.textContent) st.textContent = tb.textContent;
+  navGroups(); botBar();
+  const tb = document.querySelector(`nav.tabs [data-tab="${S.tab}"] .tx`), st = $("#scrTitle"); if (st && tb && st.textContent !== tb.textContent) st.textContent = tb.textContent;
   $("#netDot")?.classList.toggle("off", !navigator.onLine);
   let bar = $("#staffBar"); if (!bar){ bar = document.createElement("div"); bar.id = "staffBar"; $("header.top").appendChild(bar); }
   const sh = S.session && E.shifts.find(x => x.id === S.session.shiftId);
@@ -2062,11 +2119,12 @@ function bkPL(en){ const b = bkBal(en, S.bk.from, S.bk.to), net = a => bkNet(b, 
   const lossTags = {}; for (const e of en) if (e.date >= S.bk.from && e.date <= S.bk.to) for (const l of e.lines) if (l.acct === "5300") lossTags[l.tag] = (lossTags[l.tag] || 0) + l.dr - l.cr;
   const exp = net("5100"), gross = sales - ret - cogs, profit = gross + disc - exp - loss, r = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td>${bkN(v)}</td></tr>`;
   return bkTable([r("Sales", sales), r("Sales returns", -ret), r("Cost of goods sold", -cogs), r("Gross profit", gross, "tot"), r("Discounts received from suppliers", disc),
-    ...Object.entries(tags).sort().map(([k, v]) => r("Expense: " + esc(k), -v)), ...Object.entries(lossTags).sort().map(([k, v]) => r("Stock: " + esc(k), -v)), r("Net profit", profit, "tot")], ["Profit and loss", "IQD"]); }
+    ...Object.entries(tags).sort().map(([k, v]) => r("Expense: " + esc(k), -v)), ...Object.entries(lossTags).sort().map(([k, v]) => r("Stock: " + esc(k), -v)), r("Net profit", profit, "tot")], ["Profit and loss", "IQD"]) + plChart(sales - ret, cogs, exp, loss, profit); }
 function bkBS(en){ const b = bkBal(en, null, S.bk.to), a = c => bkNet(b, c), r = (l, v, cls = "") => `<tr class="${cls}"><td>${l}</td><td>${bkN(v)}</td></tr>`;
   const assets = a("1000") + a("1010") + a("1100") + a("1200"), liab = a("2000"), profit = a("4000") - a("4090") - a("5000") + a("4200") - a("5100") - a("5300"), eq = a("3000") + profit;
   return bkTable([r("Cash box", a("1000")), r("Card and bank", a("1010")), r("Customer debts", a("1100")), r("Stock at cost", a("1200")), r("Total assets", assets, "tot"),
     r("Supplier balances", liab), r("Owner capital and opening balances", a("3000")), r("Profit to date", profit), r("Total liabilities and capital", liab + eq, "tot")], ["Balance sheet", "IQD"])
+    + bsChart(a("1000"), a("1010"), a("1100"), a("1200"), liab)
     + `<p class="note">${Math.round(assets) === Math.round(liab + eq) ? "Assets equal liabilities plus capital." : "Assets and liabilities plus capital differ. Tell the developer."}</p>`
     + (a("1200") < 0 ? `<p class="banner">Stock at cost is below zero. You have sold stock that was never entered through an approved invoice. Add your opening stock value as a manual entry.</p>` : ""); }
 function bkJournal(en){ const list = en.filter(e => e.date >= S.bk.from && e.date <= S.bk.to).slice(-200).reverse();
@@ -2139,6 +2197,92 @@ Object.assign(AR, {"Accounts":"الحسابات","Cash box":"صندوق النق
   "Sale":"بيع","Return":"إرجاع","Purchase":"شراء","Supplier payment":"دفعة لمورد","Purchase return":"إرجاع للمورد","Customer payment":"دفعة زبون","Expense":"مصروف","Stock":"المخزون","Manual":"يدوي","Sale paid in cash":"بيع نقدي","Sale paid by card":"بيع بالبطاقة","Sale on debt":"بيع بالدين","Customer return":"إرجاع زبون","Debt paid by customer":"سداد دين من زبون","Goods returned to supplier":"بضاعة مرجعة للمورد"});
 AR_RX.push([/^Expense: (.+)$/, "مصروف: $1"], [/^(\d+) entries shown \(newest 200\)\. The export has all of them\.$/, "$1 قيد معروض (أحدث 200). الملف المصدّر فيه الكل."], [/^(\d+) stock changes have no cost and count as zero\.$/, "$1 تغيير في المخزون بلا كلفة ويُحسب صفراً."]);
 
+/* ---- charts on the finance screens (Cash box, Accounts): plain HTML bars, no chart library, nothing online.
+   Blue = sales and what you own, turquoise = profit and what you owe; both colours checked for colour-blind reading
+   in light and dark. Hover or tap a column for its numbers; on Cash box a tap on a month opens that month ---- */
+const CH_MONTHS = {en:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"], ar:["كانون الثاني","شباط","آذار","نيسان","أيار","حزيران","تموز","آب","أيلول","تشرين الأول","تشرين الثاني","كانون الأول"]};
+const chMonth = (m, full) => S.lang === "ar" ? CH_MONTHS.ar[+m.slice(5, 7) - 1] + (full ? " " + m.slice(0, 4) : "") : CH_MONTHS.en[+m.slice(5, 7) - 1] + " " + m.slice(2, 4); // Arabic names are long: no year under the column
+const chK = v => { const a = Math.abs(v), ar = S.lang === "ar", s = v < 0 ? "−" : "";
+  return a >= 1e6 ? s + +(a / 1e6).toFixed(1) + (ar ? " م" : "M") : a >= 1e3 ? s + Math.round(a / 1e3) + (ar ? " ألف" : "K") : s + Math.round(a); };
+const chUp = v => { if (v <= 0) return 0; const p = 10 ** Math.floor(Math.log10(v)); return [1, 2, 2.5, 5, 10].map(m => m * p).find(x => x >= v); };
+const chSigned = v => (v < 0 ? "−" : "") + iqd(Math.abs(v));
+const chLegend = series => series.length < 2 ? "" : `<div class="chleg">${series.map(s => `<span><i class="chb ${s.cls}"></i>${esc(s.name)}</span>`).join("")}</div>`;
+// columns from a zero line: cats [{label, tip (html), attr}], series [{name, cls, vals}]; values below zero hang under the line
+function chCols({title, cats, series, sel = -1, h = 150, step = 1, wrap = false}){
+  const all = series.flatMap(s => s.vals), hi = chUp(Math.max(0, ...all)), lo = -chUp(Math.max(0, ...all.map(v => -v)));
+  if (!hi && !lo) return "";
+  const span = hi - lo, top = t => (hi - t) / span * 100, zero = top(0), ticks = [...new Set([hi, hi / 2, 0, lo].filter(t => t || t === 0))];
+  const bar = (v, room) => room ? `${Math.max(v / room * 100, v ? 1.5 : 0)}%` : "0";
+  return `<figure class="ch" aria-label="${esc(title)}"><figcaption>${esc(title)}</figcaption>${chLegend(series)}
+    <div class="chplot" style="height:${h}px">${ticks.map(t => `<div class="chgrid${t === 0 ? " zero" : ""}" style="top:${top(t)}%"><span class="num">${chK(t)}</span></div>`).join("")}
+      <div class="chcols">${cats.map((c, i) => `<button type="button" class="chcol${i === sel ? " on" : ""}" data-chtip="${esc(c.tip)}" ${c.attr || ""} aria-label="${esc(c.aria || c.label)}">
+        <span class="chup" style="height:${zero}%">${series.map(s => `<i class="chb ${s.cls}" style="height:${bar(Math.max(0, s.vals[i]), hi)}"></i>`).join("")}</span>
+        <span class="chdn" style="height:${100 - zero}%">${series.map(s => `<i class="chb ${s.cls}" style="height:${bar(Math.max(0, -s.vals[i]), -lo)}"></i>`).join("")}</span></button>`).join("")}</div></div>
+    <div class="chx${wrap ? " wrap" : ""}" data-keep>${cats.map((c, i) => `<span>${i % step ? "" : esc(c.label)}</span>`).join("")}</div><div class="chtip" hidden></div></figure>`;
+}
+// one bar per row, length by size; rows [{label, v, cls}]. The amount is written at the end of every row
+function chBars(title, rows){
+  rows = rows.filter(r => Math.round(r.v)); const max = Math.max(0, ...rows.map(r => Math.abs(r.v))); if (!max) return "";
+  return `<figure class="ch"><figcaption>${esc(title)}</figcaption><div class="chrows">${rows.map(r => `<div class="chrow"><span class="chl">${esc(r.label)}</span>
+    <span class="cht"><i class="chb ${r.cls || "c1"}" style="width:${Math.max(Math.abs(r.v) / max * 100, 1.5)}%"></i></span><span class="num">${chSigned(r.v)}</span></div>`).join("")}</div></figure>`;
+}
+// Cash box: the six months up to the chosen one, and each day of the chosen month
+function moneyCharts(m){
+  const months = Array.from({length:6}, (_, i) => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - 6 + i, 1); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); });
+  const mms = months.map(monthMoney), tipRow = (l, v) => `<div><span>${l}</span> <b class="num">${chSigned(v)}</b></div>`;
+  const six = chCols({title:"Last 6 months", sel:5, wrap:true, series:[{name:"Sales", cls:"c1", vals:mms.map(x => x.sales)}, {name:"Net profit", cls:"c2", vals:mms.map(x => x.net)}],
+    cats:months.map((k, i) => ({label:chMonth(k), aria:k, attr:`data-xchm="${k}"`, tip:`<b data-keep>${esc(chMonth(k, true))}</b>${tipRow("Sales", mms[i].sales)}${tipRow(mms[i].net < 0 ? "Net loss" : "Net profit", mms[i].net)}`}))});
+  const days = new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate(), byDay = Array(days).fill(0), nDay = Array(days).fill(0);
+  for (const s of E.sales) if (!s.voided && ym(s.date) === m){ byDay[+s.date.slice(8, 10) - 1] += n0(s.total); nDay[+s.date.slice(8, 10) - 1]++; }
+  for (const x of refundsWhere(x => ym(x.date) === m)) byDay[+x.date.slice(8, 10) - 1] -= n0(x.refund);
+  const daily = chCols({title:"Sales each day", h:110, step:7, series:[{name:"Sales", cls:"c1", vals:byDay}],
+    cats:byDay.map((v, i) => { const d = m + "-" + String(i + 1).padStart(2, "0"); return {label:String(i + 1), aria:d, tip:`<b class="num">${d}</b>${tipRow("Sales", v)}<div><span>Receipts</span> <b class="num">${nDay[i]}</b></div>`}; })});
+  return six || daily ? `<div class="chset">${six}${daily}</div>${six ? `<p class="note">Tap a month to see it below.</p>` : ""}` : "";
+}
+const expenseChart = byCat => chBars("Expenses by type", Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({label:k, v, cls:"c1"})));
+// Accounts: where the sales money went, and what the pharmacy owns against what it owes
+function plChart(sales, cogs, exp, loss, profit){
+  return chBars("Where the sales money went", [{label:"Sales", v:sales, cls:"c1"}, {label:"Cost of goods sold", v:cogs, cls:"cm"}, {label:"Expenses", v:exp, cls:"cm"},
+    {label:"Stock losses and count differences", v:loss, cls:"cm"}, {label:profit < 0 ? "Net loss" : "Net profit", v:profit, cls:profit < 0 ? "cbad" : "c2"}]);
+}
+const bsChart = (cash, bank, debts, stock, liab) => chBars("What you own and what you owe", [{label:"Cash box", v:cash}, {label:"Card and bank", v:bank}, {label:"Customer debts", v:debts},
+  {label:"Stock at cost", v:stock}, {label:"Supplier balances", v:liab, cls:"c2"}]);
+{ const tipFor = col => { const ch = col.closest(".ch"), tip = ch?.querySelector(".chtip"); if (!tip) return;
+    tip.innerHTML = col.dataset.chtip; tip.hidden = false; if (S.lang === "ar") translate(tip);
+    tip.style.left = "0"; const cr = col.getBoundingClientRect(), fr = ch.getBoundingClientRect(), w = tip.offsetWidth; // measured at the left edge, so it never wraps
+    tip.style.left = Math.max(0, Math.min(cr.left - fr.left + cr.width / 2 - w / 2, ch.clientWidth - w)) + "px"; tip.style.top = Math.max(0, cr.top - fr.top - tip.offsetHeight + 24) + "px"; };
+  const hide = ch => { const t = ch?.querySelector(".chtip"); if (t) t.hidden = true; };
+  document.addEventListener("pointerover", ev => { const c = ev.target.closest?.(".chcol"); if (c) tipFor(c); });
+  document.addEventListener("pointerout", ev => { const ch = ev.target.closest?.(".ch"); if (ch && !ch.contains(ev.relatedTarget)) hide(ch); });
+  document.addEventListener("focusin", ev => { const c = ev.target.closest?.(".chcol"); if (c) tipFor(c); });
+  document.addEventListener("click", ev => { const c = ev.target.closest(".chcol"); if (!c) return;
+    if (c.dataset.xchm){ S.moneyM = c.dataset.xchm; render(); } else tipFor(c); }); }
+document.head.insertAdjacentHTML("beforeend", `<style>
+:root{--ch1:#1557b0;--ch2:#0e9aa3}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ch1:#4a86ea;--ch2:#1aa9ab}}
+:root[data-theme="dark"]{--ch1:#4a86ea;--ch2:#1aa9ab}
+.chset{display:grid;gap:12px;margin-bottom:10px;align-items:start}@media (min-width:900px){.chset{grid-template-columns:3fr 2fr}}
+.ch{position:relative;margin:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.ch figcaption{font-size:13px;font-weight:600;margin-bottom:6px}
+.chleg{display:flex;gap:14px;font-size:12.5px;color:var(--muted);margin-bottom:6px}.chleg span{display:inline-flex;align-items:center;gap:6px}.chleg .chb{width:10px;height:10px;border-radius:3px;display:inline-block}
+.chb{display:block;background:var(--ch1)}.chb.c2{background:var(--ch2)}.chb.cm{background:var(--muted);opacity:.55}.chb.cbad{background:var(--bad)}
+.chplot,.chx{direction:ltr}.chplot{position:relative;padding-left:44px} /* time runs left to right in both languages, amounts on the left */
+.chgrid{position:absolute;inset-inline:0;border-top:1px dashed var(--line);height:0}.chgrid.zero{border-top:1px solid var(--muted)}
+.chgrid span{position:absolute;left:0;top:-8px;font-size:10.5px;color:var(--muted);background:var(--surface);padding-right:4px;line-height:1;white-space:nowrap}
+.chcols{position:relative;display:flex;height:100%;gap:2px}
+.chcol{flex:1;min-width:0;display:flex;flex-direction:column;padding:0;border:0;border-radius:4px;background:none;cursor:pointer}
+.chcol:hover,.chcol.on{background:color-mix(in srgb,var(--ch1) 9%,transparent)}
+.chup,.chdn{display:flex;justify-content:center;gap:2px;padding-inline:12%}.chup{align-items:flex-end}.chdn{align-items:flex-start}
+.chup .chb,.chdn .chb{flex:1;max-width:22px;min-width:2px}.chup .chb{border-radius:4px 4px 0 0}.chdn .chb{border-radius:0 0 4px 4px}
+.chx{display:flex;gap:2px;padding-left:44px;margin-top:4px}.chx span{flex:1;min-width:0;text-align:center;font-size:11px;color:var(--muted);line-height:1.2;white-space:nowrap;overflow:visible}html[dir="rtl"] .chx.wrap span{white-space:normal;overflow-wrap:anywhere}
+.chtip{position:absolute;z-index:3;background:var(--fg);color:var(--surface);border-radius:8px;padding:6px 10px;font-size:12.5px;line-height:1.4;white-space:nowrap;pointer-events:none;box-shadow:0 4px 14px rgb(0 0 0 / .18)}
+.chtip b{font-weight:600}.chtip .num{color:inherit}
+.chrows{display:grid;gap:8px}.chrow{display:grid;grid-template-columns:minmax(80px,32%) 1fr auto;gap:10px;align-items:center;font-size:13px}
+.chl{overflow:hidden;text-overflow:ellipsis}.cht{background:var(--sunk);border-radius:4px;height:12px;overflow:hidden}.cht .chb{height:100%;border-radius:4px}
+.chrow .num{font-size:12.5px;white-space:nowrap}
+</style>`);
+Object.assign(AR, {"Last 6 months":"آخر 6 أشهر","Sales each day":"المبيعات كل يوم","Tap a month to see it below.":"اضغط على شهر لترى تفاصيله في الأسفل.","Net loss":"صافي الخسارة","Receipts":"الوصولات",
+  "Expenses by type":"المصاريف حسب النوع","Where the sales money went":"أين ذهبت أموال المبيعات","What you own and what you owe":"ما تملكه وما عليك"});
 /* ---- stage 3: reorder list, all-keys sheet, activity log. All worked out from records already in the app ---- */
 // the shortage list: every item out or below its safe level, grouped by the supplier it last came from. An item drops off
 // by itself once enough stock comes in, and comes back when it runs low again

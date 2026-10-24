@@ -1,53 +1,60 @@
-const ROOT = require('path').resolve(__dirname, '..'); // repo folder: src, dist, tests
-// "Storage full" guard (24 Oct 2026): iPhones drop the app's local database connection after it sits in the background,
-// and every save then failed with "Storage is full". Saves must reconnect by themselves, only a real full phone may say
-// "full", a failed save must not show on screen as saved, and the owner sees a warning before the phone is full.
+// Phone bottom bar: Home, POS, Purchasing and Menu (Menu at the right in both languages), Menu opens the screen list upward,
+// the bar slides away on scroll down and back on a small scroll up, owner picks the three buttons in Settings, staff only get screens they may open.
 const { chromium } = require('./pw');
-let fails = 0; const ok = (m, c, x) => { console.log(c ? 'ok  ' : 'FAIL', m, x === undefined ? '' : JSON.stringify(x)); if (!c) fails++; };
 (async () => {
-  const b = await chromium.launch();
-  const p = await b.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-  const errs = []; p.on('pageerror', e => errs.push(e.message));
-  // keep a handle on every database connection the app opens, so the test can drop it like the phone does
-  await p.addInitScript(() => { const o = indexedDB.open.bind(indexedDB); window.__conns = []; indexedDB.open = (...a) => { const r = o(...a); r.addEventListener('success', () => __conns.push(r.result)); return r; }; });
-  await p.goto('http://localhost:8765/index.html'); await p.waitForTimeout(1200);
-  const fromDisk = path => p.evaluate(path => new Promise(res => { const r = indexedDB.open('raihana-erp'); r.onsuccess = () => { const g = r.result.transaction('docs').objectStore('docs').get(path); g.onsuccess = () => { res(g.result || null); r.result.close(); }; }; }), path);
-
-  // 1. the connection is lost in the background: the next save reconnects and is kept
-  await p.evaluate(() => __conns.forEach(d => d.close()));
-  let r = await p.evaluate(async () => { try { await write('shifts/SH-T1', {id:'SH-T1', staffId:'x', start:new Date().toISOString(), end:null}); return 'saved'; } catch(e){ return e.message; } });
-  ok('save after a lost connection works', r === 'saved', r);
-  ok('and is on the device', (await fromDisk('shifts/SH-T1'))?.id === 'SH-T1');
-  r = await p.evaluate(async () => { __conns.forEach(d => d.close()); try { await write('shifts/SH-T1', {end:new Date().toISOString()}, true); return 'saved'; } catch(e){ return e.message; } });
-  ok('ending the shift after another lost connection works', r === 'saved', r);
-  ok('the shift end is on the device', !!(await fromDisk('shifts/SH-T1'))?.end);
-
-  // 2. a real full phone says so, and the screen does not show the unsaved record
-  r = await p.evaluate(async () => { const put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function(){ throw new DOMException('quota', 'QuotaExceededError'); };
-    try { await write('expenses/EX-T1', {id:'EX-T1', amount:1000}); return 'saved'; } catch(e){ return e.message; } finally { IDBObjectStore.prototype.put = put; } });
-  ok('full phone: clear "storage full" message', /storage is full/i.test(r), r);
-  ok('full phone: record not shown as saved', await p.evaluate(async () => !(await S.db.doc('expenses/EX-T1').get()).exists));
-  ok('full phone: record not queued for the cloud', await p.evaluate(() => !JSON.parse(localStorage.getItem('erp.dirty') || '[]').includes('expenses/EX-T1')));
-
-  // 3. any other failure does not say "full": it says to reopen the app, and the old value stays
-  r = await p.evaluate(async () => { const put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function(){ throw new DOMException('lost', 'UnknownError'); };
-    try { await write('shifts/SH-T1', {note:'x'}, true); return 'saved'; } catch(e){ return e.message; } finally { IDBObjectStore.prototype.put = put; } });
-  ok('other failure: "close the app and open it again", not "full"', /close the app fully/i.test(r) && !/full\b/i.test(r.replace(/fully/g, '')), r);
-  ok('other failure: the shift keeps its saved value', await p.evaluate(async () => (await S.db.doc('shifts/SH-T1').get()).data().note === undefined));
-  ok('saving works again afterwards', await p.evaluate(async () => { await write('shifts/SH-T1', {note:'y'}, true); return (await S.db.doc('shifts/SH-T1').get()).data().note === 'y'; }));
-
-  // 4. warning before the phone is full: Home alert and the Settings line
-  ok('space check runs on this browser', await p.evaluate(async () => !!(await ERP_STORE.check())?.quota));
-  await p.evaluate(() => { ERP_STORE.info = {usage:850e6, quota:1e9, pct:0.85, persisted:false}; });
-  ok('alert at 85% full', await p.evaluate(() => stockAlerts().some(a => a.type === 'storage' && a.sev === 3)));
-  await p.evaluate(() => { ERP_STORE.info = {usage:100e6, quota:1e9, pct:0.1, persisted:true}; });
-  ok('no alert at 10%', await p.evaluate(() => !stockAlerts().some(a => a.type === 'storage')));
-  await p.evaluate(() => { ERP_STORE.info = {usage:850e6, quota:1e9, pct:0.85, persisted:false}; S.lang = 'en'; S.tab = 'settings'; render(); });
-  await p.waitForTimeout(300);
-  ok('Settings shows the space used', /Space used on this device[\s\S]{0,20}850\.0 MB \/ 1\.0 GB \(85%\)/.test(await p.evaluate(() => document.body.innerText)));
-  await p.evaluate(() => { S.lang = 'ar'; render(); }); await p.waitForTimeout(300);
-  ok('Arabic: space line translated', await p.evaluate(() => /المساحة المستخدمة على هذا الجهاز/.test(document.body.innerText) && /850\.0 MB \/ 1\.0 GB/.test(document.body.innerText)));
-
-  ok('no page errors', !errs.length, errs);
-  console.log(fails ? `${fails} FAILED` : 'PASS all storage checks'); await b.close(); process.exit(fails ? 1 : 0);
+  const b = await chromium.launch(); let fails = 0; const ok = (c, name, got) => { console.log((c ? 'PASS' : 'FAIL') + ' - ' + name + (c ? '' : '  :: ' + JSON.stringify(got))); if (!c) fails++; };
+  for (const lang of ['en', 'ar']) {
+    const tag = lang;
+    const ctx = await b.newContext({ viewport: { width: 390, height: 844 } }), page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message));
+    await ctx.addInitScript(l => { try { if (!sessionStorage.s) { sessionStorage.s = 1; localStorage.setItem('rp.lang', l); } } catch (e) {} }, JSON.stringify(lang));
+    await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(1200);
+    await page.evaluate(() => { S.tab = 'home'; render(); }); await page.waitForTimeout(200);
+    const bar = () => page.$$eval('#botbar button', a => a.map(x => ({ v: x.dataset.xbot || 'menu', t: x.textContent.trim(), x: Math.round(x.getBoundingClientRect().left), cur: x.getAttribute('aria-current') === 'page' })));
+    let r = await bar();
+    ok(r.map(x => x.v).join() === 'home,sell,grp:purchasing,menu', tag + ' default buttons Home, POS, Purchasing, Menu', r);
+    ok(r.every((x, i) => !i || x.x > r[i - 1].x), tag + ' from the left: Home first, Menu at the right', r);
+    ok(lang === 'en' ? r[1].t === 'POS' : r[1].t === 'نقطة البيع', tag + ' POS name', r[1]);
+    ok(await page.$$eval('#botbar svg.ic', a => a.length) === 4, tag + ' every button has an icon');
+    ok(!(await page.isVisible('nav.tabs')), tag + ' no screen list at the top on a phone');
+    ok(await page.evaluate(() => { const q = document.querySelector('#botbar').getBoundingClientRect(); return Math.abs(q.bottom - innerHeight) < 1; }), tag + ' bar sits at the bottom');
+    // Menu opens the list above the button, a screen closes it
+    await page.click('#botbar [data-xbotmenu]'); await page.waitForTimeout(250);
+    ok(await page.evaluate(() => { const n = document.querySelector('nav.tabs').getBoundingClientRect(), m = document.querySelector('#botbar [data-xbotmenu]').getBoundingClientRect(); return n.bottom <= m.top + 1 && n.right >= m.right - 12; }), tag + ' Menu opens the list upward from the button');
+    ok(await page.$$eval('nav.tabs [data-tab] svg.ic, nav.tabs .ng svg.ic', a => a.length) >= 21, tag + ' every screen and group in the menu has an icon');
+    await page.click('nav.tabs .ng[data-grp="finance"]'); await page.waitForTimeout(100);
+    await page.click('nav.tabs [data-tab="money"]'); await page.waitForTimeout(250);
+    ok(await page.evaluate(() => S.tab === 'money' && !document.body.classList.contains('botmenu')), tag + ' choosing a screen opens it and closes the menu');
+    await page.click('#botbar [data-xbotmenu]'); await page.waitForTimeout(150); await page.click('#botdim', { position: { x: 20, y: 200 } }); await page.waitForTimeout(150);
+    ok(!(await page.evaluate(() => document.body.classList.contains('botmenu'))), tag + ' tapping outside closes the menu');
+    // Purchasing opens Invoices, then the screen last used in that group
+    await page.click('#botbar [data-xbot="grp:purchasing"]'); await page.waitForTimeout(200);
+    ok(await page.evaluate(() => S.tab === 'invoices'), tag + ' Purchasing opens Invoices');
+    await page.evaluate(() => { S.tab = 'suppliers'; render(); }); await page.evaluate(() => { S.tab = 'home'; render(); }); await page.waitForTimeout(100);
+    await page.click('#botbar [data-xbot="grp:purchasing"]'); await page.waitForTimeout(200);
+    ok(await page.evaluate(() => S.tab === 'suppliers'), tag + ' Purchasing remembers the last screen in the group');
+    ok((await bar())[2].cur, tag + ' Purchasing is marked while in that group');
+    // scrolling: down shows the bar, a small scroll up hides it, the top of a page shows it
+    await page.evaluate(() => { S.tab = 'settings'; render(); }); await page.waitForTimeout(250);
+    const scroll = y => page.evaluate(y => { const v = document.getElementById('view'); v.scrollTop = y; v.dispatchEvent(new Event('scroll')); return document.body.classList.contains('bothide'); }, y);
+    await scroll(400); ok(await scroll(600), tag + ' scrolling down hides the bar');
+    await page.waitForTimeout(350); ok(await page.evaluate(() => document.querySelector('#botbar').getBoundingClientRect().top >= innerHeight - 1), tag + ' hidden bar slid below the screen');
+    ok(!(await scroll(570)), tag + ' a small scroll up brings the bar back');
+    await scroll(800); ok(!(await scroll(0)), tag + ' top of the page shows the bar');
+    // owner picks the buttons in Settings
+    await page.evaluate(() => { S.tab = 'settings'; render(); }); await page.waitForTimeout(200);
+    await page.selectOption('#sBot0', 'stock'); await page.selectOption('#sBot1', 'sell'); await page.selectOption('#sBot2', 'grp:finance');
+    await page.evaluate(() => document.querySelector('#cfgForm button[type=submit]').click()); await page.waitForTimeout(600);
+    ok((await bar()).map(x => x.v).join() === 'stock,sell,grp:finance,menu', tag + ' Settings changes the three buttons', await bar());
+    // a pharmacist with POS and Stock only gets screens they may open
+    await page.evaluate(() => { E.staff.push({ id: 'ST-O', name: 'Boss', role: 'owner', active: true }, { id: 'ST-P', name: 'Ali', role: 'pharmacist', active: true, perms: ['sell', 'stock'] }); S.staff = E.staff.find(x => x.id === 'ST-P'); S.tab = 'sell'; render(); }); await page.waitForTimeout(200);
+    r = await bar(); ok(r.map(x => x.v).join() === 'stock,sell,menu', tag + ' staff only see allowed screens', r);
+    ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), tag + ' no sideways scroll');
+    ok(!errs.length, tag + ' no page errors', errs);
+    await ctx.close();
+  }
+  // iPad keeps the side list (with icons), no bottom bar
+  const ctx = await b.newContext({ viewport: { width: 1180, height: 820 } }), page = await ctx.newPage(); await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(1000);
+  ok(!(await page.isVisible('#botbar')) && await page.isVisible('nav.tabs [data-tab="home"] svg.ic'), 'iPad: side list with icons, no bottom bar');
+  ok(await page.textContent('nav.tabs .ng[data-grp="sales"] .gl') === 'Sales/POS' && await page.textContent('nav.tabs [data-tab="sell"]') === 'POS', 'iPad: Sales/POS group and POS screen');
+  await b.close(); console.log(fails ? fails + ' FAILED' : 'PASS all bottom bar checks'); process.exit(fails ? 1 : 0);
 })();

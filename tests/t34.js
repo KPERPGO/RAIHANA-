@@ -52,7 +52,8 @@ const SHOTS = process.env.SHOTS; // folder for screenshots, when set
     else {
       const sw = async () => p.evaluate(() => ({inn: getComputedStyle(document.querySelector('.posin')).display, bill: getComputedStyle(document.querySelector('.posbill')).display, sw: getComputedStyle(document.querySelector('.posswitch')).display, label: document.querySelector('[data-xpane="bill"]').innerText.replace(/\s+/g, ' ')}));
       let v = await sw(); ok(`${name}: one part at a time, Items first, switch shows count and total`, v.inn !== 'none' && v.bill === 'none' && v.sw !== 'none' && /3 · 15,000/.test(v.label), v);
-      const swBox = await box(p, '.posswitch'); ok(`${name}: switch sits at the bottom of the screen`, swBox && swBox.b <= 844 + 1 && swBox.b > 844 - 80, swBox);
+      const swBox = await box(p, '.posswitch'), barTop = await p.evaluate(() => document.getElementById('botbar').getBoundingClientRect().top); ok(`${name}: switch sits at the bottom of the screen, just above the bottom bar`, swBox && swBox.b <= barTop + 1 && swBox.b > barTop - 80, {swBox, barTop});
+      { const i = await box(p, '[data-xpane="in"]'), v2 = await box(p, '[data-xpane="bill"]'); ok(`${name}: Items switch on the left, Invoice on the right`, i.r <= v2.l + 1, {i, v2}); }
       await p.click('[data-xpane="bill"]'); await p.waitForTimeout(150); v = await sw();
       if (SHOTS) await p.screenshot({ path: `${SHOTS}/pos-${name}-invoice.png` });
       ok(`${name}: switch to Invoice hides the inputs`, v.inn === 'none' && v.bill !== 'none', v);
@@ -65,6 +66,8 @@ const SHOTS = process.env.SHOTS; // folder for screenshots, when set
     ok('Arabic PC: inputs stay on the right, invoice on the left', L.bill.r <= L.inn.l + 1, [L.bill, L.inn]);
     const t = await p.evaluate(() => document.querySelector('.pos').innerText);
     ok('Arabic: payment words translated', ['نقد بالكامل', 'بطاقة بالكامل', 'مبلغ البطاقة', 'الجزء النقدي'].every(w => t.includes(w)), t.slice(0, 400));
+    { const q = await fresh({width:390, height:844}, {ar:true}); await fill(q); const i = await box(q, '[data-xpane="in"]'), v = await box(q, '[data-xpane="bill"]');
+      ok('Arabic phone: Items switch on the left, Invoice on the right', i && v && i.r <= v.l + 1, {i, v}); ok('Arabic phone: no page errors', !q.errs.length, q.errs); await q.close(); }
     ok('Arabic: no page errors', !p.errs.length, p.errs); await p.close(); }
 
   // ---- invoice box contrast

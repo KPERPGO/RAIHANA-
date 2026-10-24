@@ -801,7 +801,7 @@ async function write(path, data, merge){
   try { merge ? await ref.update(data) : await ref.set(data); }
   catch (e) {
     if (e && e.code === "invalid_argument" && !merge){ S.readOnly = true; }
-    throw new Error(e?.code === "quota_exceeded" ? "Storage is full. Delete old records before adding more." : e?.code === "invalid_argument" ? "You don't have permission to change this data." : "Couldn't save. Check your connection and try again.");
+    throw new Error(e?.code === "quota_exceeded" ? "This device's storage is full, so nothing was saved. Free space on the phone (old photos, videos, apps), then try again. Don't delete this app or its website data." : e?.code === "local_failed" ? "Couldn't save on this device. Close the app fully (swipe it away) and open it again, then try again. Your saved data is safe." : e?.code === "invalid_argument" ? "You don't have permission to change this data." : "Couldn't save. Check your connection and try again.");
   }
 }
 function nextPid(){

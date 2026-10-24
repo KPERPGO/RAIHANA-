@@ -400,29 +400,36 @@ window.BOOT = (function(){
   window.ERP_MODE = "device";
   const DBNAME = "raihana-erp";
   let dbp = null;
+  // iPhones drop the database connection when the app sits in the background; forget it so the next save opens a new one
   const idb = () => dbp || (dbp = new Promise((res, rej) => {
     const r = indexedDB.open(DBNAME, 1);
     r.onupgradeneeded = () => { r.result.createObjectStore("docs"); r.result.createObjectStore("blobs"); };
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    r.onsuccess = () => { const d = r.result; d.onclose = () => { dbp = null; }; d.onversionchange = () => { d.close(); dbp = null; }; res(d); };
+    r.onerror = () => { dbp = null; rej(r.error); };
   }));
-  const tx = (store, mode, fn) => idb().then(d => new Promise((res, rej) => { const t = d.transaction(store, mode); const out = fn(t.objectStore(store)); t.oncomplete = () => res(out && out.result !== undefined ? out.result : out); t.onerror = () => rej(t.error); }));
+  const tx1 = (store, mode, fn) => idb().then(d => new Promise((res, rej) => { const t = d.transaction(store, mode); const out = fn(t.objectStore(store)); t.oncomplete = () => res(out && out.result !== undefined ? out.result : out); t.onerror = t.onabort = () => rej(t.error || new DOMException("aborted", "AbortError")); }));
+  const isFull = e => e && (e.name === "QuotaExceededError" || /quota/i.test(e.message || ""));
+  const tx = (store, mode, fn) => tx1(store, mode, fn).catch(e => { if (isFull(e)) throw e; try { dbp && dbp.then(d => d.close(), () => {}); } catch {} dbp = null; return tx1(store, mode, fn); }); // one retry on a fresh connection
   const cache = new Map(), subs = new Map();
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
-  const loaded = idb().then(d => new Promise(res => {
+  const readAll = () => idb().then(d => new Promise((res, rej) => {
     const rq = d.transaction("docs").objectStore("docs").openCursor();
     rq.onsuccess = () => { const c = rq.result; if (c){ cache.set(c.key, c.value); c.continue(); } else res(); };
-    rq.onerror = () => res();
-  })).catch(() => {});
+    rq.onerror = () => rej(rq.error);
+  }));
+  const loaded = readAll().catch(() => { dbp = null; return readAll(); }).catch(e => console.error("local load failed", e));
   const strip = v => { const o = {...v}; delete o.__ver; return o; };
   const clean = v => { const o = {...v}; delete o.__deleted; delete o.__rev; delete o.__ver; return o; };
   const snap = coll => ({docs: [...cache].filter(([p, v]) => p.split("/")[0] === coll && !v.__deleted).map(([p, v]) => ({id: p.split("/").slice(1).join("/"), data: () => clean(v)}))});
   const emit = coll => (subs.get(coll) || []).forEach(cb => { try { cb(snap(coll)); } catch(e){ console.error(e); } });
   let dirty = new Set(lsGet("erp.dirty", []));
   async function put(path, val, fromSync){
+    const had = cache.has(path), prev = cache.get(path);
     cache.set(path, val);
     try { await tx("docs", "readwrite", s => s.put(val, path)); }
-    catch(e){ throw Object.assign(new Error("Storage is full or blocked on this device."), {code: "quota_exceeded"}); }
+    catch(e){ had ? cache.set(path, prev) : cache.delete(path); // the screen must not show what the phone did not keep
+      console.error("local save failed", e); window.ERP_STORE && ERP_STORE.check(); throw isFull(e) ? Object.assign(new Error("Storage is full on this device."), {code: "quota_exceeded"}) : Object.assign(new Error("Couldn't save on this device."), {code: "local_failed", detail: (e && (e.name + ": " + e.message)) || ""}); }
     if (!fromSync){ dirty.add(path); lsSet("erp.dirty", [...dirty]); SYNC.soon(); }
     emit(path.split("/")[0]);
   }
@@ -439,6 +446,20 @@ window.BOOT = (function(){
       return () => subs.get(coll).delete(cb);
     } }; }
   };
+  /* how full the phone's storage is for this app; ask the phone to keep it (not clear it when space runs low) */
+  const STORE = window.ERP_STORE = {
+    info: null,
+    async check(){
+      try {
+        const st = navigator.storage; if (!st || !st.estimate) return null;
+        const {usage = 0, quota = 0} = await st.estimate(), persisted = st.persisted ? await st.persisted() : null;
+        this.info = {usage, quota, pct: quota ? usage / quota : 0, persisted, at: Date.now()};
+        window.render && window.render();
+        return this.info;
+      } catch { return null; }
+    }
+  };
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist().catch(() => {}).finally(() => STORE.check()); } catch {}
   window.ERP_LOCAL = {all: async () => { await loaded; return [...cache].filter(([, v]) => !v.__deleted).map(([p, v]) => [p, clean(v)]); }, put: (p, v) => put(p, {...v, __rev: Date.now(), __ver: cache.get(p)?.__ver || 0})};
 
   /* photos of paper invoices stay on the device (and sync as files later) */
@@ -1162,7 +1183,7 @@ async function write(path, data, merge){
   try { merge ? await ref.update(data) : await ref.set(data); }
   catch (e) {
     if (e && e.code === "invalid_argument" && !merge){ S.readOnly = true; }
-    throw new Error(e?.code === "quota_exceeded" ? "Storage is full. Delete old records before adding more." : e?.code === "invalid_argument" ? "You don't have permission to change this data." : "Couldn't save. Check your connection and try again.");
+    throw new Error(e?.code === "quota_exceeded" ? "This device's storage is full, so nothing was saved. Free space on the phone (old photos, videos, apps), then try again. Don't delete this app or its website data." : e?.code === "local_failed" ? "Couldn't save on this device. Close the app fully (swipe it away) and open it again, then try again. Your saved data is safe." : e?.code === "invalid_argument" ? "You don't have permission to change this data." : "Couldn't save. Check your connection and try again.");
   }
 }
 function nextPid(){
@@ -2201,7 +2222,7 @@ function stockHistoryHtml(p, s){
 }
 
 /* ---- stock alerts: each names the item, how much, when, and what to do. The owner can switch types off in Settings ---- */
-const ALERT_TYPES = [["neg","Stock below zero"],["out","Out of stock"],["low","Low stock"],["expired","Expired stock"],["expiring","Expiring in 3 months"],["stagnant","Stagnant stock (not selling)"],["blocked","Sales blocked"],["override","Sold past the stock"],["diff","Stocktake differences"],["dup","Possible duplicate items"],["unapproved","Stock changes without approval"],["sync","Cloud sync failed"]];
+const ALERT_TYPES = [["neg","Stock below zero"],["out","Out of stock"],["low","Low stock"],["expired","Expired stock"],["expiring","Expiring in 3 months"],["stagnant","Stagnant stock (not selling)"],["blocked","Sales blocked"],["override","Sold past the stock"],["diff","Stocktake differences"],["dup","Possible duplicate items"],["unapproved","Stock changes without approval"],["sync","Cloud sync failed"],["storage","Phone storage almost full"]];
 function stockAlerts(){
   const off = new Set(E.cfg.alertsOff || []), cat = catalog(), used = usedMap(), out = [], since = addDays(today(), -7), add = (type, sev, p, what, qty, when, act) => { if (!off.has(type)) out.push({type, sev, pid:p?.id || "", name: p ? pname(p) : "", what, qty, when, act}); };
   for (const p of cat){ const s = stockOf(p, used), u = usageOf(p, s), lv = stockLevel(p, s, u);
@@ -2221,8 +2242,10 @@ function stockAlerts(){
     for (const g of Object.values(groups)) if (g.length > 1) add("dup", 1, g[0], "Possible duplicate items", `${g.length} items`, g.map(pname).join(" / "), "Open each item and check the pack size; if they are the same, use one name on new invoices."); }
   for (const m of E.moves) if (!m.voided && !m.approvedBy && m.note !== "Stocktaking" && m.date >= addDays(today(), -30)){ const p = byId[m.pid]; add("unapproved", 2, p || {id:m.pid, name:m.pid}, "Stock change without approval", p ? qtyText(p, Math.abs(m.q)) : "", `${m.date} · ${m.reason}${m.staffByName ? " · " + m.staffByName : ""}`, "Check this change with the person who made it."); }
   if (window.ERP_SYNC?.cfg?.() && ERP_SYNC.status?.state === "error") add("sync", 3, null, "Cloud sync failed", "", ERP_SYNC.status.msg || "", "Open Settings and tap Sync now.");
+  const st = window.ERP_STORE?.info; if (st && st.pct >= 0.8) add("storage", 3, null, "Phone storage almost full", `${Math.round(st.pct * 100)}%`, `${mbText(st.usage)} / ${mbText(st.quota)}`, "Download a full backup in Settings, then free space on the phone (old photos, videos, apps). Don't delete this app or its website data.");
   return out.sort((a, b) => b.sev - a.sev);
 }
+const mbText = b => b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : Math.max(0.1, b / 1e6).toFixed(1) + " MB";
 function alertRow(a){ return `<button type="button" class="alert row" ${a.pid ? `data-xprod="${esc(a.pid)}"` : `data-tab="settings"`}><span class="dot ${a.sev >= 2 ? "bad" : ""}"></span><span class="main" style="display:grid;gap:2px"><span><b>${esc(a.name || "")}</b>${a.name ? " · " : ""}<span>${esc(a.what)}</span>${a.qty ? ` · <span style="unicode-bidi:isolate">${esc(a.qty)}</span>` : ""}</span><span class="s">${a.when ? `<span>${esc(a.when)}</span> · ` : ""}<span>${esc(a.act)}</span></span></span></button>`; }
 function alertsHome(){
   const all = stockAlerts(); if (!all.length) return "";
@@ -2661,6 +2684,7 @@ function settingsView(){
     `<p>Installed app. Data is saved on this device first, so it works with no internet.</p>
      <div class="r"><span>Cloud sync</span><span>${!c ? "Not connected" : sy.status.state === "ok" ? "✓ Up to date" : sy.status.state === "offline" ? "Offline, will sync later" : sy.status.state === "error" ? esc(sy.status.msg || "Error") : "Connecting…"}</span></div>
      <div class="r"><span>Changes waiting to upload</span><span class="num">${sy.pending()}</span></div>
+     ${(st => st ? `<div class="r"><span>Space used on this device</span><span class="num ${st.pct >= 0.8 ? "err" : ""}">${mbText(st.usage)} / ${mbText(st.quota)} (${Math.round(st.pct * 100)}%)</span></div>${st.persisted === false ? `<p class="note">The phone may clear this app's data if it runs out of space. Keep cloud sync on and download a backup now and then.</p>` : ""}` : "")(window.ERP_STORE?.info)}
      ${c && sy.status.conflicts ? `<p class="err">${sy.status.conflicts} change(s) were not applied because another device saved the same record first. This device now shows the other version; yours is kept in the cloud (table erp_conflicts). <button type="button" data-xclearconf="1">OK, I saw it</button></p>` : ""}
      ${c ? `<p class="note">Signed in as ${esc(c.email)}.</p><div class="actions"><button type="button" data-xsync="1">Sync now</button><button type="button" class="danger" data-xlogout="1">Sign out of sync</button></div>` :
      `<form id="syncForm" style="display:grid;gap:10px"><p class="note">Connect your pharmacy's cloud so every device shows the same data. You need the four things from Supabase. Type the password yourself; it is never saved in a file.</p><label>Project URL<input id="yUrl" placeholder="https://xxxx.supabase.co" autocapitalize="none" autocorrect="off" spellcheck="false"></label><label>Public key (Publishable key)<input id="yKey" autocapitalize="none" autocorrect="off" spellcheck="false"></label><div class="grid2 stack"><label>Email<input id="yEmail" type="email" autocapitalize="none" autocorrect="off"></label><label>Password<input id="yPass" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off"></label></div><label class="check"><input type="checkbox" id="yShow"> Show the password</label><p class="err" id="yErr"></p><button type="submit" class="primary">Connect</button></form>`}`}
@@ -3763,6 +3787,10 @@ AR_RX.unshift([/^• (.+)$/, (m, t) => { const x = trOne(t); return x === null ?
   [/^Filled from the file (.*)\. Check every line against the paper invoice before saving\. Blank prices, batches and expiry dates stay blank until you type them\. Nothing is saved until you tap Save\.$/, "عُبئت من الملف $1. راجع كل سطر مع الفاتورة الورقية قبل الحفظ. الأسعار والوجبات وتواريخ الانتهاء الفارغة تبقى فارغة حتى تكتبها. لا يُحفظ شيء حتى تضغط حفظ."],
   [/^Put (\d+) lines into the invoice$/, "إدخال $1 سطر في الفاتورة"], [/^Put (\d+) items into the count$/, "إدخال $1 مادة في الجرد"],
   [/^(\d+) lines filled in from the file\. Check them, then tap Save invoice\.$/, "عُبئ $1 سطر من الملف. راجعها ثم اضغط حفظ الفاتورة."], [/^(\d+) items filled in from the file\. Check them, then save the count\.$/, "عُبئت $1 مادة من الملف. راجعها ثم احفظ الجرد."]);
+Object.assign(AR, {"Phone storage almost full":"ذاكرة الهاتف شبه ممتلئة","Space used on this device":"المساحة المستخدمة على هذا الجهاز","Download a full backup in Settings, then free space on the phone (old photos, videos, apps). Don't delete this app or its website data.":"نزّل نسخة احتياطية كاملة من الإعدادات، ثم وفّر مساحة في الهاتف (صور وفيديوهات وتطبيقات قديمة). لا تحذف هذا التطبيق ولا بيانات موقعه.",
+  "The phone may clear this app's data if it runs out of space. Keep cloud sync on and download a backup now and then.":"قد يمسح الهاتف بيانات هذا التطبيق إذا نفدت المساحة. أبقِ المزامنة السحابية مفعّلة ونزّل نسخة احتياطية بين حين وآخر.",
+  "This device's storage is full, so nothing was saved. Free space on the phone (old photos, videos, apps), then try again. Don't delete this app or its website data.":"ذاكرة هذا الجهاز ممتلئة فلم يُحفظ شيء. وفّر مساحة في الهاتف (صور وفيديوهات وتطبيقات قديمة) ثم حاول مرة أخرى. لا تحذف هذا التطبيق ولا بيانات موقعه.",
+  "Couldn't save on this device. Close the app fully (swipe it away) and open it again, then try again. Your saved data is safe.":"تعذّر الحفظ على هذا الجهاز. أغلق التطبيق تماماً (اسحبه للأعلى) وافتحه من جديد ثم حاول مرة أخرى. بياناتك المحفوظة سليمة."});
 Object.assign(AR, {"Allow selling on debt (دين)":"السماح بالبيع بالدين","Return items":"إرجاع مواد","Returns":"المرتجعات","Save return":"حفظ الإرجاع","What happens to the items":"ماذا يحصل للمواد","Back on the shelf (stock goes back)":"تعود للرف (يرجع المخزون)","Damaged or opened (stock stays out)":"تالفة أو مفتوحة (لا يرجع المخزون)","Reason":"السبب","Customer return":"إرجاع من زبون","Customer return (damaged)":"إرجاع من زبون (تالف)","The refund comes off the customer's debt.":"المبلغ المرجع يُخصم من دين الزبون.","The refund is paid from the cash box.":"المبلغ المرجع يُدفع من الصندوق.","Needs the owner's PIN.":"يحتاج رمز المالك.","Enter how many come back.":"أدخل الكمية المرجعة.","Write the reason for the return.":"اكتب سبب الإرجاع.","Items from this receipt were already returned. Return the rest instead of cancelling.":"أُرجعت مواد من هذا الوصل. أرجع الباقي بدلاً من الإلغاء.","Customer (optional)":"الزبون (اختياري)","No customer":"بدون زبون","Cash":"نقد","Change":"الباقي","No expiry date":"بدون تاريخ انتهاء","Keys: F2 search · ↑ ↓ results · F4 unit · + − quantity · F9 save · F10 print":"المفاتيح: F2 بحث · ↑ ↓ النتائج · F4 الوحدة · + − الكمية · F9 حفظ · F10 طباعة","Today's cash box is already closed. Sales saved now show under \"Changes after closing\" in Money.":"صندوق اليوم مغلق. المبيعات التي تُحفظ الآن تظهر تحت \"تغييرات بعد الإغلاق\" في الحسابات."});
 AR_RX.push([/^(.+): the quantity must be a whole number\. To sell part of a box, choose the strip or tablet unit\.$/, "$1: الكمية يجب أن تكون عدداً صحيحاً. لبيع جزء من العلبة اختر الشريط أو الحبة."], [/^Cash received \(([\d,]+) IQD\) is less than the total \(([\d,]+) IQD\)\. Take the rest, or choose "On debt"\.$/, "النقد المستلم ($1 دينار) أقل من المجموع ($2 دينار). استلم الباقي أو اختر \"دين\"."], [/^Return saved\. Refund (.+)\.$/, "حُفظ الإرجاع. المبلغ المرجع $1."], [/^Returns −(.+)$/, "مرتجعات −$1"], [/^(.+) has no set price \(sold at ([\d,]+) IQD\)$/, "$1 بدون سعر محدد (بيع بـ $2 دينار)"], [/^sold$/, "مباع"], [/^can still come back$/, "يمكن إرجاعها"]);
 Object.assign(AR, {"Owner: sell anyway (owner PIN)":"المالك: بِع على أي حال (رمز المالك)","Out of stock":"نافد","Stock history":"حركة المخزون","Came in":"وارد","Sold":"مباع","Sold, then cancelled":"مباع ثم أُلغي","Returned to supplier":"مرتجع للمورد","Stocktake":"جرد",

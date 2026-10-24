@@ -2665,6 +2665,7 @@ function settingsView(){
      ${c ? `<p class="note">Signed in as ${esc(c.email)}.</p><div class="actions"><button type="button" data-xsync="1">Sync now</button><button type="button" class="danger" data-xlogout="1">Sign out of sync</button></div>` :
      `<form id="syncForm" style="display:grid;gap:10px"><p class="note">Connect your pharmacy's cloud so every device shows the same data. You need the four things from Supabase. Type the password yourself; it is never saved in a file.</p><label>Project URL<input id="yUrl" placeholder="https://xxxx.supabase.co" autocapitalize="none" autocorrect="off" spellcheck="false"></label><label>Public key (Publishable key)<input id="yKey" autocapitalize="none" autocorrect="off" spellcheck="false"></label><div class="grid2 stack"><label>Email<input id="yEmail" type="email" autocapitalize="none" autocorrect="off"></label><label>Password<input id="yPass" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off"></label></div><label class="check"><input type="checkbox" id="yShow"> Show the password</label><p class="err" id="yErr"></p><button type="submit" class="primary">Connect</button></form>`}`}
   </div></section>
+  ${pushSettings()}
   <section class="sec"><h2>Help</h2><div class="sum"><button type="button" data-xguide="1">Show the tour and tips again</button></div></section>
   <section class="sec"><h2>Backup</h2><div class="sum"><p>Full backup of everything (invoices, payments, stock changes, sales, customers, chronic cards, expenses) as one file. Keep it on another device or in Google Drive.</p>
     <div class="actions"><button type="button" class="primary" data-xbackup="1" ${S.dl ? "" : "disabled"}>Download full backup</button><button type="button" data-act="export" ${S.dl ? "" : "disabled"}>Download Excel</button></div>
@@ -3096,6 +3097,7 @@ async function saveCashCount(kind, btn){
 }
 async function endShift(lockOnly, at){
   if (!S.staff) return; const nm = S.staff.name;
+  if (!lockOnly) try { pushNoteSave(true); } catch(e){ /* the morning list never stops a shift ending */ }
   if (!lockOnly){ const end = at || nowIso(), ids = new Set(E.shifts.filter(x => x.staffId === S.staff.id && !x.end && !x.voided).map(x => x.id)); if (S.session?.shiftId) ids.add(S.session.shiftId);
     for (const id of ids){ try { await write("shifts/" + id, {end}, true); } catch(e){ toast(e.message); return; } } } // closes every open shift of this person, so none is left running
   S.session = lockOnly ? S.session : null; lsSet("erp.session", S.session); S.staff = null; S.lockSel = null;
@@ -4168,14 +4170,18 @@ function startCheck(){
    notification while it is closed, from the lists it saved at its last use. Not in the claude.ai version */
 const canNotify = () => window.ERP_MODE === "device" && "Notification" in window && "serviceWorker" in navigator;
 const notifyAsk = () => canNotify() && Notification.permission === "default" ? `<div class="sum" style="gap:6px"><span>Get this list as a notification on this phone every day.</span><button type="button" data-xnotify="1">Turn on phone notifications</button></div>` : "";
+// the day's list as notification text; whole: both parts whoever is signed in (for the cloud, which picks per phone)
+function phoneParts(whole){
+  const ne = whole || canUse("sell") || isOwner() ? nearExpiry() : [], rows = whole || seesShortage() ? reorderRows() : [], out = rows.filter(r => r.out).length;
+  return {short: rows.length ? `${rows.length} to order${out ? ` (${out} out of stock)` : ""}: ${rows.slice(0, 6).map(r => `${pname(r.p)} x ${r.boxes}`).join(", ")}${rows.length > 6 ? "…" : ""}` : "",
+    near: ne.length ? `${ne.length} batch${ne.length === 1 ? "" : "es"} to sell first: ${ne.slice(0, 4).map(x => `${pname(x.p)} ${x.b.expiry}`).join(", ")}${ne.length > 4 ? "…" : ""}` : ""};
+}
 function phoneSummary(){
-  const {ne, rows} = startLists(), out = rows.filter(r => r.out).length, parts = [];
-  if (rows.length) parts.push(`${rows.length} to order${out ? ` (${out} out of stock)` : ""}: ${rows.slice(0, 6).map(r => `${pname(r.p)} x ${r.boxes}`).join(", ")}${rows.length > 6 ? "…" : ""}`);
-  if (ne.length) parts.push(`${ne.length} batch${ne.length === 1 ? "" : "es"} to sell first: ${ne.slice(0, 4).map(x => `${pname(x.p)} ${x.b.expiry}`).join(", ")}${ne.length > 4 ? "…" : ""}`);
-  return parts.length ? {title:"Raihana: today's stock list", body:parts.join("\n"), date:today()} : null;
+  const {short, near} = phoneParts(false), body = [short, near].filter(Boolean).join("\n");
+  return body ? {title:"Raihana: today's stock list", body, date:today()} : null;
 }
 async function dailyPhoneNote(){
-  if (!canNotify()) return; const note = phoneSummary();
+  if (!canNotify()) return; const note = phoneSummary(); pushNoteSave();
   try { const c = await caches.open("raihana-notes"); await c.put("./daily-note.json", new Response(JSON.stringify(note || {}), {headers:{"content-type":"application/json"}})); } catch(e){}
   if (Notification.permission !== "granted") return;
   try { const r = await navigator.serviceWorker.ready;
@@ -4211,7 +4217,51 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (d.xsooner){ closeSheet(); addToCart(d.xsooner, true); return; }
   if (d.xstartok){ closeSheet(); return; }
   if (d.xstartlist){ if (!startSheet()) toast("Nothing to sell first or to order."); return; }
-  if (d.xnotify){ Notification.requestPermission().then(r => { toast(r === "granted" ? "Phone notifications are on." : "Phone notifications are off. You can allow them in the phone's settings."); t.closest(".sum")?.remove(); if (r === "granted"){ lsSet("erp.noteDay", ""); dailyPhoneNote(); } }).catch(() => {}); } });
+  if (d.xnotify){ Notification.requestPermission().then(r => { toast(r === "granted" ? "Phone notifications are on." : "Phone notifications are off. You can allow them in the phone's settings."); t.closest(".sum")?.remove(); if (r === "granted"){ lsSet("erp.noteDay", ""); dailyPhoneNote(); pushJoin(true); } }).catch(() => {}); return; }
+  if (d.xpushjoin){ pushJoin(false); return; }
+  if (d.xpushtest){ pushTest(); return; } });
+/* ---- morning notification from the cloud (Supabase), also when the app is closed and on iPhone. The phone registers
+   with the pharmacy's own Supabase function "daily-stock-push"; the app keeps the day's list in meta/pushnote and every
+   phone's registration in meta/pushsub-<device>, synced like any other record. At 8:00 the database calls the function,
+   which sends each phone its part: what to order (owner and Stock staff) and what to sell first. Nothing to pay ---- */
+const pushFn = () => { const c = window.ERP_SYNC?.cfg?.(); return c ? {url:c.url + "/functions/v1/daily-stock-push", h:{apikey:c.anon, Authorization:"Bearer " + c.anon, "Content-Type":"application/json"}} : null; };
+const pushReady = () => canNotify() && "PushManager" in window && !!pushFn();
+const b64key = s => { const p = "=".repeat((4 - s.length % 4) % 4), raw = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(raw, ch => ch.charCodeAt(0)); };
+async function pushJoin(quiet){
+  if (!pushReady() || Notification.permission !== "granted"){ if (!quiet) toast("Turn on phone notifications first, and connect Cloud sync."); return; }
+  try {
+    const f = pushFn(), r = await fetch(f.url + "?do=key", {headers:f.h}), j = await r.json();
+    if (!r.ok || !j.publicKey) throw new Error(j.error || "The notification function is not set up in Supabase yet.");
+    const reg = await navigator.serviceWorker.ready, old = await reg.pushManager.getSubscription();
+    const sub = old || await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:b64key(j.publicKey)});
+    const x = sub.toJSON(); await write("meta/pushsub-" + DEVICE_ID, {endpoint:x.endpoint, keys:x.keys, stock:seesShortage(), who:S.staff?.name || "", device:DEVICE_ID, at:nowIso(), off:false});
+    lsSet("erp.pushOn", true); pushNoteSave(true); if (!quiet) toast("This phone gets the stock list every morning at 8:00."); render();
+  } catch(e){ if (!quiet) toast("Not done: " + (e.message || e)); }
+}
+async function pushTest(){
+  try { const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription(), f = pushFn(); if (!sub || !f) return toast("This phone is not registered yet.");
+    const r = await fetch(f.url, {method:"POST", headers:f.h, body:JSON.stringify({test:true, endpoint:sub.endpoint})}), j = await r.json().catch(() => ({}));
+    toast(r.ok && j.sent ? "Test sent. It should arrive in a few seconds." : "Not sent: " + (j.error || "this phone is not registered in the cloud yet. Wait for sync and try again."));
+  } catch(e){ toast("Not sent: " + (e.message || e)); }
+}
+// keep the day's list in the cloud for the morning notification: at shift start and end, and when the app is put away
+function pushNoteSave(now){
+  if (!lsGet("erp.pushOn", false) || !pushFn() || S.readOnly) return;
+  if (!now && Date.now() - lsGet("erp.pushNoteAt", 0) < 30 * 6e4) return;
+  const {short, near} = phoneParts(true), note = {title:"Raihana: today's stock list", short, near, date:today()}, k = JSON.stringify(note);
+  lsSet("erp.pushNoteAt", Date.now()); if (k === lsGet("erp.pushNoteLast", "")) return;
+  write("meta/pushnote", note).then(() => lsSet("erp.pushNoteLast", k)).catch(() => {});
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") try { pushNoteSave(); } catch(e){} });
+function pushSettings(){
+  if (window.ERP_MODE !== "device") return "";
+  const on = lsGet("erp.pushOn", false), perm = "Notification" in window ? Notification.permission : "none";
+  return `<section class="sec"><h2>Phone notifications</h2><div class="sum" style="gap:8px">
+    <p>Every morning at 8:00 this phone gets the shortage list and the batches to sell first, even when the app is closed. It uses your own Supabase, free.</p>
+    ${!pushFn() ? `<p class="note">Connect Cloud sync above first.</p>` : perm === "denied" ? `<p class="note">Notifications are blocked for this app. Allow them in the phone's settings, then come back.</p>` :
+      `<div class="actions">${perm !== "granted" ? `<button type="button" class="primary" data-xnotify="1">Turn on phone notifications</button>` : on ? `<button type="button" data-xpushtest="1">Send a test</button><button type="button" data-xpushjoin="1">Register this phone again</button>` : `<button type="button" class="primary" data-xpushjoin="1">Get the morning list on this phone</button>`}</div>`}
+    ${on ? `<p class="note">✓ This phone is registered.</p>` : ""}<p class="note">On iPhone, add the app to the Home Screen first (Share, then Add to Home Screen) and open it from there.</p></div></section>`;
+}
 Object.assign(AR, {"Sales and safe stock":"المبيعات والمخزون الآمن","Sold per day (average)":"المباع يومياً (المعدل)","Per week":"أسبوعياً","Per month":"شهرياً","Sold in the last 30 days":"المباع خلال آخر 30 يوماً","Stock lasts about":"يكفي المخزون نحو","less than 1 day":"أقل من يوم","Last sold":"آخر بيع","never":"لم يُبع","No sales in the last 90 days yet, so there is no average.":"لا مبيعات خلال آخر 90 يوماً، فلا يوجد معدل بعد.",
   "Safe level (set by you)":"الحد الآمن (حددته أنت)","Safe level (worked out)":"الحد الآمن (محسوب)","Order up to":"اطلب حتى","Fast-moving":"سريع الحركة","fast-moving":"سريع الحركة","Fast":"سريع","Stagnant":"راكد","Stagnant stock":"مخزون راكد","Stagnant stock (not selling)":"مخزون راكد (لا يُباع)",
   "Put it in front, return it to the supplier, or stop ordering it.":"ضعه في الواجهة، أو أرجعه للمورد، أو توقف عن طلبه.","Low stock uses \"Alert when below\" on each item, or the safe level worked out from its sales when that is empty.":"المخزون القليل يعتمد على \"نبّه عندما يقل عن\" في كل مادة، أو على الحد الآمن المحسوب من مبيعاتها إذا كان فارغاً.",
@@ -4226,6 +4276,13 @@ AR_RX.push([/^Stagnant: not sold for (\d+) days$/, "راكد: لم يُبع من
   [/^safe level (.+)$/, "الحد الآمن $1"], [/^about (\d+) days left$/, "يكفي نحو $1 يوم"], [/^sells (.+) a week$/, "يُباع $1 أسبوعياً"], [/^In (\d+) months$/, "خلال $1 أشهر"], [/^(\d+) batch(?:es)? expire within (\d+) months: sell them first$/, "$1 تشغيلة تنتهي خلال $2 أشهر: بِعها أولاً"],
   [/^Safe level = sold per day × (\d+) days \(delivery (\d+) \+ safety (\d+)\), rounded up to whole boxes\. "Alert when below" wins when you fill it in\. Change the days in Settings\.$/, "الحد الآمن = المباع يومياً × $1 يوم (توصيل $2 + أمان $3)، مقرباً لأعلى إلى علب كاملة. \"نبّه عندما يقل عن\" له الأولوية إذا ملأته. غيّر الأيام من الإعدادات."],
   [/^Items that are out or below their safe level\. The suggested boxes fill (\d+) days of sales \(or your minimum\), minus what you have, rounded up\. You decide what to order\. An item leaves this list by itself once its stock comes in\.$/, "المواد النافدة أو الأقل من حدها الآمن. العلب المقترحة تكفي مبيعات $1 يوماً (أو حدك الأدنى) ناقص ما عندك، مقربة لأعلى. أنت تقرر ماذا تطلب. تخرج المادة من القائمة وحدها عندما يصل مخزونها."]);
+Object.assign(AR, {"Phone notifications":"إشعارات الهاتف","Every morning at 8:00 this phone gets the shortage list and the batches to sell first, even when the app is closed. It uses your own Supabase, free.":"كل صباح الساعة 8:00 يستلم هذا الهاتف قائمة النواقص والتشغيلات التي تُباع أولاً، حتى والتطبيق مغلق. يستعمل Supabase الخاص بك، مجاناً.",
+  "Connect Cloud sync above first.":"اربط المزامنة السحابية في الأعلى أولاً.","Notifications are blocked for this app. Allow them in the phone's settings, then come back.":"الإشعارات محظورة لهذا التطبيق. اسمح بها من إعدادات الهاتف ثم ارجع.",
+  "Send a test":"أرسل تجربة","Register this phone again":"سجّل هذا الهاتف مرة أخرى","Get the morning list on this phone":"استلم قائمة الصباح على هذا الهاتف","✓ This phone is registered.":"✓ هذا الهاتف مسجّل.",
+  "On iPhone, add the app to the Home Screen first (Share, then Add to Home Screen) and open it from there.":"على الآيفون، أضف التطبيق إلى الشاشة الرئيسية أولاً (مشاركة ثم إضافة إلى الشاشة الرئيسية) وافتحه من هناك.",
+  "Turn on phone notifications first, and connect Cloud sync.":"شغّل إشعارات الهاتف أولاً واربط المزامنة السحابية.","This phone gets the stock list every morning at 8:00.":"هذا الهاتف يستلم قائمة المخزون كل صباح الساعة 8:00.",
+  "This phone is not registered yet.":"هذا الهاتف غير مسجّل بعد.","Test sent. It should arrive in a few seconds.":"أُرسلت التجربة. ستصل خلال ثوانٍ."});
+AR_RX.push([/^Not done: (.+)$/, "لم يتم: $1"], [/^Not sent: (.+)$/, "لم يُرسل: $1"]);
 function keysSheet(){
   const k = (a, b) => `<div class="r"><span class="num">${a}</span><span>${b}</span></div>`;
   openSheet("Keyboard keys", `<div class="sum">${k("F2", "Search or scan")}${k("↑ ↓", "Move through results")}${k("Enter", "Add the result")}${k("F4", "Change box, strip or tablet")}${k("+ −", "More or fewer of the last item")}${k("F8", "Switch to debt (if allowed)")}${k("F9", "Save the sale")}${k("F10", "Print the receipt")}${k("Ctrl+K", "Find any screen")}${k("Ctrl+/", "Show this list")}</div>`);

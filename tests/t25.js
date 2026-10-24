@@ -9,9 +9,11 @@ const { chromium } = require('./pw');
     await page.click('nav.tabs [data-tab="staff"]'); await page.click('[data-xstaff="__new"]'); await page.fill('#fName', 'Owner'); await page.fill('#fPin', '1234'); await page.click('#staffForm button[type=submit]'); await page.waitForTimeout(700);
     const tabs = await page.$$eval('nav.tabs [data-tab]', a => a.map(x => x.dataset.tab));
     ok(tabs.length === 15, tag + ' all 15 screens still in the menu', tabs);
+    // on a phone the menu opens upward from Menu in the bottom bar
+    await page.evaluate(() => { const m = document.querySelector('#botbar [data-xbotmenu]'); if (m && m.offsetParent && !document.body.classList.contains('botmenu')) m.click(); });
     const heads = await page.$$eval('nav.tabs .ng', a => a.map(x => ({ t: x.textContent.trim(), v: x.offsetParent !== null })));
     ok(heads.length === 6, tag + ' six group headings', heads);
-    ok(heads.every(h => h.v), tag + ' headings visible (side menu, or one cell each in the phone grid)', heads);
+    ok(heads.every(h => h.v), tag + ' headings visible (side menu, or the menu above the phone bottom bar)', heads);
     const names = await page.$$eval('nav.tabs [data-tab]', a => a.map(x => x.textContent.trim()));
     ok(new Set(names).size === names.length, tag + ' no two screens share a name', names);
     ok(names[tabs.indexOf('money')] === (lang === 'en' ? 'Cash box' : 'صندوق النقد'), tag + ' Money is called Cash box', names[tabs.indexOf('money')]);

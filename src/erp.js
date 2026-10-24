@@ -670,7 +670,7 @@ function settingsView(){
         <label>Order enough for this many days<input id="sOrder" class="num" inputmode="numeric" value="${fcCfg("fcOrder")}"></label><label>Stagnant after this many days without a sale<input id="sSlow" class="num" inputmode="numeric" value="${fcCfg("fcSlow")}"></label></div>
         <p class="note">Each item's safe level = what it sells per day (average of the last 90 days) × (delivery days + safety days). Below that it goes on the shortage list, and it leaves the list once enough stock comes in.</p></fieldset>
       <label>Discount staff may give without your PIN (% of the receipt)<input id="sDisc" class="num" inputmode="decimal" value="${esc(n0(E.cfg.staffDiscPct))}"></label>
-      <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}${quickSettings()}<button type="submit">Save settings</button></form></section>
+      <p class="note">Staff also need your PIN to sell below the set price, cancel a sale or payment or expense, write off or add stock, and save a stocktake. Nobody can sell more than the stock shows; only the owner can, with the owner PIN.</p>${alertSettings()}${quickSettings()}${botSettings()}<button type="submit">Save settings</button></form></section>
   <section class="sec"><h2>Where your data is</h2><div class="sum">
     ${window.ERP_MODE === "claude" ? `<p>You are using the claude.ai version. Data is saved online in your Claude account and shared on every device where you open this link. It needs internet. Photo scan works here.</p>` :
     `<p>Installed app. Data is saved on this device first, so it works with no internet.</p>
@@ -1007,7 +1007,7 @@ document.addEventListener("change", ev => { const t = ev.target, d = t.dataset;
 S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice(0,7);
 /* screen permissions: the owner ticks which screens each employee may use. "newinv" is the + Invoice / Scan buttons.
    Staff stays owner-only, so nobody can give themselves more screens */
-const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","Sell"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["money","Cash box"],["reports","Reports"],["settings","Settings"]];
+const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","POS"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["money","Cash box"],["reports","Reports"],["settings","Settings"]];
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
 const canUse = k => isOwner() || (k !== "staff" && myPerms().includes(k));
@@ -1659,7 +1659,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved()}); toast("Settings saved."); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved(), botbar: [0, 1, 2].map(i => $("#sBot" + i).value)}); toast("Settings saved."); botBar(); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -1677,7 +1677,7 @@ homeExtras = window.homeExtras = function(){
   const td = E.sales.filter(s => !s.voided && s.date === today());
   const owed = E.customers.reduce((a,c) => a + Math.max(0, custBalance(c.id).bal), 0); // debt selling is off unless switched on in Settings: the tile shows only when it matters
   // quick buttons for the day's most common jobs; each only for people who may open that screen. They call the same actions as the screens do
-  const quick = [canUse("sell") && `<button type="button" class="primary" data-tab="sell">Sell</button>`, `<button type="button" data-xfind="1">Find</button>`,
+  const quick = [canUse("sell") && `<button type="button" class="primary" data-tab="sell">POS</button>`, `<button type="button" data-xfind="1">Find</button>`,
     canUse("newinv") && `<button type="button" data-act="newInv">+ Invoice</button>`, canUse("stock") && `<button type="button" data-xcount="1">Stocktaking</button>`,
     canUse("stock") && `<button type="button" data-xreorder="1">Reorder list</button>`, canUse("stock") && `<button type="button" data-xrepgo="stock-low">Low stock</button>`].filter(Boolean);
   return `<div class="quickacts" role="group" aria-label="Quick actions">${quick.join("")}</div>
@@ -1806,7 +1806,7 @@ write = async function(path, data, merge){ clearMemo(); if (data && typeof data 
 // pages scroll inside the middle area now, so "go to top" scrolls that area
 window.scrollTo = function(){ const v = document.getElementById("view"); if (v) v.scrollTop = 0; };
 /* ---- grouped menu: group headings with an alert count, a "Screen > group" crumb in the top bar and a screen finder (Ctrl+K, or the search button) ---- */
-const GROUP_OF = {sell:"Dispensing and sales", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Purchasing", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", books:"Finance", staff:"Administration", settings:"Administration"};
+const GROUP_OF = {sell:"Sales/POS", customers:"Patients", chronic:"Patients", stock:"Inventory", items:"Purchasing", invoices:"Purchasing", suppliers:"Purchasing", payments:"Finance", money:"Finance", books:"Finance", staff:"Administration", settings:"Administration"};
 let navCount = {at:0, v:{}};
 function navAlerts(){
   if (Date.now() - navCount.at < 4000) return navCount.v; navCount.at = Date.now();
@@ -1862,9 +1862,65 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (t.dataset.xfindgo){ closeSheet(); document.querySelector(`nav.tabs [data-tab="${t.dataset.xfindgo}"]`)?.click(); }
   if (t.dataset.xfindsell){ closeSheet(); S.sellQ = t.dataset.xfindsell; document.querySelector('nav.tabs [data-tab="sell"]')?.click(); } });
 document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k" && !$("#lockScreen")){ ev.preventDefault(); finderSheet(); } });
+/* ---- phone (up to 760px wide): bottom bar with three screens and Menu at the right. Menu opens the grouped screen list upward.
+   Owner's choice (24 Oct 2026): the bar slides away while the page scrolls down and comes back on a small scroll up.
+   It always shows at the top of a page and on a page too short to scroll, so it can never get lost.
+   A slot is a screen ("stock") or a group ("grp:purchasing", which opens the group's last used screen) ---- */
+const BOT_DEFAULT = ["home", "sell", "grp:purchasing"], BOT_SPARE = ["home", "sell", "grp:purchasing", "stock", "customers", "reports", "grp:finance", "settings"];
+const botLast = {};
+const navBtn = k => document.querySelector(`nav.tabs [data-tab="${k}"]`);
+function botTarget(v){
+  if (!v.startsWith("grp:")) return navBtn(v) && canUse(v) ? v : null;
+  const ks = [...document.querySelectorAll(`nav.tabs [data-g="${v.slice(4)}"]`)].map(b => b.dataset.tab).filter(canUse);
+  return ks.includes(botLast[v]) ? botLast[v] : ks[0] || null;
+}
+function botSlots(){
+  const want = Array.isArray(E.cfg.botbar) && E.cfg.botbar.length === 3 ? E.cfg.botbar : BOT_DEFAULT, out = [];
+  for (const v of [...want, ...BOT_SPARE]){ if (out.length === 3) break; const k = botTarget(v); if (k && !out.some(o => o.k === k)) out.push({v, k}); }
+  return out;
+}
+function botLabel(v){
+  const el = v.startsWith("grp:") ? document.querySelector(`nav.tabs .ng[data-grp="${v.slice(4)}"]`) || navBtn(botTarget(v)) : navBtn(v);
+  return {svg: el?.querySelector("svg.ic")?.outerHTML || "", name: (el?.querySelector(".gl,.tx")?.textContent || "").trim()};
+}
+let botSig = "", botTab = "";
+function botBar(){
+  const bar = $("#botbar"); if (!bar) return;
+  if (S.tab !== botTab){ botTab = S.tab; if (document.body.classList.contains("botmenu")) botMenu(false); } // any way of changing screen closes the menu
+  const g = navBtn(S.tab)?.dataset.g, slots = botSlots();
+  for (const o of slots) if (o.v.startsWith("grp:") && o.v.slice(4) === g) botLast[o.v] = S.tab;
+  const sig = JSON.stringify([slots, S.tab, S.lang]); if (sig === botSig) return; botSig = sig;
+  const menuOpen = document.body.classList.contains("botmenu");
+  bar.innerHTML = slots.map(o => { const l = botLabel(o.v), on = o.v.startsWith("grp:") ? o.v.slice(4) === g : o.k === S.tab;
+    return `<button type="button" data-xbot="${esc(o.v)}"${on ? ' aria-current="page"' : ""}>${l.svg}<span>${esc(l.name)}</span></button>`; }).join("")
+    + `<button type="button" class="botmenu" data-xbotmenu="1" aria-expanded="${menuOpen}" aria-label="Menu">${botLabel("menu").svg || `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`}<span>Menu</span></button>`;
+  if (S.lang === "ar") translate(bar);
+}
+function botMenu(on){ document.body.classList.toggle("botmenu", on); $("#botdim").hidden = !on; $("#botbar [data-xbotmenu]")?.setAttribute("aria-expanded", String(on)); if (on) document.querySelector("nav.tabs")?.scrollTo?.(0, 0); }
+let botY = 0;
+function botShow(on){ document.body.classList.toggle("bothide", !on); }
+$("#view")?.addEventListener("scroll", ev => { const v = ev.currentTarget, y = v.scrollTop, d = y - botY;
+  if (y <= 4 || v.scrollHeight - v.clientHeight < 40) botShow(true); else if (d > 6) botShow(false); else if (d < -6) botShow(true);
+  if (Math.abs(d) > 6 || y <= 4) botY = y; }, {passive:true});
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("#botbar button, #botdim, nav.tabs [data-tab]"); if (!b) return;
+  if (b.id === "botdim"){ botMenu(false); return; }
+  if (b.dataset.xbotmenu){ botMenu(!document.body.classList.contains("botmenu")); return; }
+  if (b.dataset.xbot){ botMenu(false); const k = botTarget(b.dataset.xbot); if (k) navBtn(k)?.click(); return; }
+  if (b.dataset.tab && document.body.classList.contains("botmenu")) botMenu(false);
+});
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && document.body.classList.contains("botmenu")) botMenu(false); });
+AR_RX.push([/^(.+) \(group\)$/, "$1 (مجموعة)"]);
+function botSettings(){
+  const opts = [...document.querySelectorAll("nav.tabs .ng")].map(h => ["grp:" + h.dataset.grp, h.querySelector(".gl").textContent.trim() + " (group)"])
+    .concat([...document.querySelectorAll("nav.tabs [data-tab]")].map(b => [b.dataset.tab, b.querySelector(".tx").textContent.trim()]));
+  const cur = Array.isArray(E.cfg.botbar) && E.cfg.botbar.length === 3 ? E.cfg.botbar : BOT_DEFAULT;
+  return `<div class="sum" style="gap:10px"><b>Phone bottom bar</b><p class="note">On a phone, the bar at the bottom has these three buttons, from the left, and Menu at the right. A group button opens the screen last used in that group. Staff who may not open a screen get another one instead.</p>
+    <div class="grid2">${[0, 1, 2].map(i => `<label>Button ${i + 1}<select id="sBot${i}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${cur[i] === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`).join("")}</div></div>`;
+}
 document.addEventListener("click", ev => { const h = ev.target.closest("nav.tabs .ng"); if (h) navToggle(h.dataset.grp); });
 document.addEventListener("keydown", ev => { const h = ev.target.closest?.("nav.tabs .ng"); if (h && (ev.key === "Enter" || ev.key === " ")){ ev.preventDefault(); navToggle(h.dataset.grp); } });
-Object.assign(AR, {"Admin":"الإدارة","Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick \"Quick button on Sell\".":"تظهر هنا أزرار سريعة للمواد الأكثر بيعاً. يمكنك أيضاً تثبيت مادة: افتحها من المخزون وضع علامة على \"زر سريع في البيع\".","Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Find":"بحث","Screen, medicine, barcode, customer, invoice or receipt":"شاشة، دواء، باركود، زبون، فاتورة أو وصل","Nothing matches.":"لا توجد نتيجة.","Chronic card":"بطاقة مزمن","Invoice":"فاتورة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
+Object.assign(AR, {"POS":"نقطة البيع","Sales/POS":"المبيعات / نقطة البيع","Sales/POS ›":"المبيعات / نقطة البيع ›","Phone bottom bar":"الشريط السفلي في الهاتف","Button 1":"الزر 1","Button 2":"الزر 2","Button 3":"الزر 3","On a phone, the bar at the bottom has these three buttons, from the left, and Menu at the right. A group button opens the screen last used in that group. Staff who may not open a screen get another one instead.":"في الهاتف، يحمل الشريط السفلي هذه الأزرار الثلاثة من اليسار، والقائمة في اليمين. زر المجموعة يفتح آخر شاشة استُخدمت فيها. الموظف الذي لا يملك صلاحية شاشة يظهر له زر آخر بدلها.","Admin":"الإدارة","Quick buttons appear here for the items you sell most. You can also pin an item: open it under Stock and tick \"Quick button on Sell\".":"تظهر هنا أزرار سريعة للمواد الأكثر بيعاً. يمكنك أيضاً تثبيت مادة: افتحها من المخزون وضع علامة على \"زر سريع في البيع\".","Dispensing and sales":"الصرف والمبيعات","Patients":"المرضى","Inventory":"المخزون","Purchasing":"المشتريات","Finance":"المالية","Administration":"الإدارة","Find a screen":"ابحث عن شاشة","Type a screen name":"اكتب اسم الشاشة","Find":"بحث","Screen, medicine, barcode, customer, invoice or receipt":"شاشة، دواء، باركود، زبون، فاتورة أو وصل","Nothing matches.":"لا توجد نتيجة.","Chronic card":"بطاقة مزمن","Invoice":"فاتورة","Shortcut: Ctrl+K":"اختصار: Ctrl+K","No screen matches.":"لا توجد شاشة مطابقة.","Dispensing and sales ›":"الصرف والمبيعات ›","Patients ›":"المرضى ›","Inventory ›":"المخزون ›","Purchasing ›":"المشتريات ›","Finance ›":"المالية ›","Administration ›":"الإدارة ›"});
 let lastTabERP = null;
 const baseRenderERP = render;
 render = window.render = function(){
@@ -1874,8 +1930,8 @@ render = window.render = function(){
   if (!canUse(S.tab)){ S.tab = navBtns.find(b => !b.hidden)?.dataset.tab || "none"; }
   document.body.classList.toggle("no-newinv", !canUse("newinv"));
   document.body.classList.toggle("on-sell", S.tab === "sell"); // the till uses the full width (see .pos in build.py)
-  navGroups();
-  const tb = document.querySelector(`nav.tabs [data-tab="${S.tab}"]`), st = $("#scrTitle"); if (st && tb && st.textContent !== tb.textContent) st.textContent = tb.textContent;
+  navGroups(); botBar();
+  const tb = document.querySelector(`nav.tabs [data-tab="${S.tab}"] .tx`), st = $("#scrTitle"); if (st && tb && st.textContent !== tb.textContent) st.textContent = tb.textContent;
   $("#netDot")?.classList.toggle("off", !navigator.onLine);
   let bar = $("#staffBar"); if (!bar){ bar = document.createElement("div"); bar.id = "staffBar"; $("header.top").appendChild(bar); }
   const sh = S.session && E.shifts.find(x => x.id === S.session.shiftId);

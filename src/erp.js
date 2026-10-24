@@ -1794,7 +1794,7 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (t.dataset.xfindsell){ closeSheet(); S.sellQ = t.dataset.xfindsell; document.querySelector('nav.tabs [data-tab="sell"]')?.click(); } });
 document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k" && !$("#lockScreen")){ ev.preventDefault(); finderSheet(); } });
 /* ---- phone (up to 760px wide): bottom bar with three screens and Menu at the right. Menu opens the grouped screen list upward.
-   Owner's wish (24 Oct 2026): the bar slides in while the page scrolls down and slides away on a small scroll up.
+   Owner's choice (24 Oct 2026): the bar slides away while the page scrolls down and comes back on a small scroll up.
    It always shows at the top of a page and on a page too short to scroll, so it can never get lost.
    A slot is a screen ("stock") or a group ("grp:purchasing", which opens the group's last used screen) ---- */
 const BOT_DEFAULT = ["home", "sell", "grp:purchasing"], BOT_SPARE = ["home", "sell", "grp:purchasing", "stock", "customers", "reports", "grp:finance", "settings"];
@@ -1831,7 +1831,7 @@ function botMenu(on){ document.body.classList.toggle("botmenu", on); $("#botdim"
 let botY = 0;
 function botShow(on){ document.body.classList.toggle("bothide", !on); }
 $("#view")?.addEventListener("scroll", ev => { const v = ev.currentTarget, y = v.scrollTop, d = y - botY;
-  if (y <= 4 || v.scrollHeight - v.clientHeight < 40) botShow(true); else if (d > 6) botShow(true); else if (d < -6) botShow(false);
+  if (y <= 4 || v.scrollHeight - v.clientHeight < 40) botShow(true); else if (d > 6) botShow(false); else if (d < -6) botShow(true);
   if (Math.abs(d) > 6 || y <= 4) botY = y; }, {passive:true});
 document.addEventListener("click", ev => {
   const b = ev.target.closest("#botbar button, #botdim, nav.tabs [data-tab]"); if (!b) return;

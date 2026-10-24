@@ -171,7 +171,7 @@ nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!importa
 nav.tabs .tl button.gsep{margin-top:5px;overflow:visible}nav.tabs .tl button.gsep::before{content:"";position:absolute;inset-inline:4px;top:-3px;border-top:1px solid var(--line)}nav.tabs .tl button{position:relative}
 body.navshut nav.tabs{width:auto}}
 /* phone: no screen list at the top. A bar at the bottom holds three screens (owner picks them in Settings) and Menu at the right;
-   Menu opens the full grouped list upward from the button. The bar slides in when the page scrolls down and away on a small scroll up */
+   Menu opens the full grouped list upward from the button. The bar slides away when the page scrolls down and back on a small scroll up */
 #botbar,#botdim{display:none}
 @media (max-width:760px){
 body{--botP:calc(60px + env(safe-area-inset-bottom,0px));--botH:var(--botP)}body.bothide:not(.botmenu){--botH:0px}

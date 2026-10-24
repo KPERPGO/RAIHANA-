@@ -1,5 +1,5 @@
 // Phone bottom bar: Home, POS, Purchasing and Menu (Menu at the right in both languages), Menu opens the screen list upward,
-// the bar slides in on scroll down and away on a small scroll up, owner picks the three buttons in Settings, staff only get screens they may open.
+// the bar slides away on scroll down and back on a small scroll up, owner picks the three buttons in Settings, staff only get screens they may open.
 const { chromium } = require('./pw');
 (async () => {
   const b = await chromium.launch(); let fails = 0; const ok = (c, name, got) => { console.log((c ? 'PASS' : 'FAIL') + ' - ' + name + (c ? '' : '  :: ' + JSON.stringify(got))); if (!c) fails++; };
@@ -36,10 +36,10 @@ const { chromium } = require('./pw');
     // scrolling: down shows the bar, a small scroll up hides it, the top of a page shows it
     await page.evaluate(() => { S.tab = 'settings'; render(); }); await page.waitForTimeout(250);
     const scroll = y => page.evaluate(y => { const v = document.getElementById('view'); v.scrollTop = y; v.dispatchEvent(new Event('scroll')); return document.body.classList.contains('bothide'); }, y);
-    await scroll(400); ok(!(await scroll(600)), tag + ' scrolling down shows the bar');
-    ok(await scroll(570), tag + ' a small scroll up hides the bar');
+    await scroll(400); ok(await scroll(600), tag + ' scrolling down hides the bar');
     await page.waitForTimeout(350); ok(await page.evaluate(() => document.querySelector('#botbar').getBoundingClientRect().top >= innerHeight - 1), tag + ' hidden bar slid below the screen');
-    ok(!(await scroll(0)), tag + ' top of the page shows the bar again');
+    ok(!(await scroll(570)), tag + ' a small scroll up brings the bar back');
+    await scroll(800); ok(!(await scroll(0)), tag + ' top of the page shows the bar');
     // owner picks the buttons in Settings
     await page.evaluate(() => { S.tab = 'settings'; render(); }); await page.waitForTimeout(200);
     await page.selectOption('#sBot0', 'stock'); await page.selectOption('#sBot1', 'sell'); await page.selectOption('#sBot2', 'grp:finance');

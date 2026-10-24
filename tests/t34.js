@@ -138,6 +138,21 @@ const SHOTS = process.env.SHOTS; // folder for screenshots, when set
     const L = await layout(p, 'pos-phone-16');
     ok('16 buttons on a small phone: square, inside, nothing off the edge', L.n === 16 && L.square && L.inside && L.overflow <= 0, L);
     await p.close(); }
+  // ---- discount in IQD (default) or as a % of the subtotal
+  { const p = await fresh();
+    await fill(p, 3); // 15,000
+    ok('Discount starts in IQD', await p.evaluate(() => document.querySelector('[data-xdisc="iqd"]').getAttribute('aria-pressed') === 'true'));
+    await p.click('[data-xdisc="pct"]'); await p.waitForTimeout(100);
+    await type(p, '#xDisc', 10); await p.evaluate(() => $('#xDisc').dispatchEvent(new Event('change', {bubbles:true}))); await p.waitForTimeout(150);
+    const v = await p.evaluate(() => ({total: document.querySelector('#sellForm .r.big .num').textContent, eq: $('#xDiscIqd')?.textContent, cash: $('#xCashPart').value}));
+    ok('10% of 15,000 = 1,500 off, total 13,500', /13,500/.test(v.total) && /1,500/.test(v.eq) && v.cash === '13,500', v);
+    const r = await save(p);
+    ok('Sale saves the IQD discount and the %', r.saved === 1 && r.last.discount === 1500 && r.last.discPct === 10 && r.last.total === 13500, r.last);
+    ok('Receipt shows Discount 10%', /Discount 10%\s*−1,500/.test(await p.evaluate(() => document.getElementById('receipt').innerText)));
+    await fill(p, 3); await type(p, '#xDisc', 2000); await p.evaluate(() => $('#xDisc').dispatchEvent(new Event('change', {bubbles:true}))); await p.waitForTimeout(150);
+    const r2 = await save(p); ok('IQD discount still works', r2.saved === 1 && r2.last.discount === 2000 && r2.last.discPct === undefined, r2.last);
+    ok('No page errors (discount)', !p.errs.length, p.errs);
+    await p.close(); }
   // ---- search box: barcode + Tx icon instead of words; results A to Z or fastest selling first (owner's choice)
   { const p = await fresh({width:390, height:844});
     const ic = await p.evaluate(() => ({icon: !!document.querySelector('.scanbox .scanico'), ph: $('#sellQ').placeholder, aria: $('#sellQ').getAttribute('aria-label'), tx: document.querySelector('.scanico text')?.textContent}));

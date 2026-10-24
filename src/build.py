@@ -171,7 +171,7 @@ input,select{min-height:44px}
 .posbill .list,.posbill .sum{background:transparent;border-color:var(--inv-line)}
 .posbill .lineedit{background:transparent;border:0;border-top:1px solid var(--inv-line);border-radius:0}.posbill .list > .lineedit:first-child{border-top:0}
 .posbill .billsum .r.big{font-size:20px}
-.paybox .err:empty{display:none}.paybox .paykind button{flex:1 1 0;min-width:0}.paybox .paykind button[aria-pressed="true"]{background:linear-gradient(120deg,var(--accent),var(--accent2));border-color:var(--accent);color:var(--accent-ink)}
+.paybox .err:empty{display:none}.discrow{display:flex;gap:8px;align-items:end}.discrow label{flex:1;min-width:0}.discrow .chips{flex-wrap:nowrap;gap:4px}.discrow .chips button{min-height:44px;min-width:52px}#xDiscIqd{margin:-4px 0 0}.paybox .paykind button{flex:1 1 0;min-width:0}.paybox .paykind button[aria-pressed="true"]{background:linear-gradient(120deg,var(--accent),var(--accent2));border-color:var(--accent);color:var(--accent-ink)}
 @media (min-width:761px){body.on-sell .wrap{max-width:1500px}
   .pos{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-areas:"bill in"}
   html[dir=rtl] .pos{grid-template-areas:"in bill"}

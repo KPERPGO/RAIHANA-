@@ -12,6 +12,7 @@ function openGroups(page){
   // on a phone the screen list sits behind Menu in the bottom bar: open it first, as a person would
   page.click = async (sel, opt) => { if (/data-tab=|nav\.tabs/.test(sel)) await page.evaluate(s => { const b = document.querySelector(s); if (!b || !b.closest('nav.tabs')) return;
       if (getComputedStyle(document.querySelector('nav.tabs')).display === 'none' && document.querySelector('#botbar [data-xbotmenu]')) document.querySelector('#botbar [data-xbotmenu]').click();
+      const hm = document.querySelector('.hmenu'); if (document.body.classList.contains('navshut') && hm && getComputedStyle(hm).display !== 'none') hm.click(); // wide screen: the list starts hidden behind ☰ in the top bar
       if (b.classList.contains('gshut')) document.querySelector(`nav.tabs .ng[data-grp="${b.dataset.g}"]`)?.click(); }, sel).catch(() => {});
     return click(sel, opt); };
   return page;

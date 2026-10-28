@@ -54,7 +54,17 @@ const { chromium } = require('./pw');
   }
   // iPad keeps the side list (with icons), no bottom bar
   const ctx = await b.newContext({ viewport: { width: 1180, height: 820 } }), page = await ctx.newPage(); await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(1000);
-  ok(!(await page.isVisible('#botbar')) && await page.isVisible('nav.tabs [data-tab="home"] svg.ic'), 'iPad: side list with icons, no bottom bar');
+  // wide screen: ☰ in the top bar; the side list starts hidden, a tap shows it, another tap hides it completely, and it comes back as it was
+  ok(!(await page.isVisible('#botbar')) && await page.isVisible('.hmenu') && !(await page.isVisible('nav.tabs')), 'iPad: ☰ in the top bar, side list hidden at start, no bottom bar');
+  await page.click('.hmenu'); await page.waitForTimeout(150);
+  ok(await page.isVisible('nav.tabs [data-tab="home"] svg.ic') && await page.getAttribute('.hmenu', 'aria-expanded') === 'true', 'iPad: ☰ shows the side list with icons');
+  await page.click('nav.tabs .ng[data-grp="finance"]'); await page.waitForTimeout(100);
+  await page.click('.hmenu'); await page.waitForTimeout(150);
+  ok(await page.evaluate(() => { const n = document.querySelector('nav.tabs').getBoundingClientRect(), v = document.querySelector('.mcol').getBoundingClientRect(); return n.width === 0 && v.left < 1 && v.width >= innerWidth - 1; }), 'iPad: second tap hides the side list completely, the page takes the full width');
+  await page.click('.hmenu'); await page.waitForTimeout(150);
+  ok(await page.isVisible('nav.tabs [data-tab="money"]'), 'iPad: the list comes back as it was (Finance still open)');
+  await page.reload(); await page.waitForTimeout(1000);
+  ok(await page.isVisible('nav.tabs [data-tab="home"]'), 'iPad: the choice is kept on this device');
   ok(await page.textContent('nav.tabs .ng[data-grp="sales"] .gl') === 'Sales/POS' && await page.textContent('nav.tabs [data-tab="sell"]') === 'POS', 'iPad: Sales/POS group and POS screen');
   await b.close(); console.log(fails ? fails + ' FAILED' : 'PASS all bottom bar checks'); process.exit(fails ? 1 : 0);
 })();

@@ -8,7 +8,7 @@ const { chromium } = require('./pw');
     await ctx.addInitScript(l => { try { if (!sessionStorage.s) { sessionStorage.s = 1; localStorage.setItem('rp.lang', l); } } catch (e) {} }, JSON.stringify(lang));
     await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(1200);
     await page.evaluate(() => { S.tab = 'home'; render(); }); await page.waitForTimeout(200);
-    await page.evaluate(() => { const m = document.querySelector('#botbar [data-xbotmenu]'); if (m && m.offsetParent) m.click(); }); // phone: open the menu above the bottom bar
+    await page.evaluate(() => { const m = document.querySelector('#botbar [data-xbotmenu]'), h = document.querySelector('.hmenu'); if (m && m.offsetParent) m.click(); else if (h && h.offsetParent && document.body.classList.contains('navshut')) h.click(); }); // open the menu: above the phone bottom bar, or ☰ in the top bar on wide screens
     const shown = () => page.$$eval('nav.tabs .tl [data-tab]', a => a.filter(x => x.offsetParent !== null).map(x => x.dataset.tab));
     const open = () => page.$$eval('nav.tabs .ng[aria-expanded="true"]', a => a.map(x => x.dataset.grp));
     ok((await open()).length === 0, tag + ' all groups closed at start', await open());

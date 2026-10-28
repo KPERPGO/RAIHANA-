@@ -148,8 +148,8 @@ nav.tabs .navmenu{flex:none;min-width:0;min-height:34px!important;height:34px;pa
 /* phone: Menu and all screens in one even grid of 5 columns (3 short rows), so no screen is ever hidden off the edge */
 /* Menu hides or shows the screen list. Tablet and wider (iPad both ways): the list stands on the left, one screen per line */
 .shell,.mcol{flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column}
-body.navshut nav.tabs .tl{display:none}
 nav.tabs .ng,.nb[hidden]{display:none}
+.hmenu{display:none}
 /* group headings open and close their screens (see navGroups); a closed group hides its screens except the one in use */
 nav.tabs .tl button.gshut{display:none!important}
 nav.tabs .ng{cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;border-radius:8px}
@@ -159,17 +159,21 @@ nav.tabs .ng .gl::after,nav.tabs .ng .gs::after{content:" ▸"}html[dir=rtl] nav
 nav.tabs .ng[aria-expanded=true] .gl::after,nav.tabs .ng[aria-expanded=true] .gs::after,html[dir=rtl] nav.tabs .ng[aria-expanded=true] .gl::after,html[dir=rtl] nav.tabs .ng[aria-expanded=true] .gs::after{content:" ▾"}
 .crumb{color:var(--muted);font-weight:400}.crumb:empty{display:none}
 .nb{display:inline-block;min-width:16px;height:16px;line-height:16px;border-radius:8px;background:var(--bad);color:#fff;font:600 10px/16px var(--mono);text-align:center;margin-inline-start:6px;font-style:normal}
-body.navshut nav.tabs .in{display:flex}
 @media (min-width:761px){.shell{flex-direction:row}
 nav.tabs{width:200px;flex:none;border-bottom:0!important;border-inline-end:1px solid var(--line);overflow-y:auto}
 nav.tabs .in{max-width:none;margin:0;flex-direction:column;align-items:stretch;gap:6px;padding:8px}
 nav.tabs .tl{flex-direction:column;flex-wrap:nowrap;gap:0}
 nav.tabs .ng{display:flex;align-items:center;min-height:28px;margin:3px 0 0;padding:0 8px;line-height:14px;font-size:12px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}nav.tabs .ng[hidden]{display:none}nav.tabs .ng .gs{display:none}
 nav.tabs .tl button{width:100%;height:26px;min-height:26px!important;padding:0 12px;border-radius:8px;font-size:14px;text-align:start;justify-content:flex-start;display:flex;align-items:center;gap:8px}nav.tabs .tl .ic{width:16px;height:16px}nav.tabs .ng{gap:6px}nav.tabs .ng .ic{width:14px;height:14px}
-nav.tabs .navmenu{justify-content:flex-start;height:34px;min-height:34px!important;border-radius:8px}
+/* the menu button is a small ☰ icon in the top bar. The side list starts hidden; a tap shows it, another tap hides it completely.
+   The choice is kept on this device, and the list comes back exactly as it was (open groups included) */
+nav.tabs .navmenu{display:none!important}
+.hmenu{display:inline-flex!important;align-items:center;justify-content:center;flex:none;width:40px;height:40px;min-height:40px!important;padding:0;margin-inline-end:10px;border-radius:10px;background:transparent;color:var(--fg);border:1px solid var(--line);box-shadow:none!important}
+.hmenu:hover{background:var(--sunk)}.hmenu svg{width:20px;height:20px}.hmenu[aria-expanded=true]{color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+body.navshut nav.tabs{display:none!important}
 /* a group with no heading (Pricing, Reports) starts with a thin line, so it does not read as part of the group above */
 nav.tabs .tl button.gsep{margin-top:5px;overflow:visible}nav.tabs .tl button.gsep::before{content:"";position:absolute;inset-inline:4px;top:-3px;border-top:1px solid var(--line)}nav.tabs .tl button{position:relative}
-body.navshut nav.tabs{width:auto}}
+}
 /* phone: no screen list at the top. A bar at the bottom holds three screens (owner picks them in Settings) and Menu at the right;
    Menu opens the full grouped list upward from the button. The bar slides away when the page scrolls down and back on a small scroll up */
 #botbar,#botdim{display:none}
@@ -332,6 +336,7 @@ window.BOOT = (function(){
 </script>
 <header class="top"><div class="in">
   <div class="brand">
+  <button type="button" class="hmenu" data-xmenu="1" aria-label="Show or hide the menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
     <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M9.5 3.5h5v6h6v5h-6v6h-5v-6h-6v-5h6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
     <div class="bt"><span class="bn">Raihana Pharmacy <span class="ar">صيدلية ريحانة</span></span><span class="scr"><span id="netDot" class="netdot" aria-hidden="true"></span><span id="scrTitle">Home</span></span><small id="sub" hidden></small></div>
   </div>

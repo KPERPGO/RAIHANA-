@@ -18,9 +18,9 @@ const CASES = [
       E.staff = c.staff; S.staff = c.me ? c.staff.find(x => x.id === c.me) : null; if (lang === 'ar' && S.lang !== 'ar') document.getElementById('langBtn').click(); S.tab = 'home'; render();
       await new Promise(r => setTimeout(r, 150));
       const vis = [], bad = [];
-      // phone: the screen list opens upward from Menu in the bottom bar; wider screens: the side list, with Menu at its top
+      // phone: the screen list opens upward from Menu in the bottom bar; wider screens: the side list, shown and hidden by ☰ in the top bar
       const bar = document.getElementById('botbar'), phone = !!bar && getComputedStyle(bar).display !== 'none';
-      const menu = phone ? bar.querySelector('[data-xbotmenu]') : document.querySelector('.navmenu');
+      const menu = phone ? bar.querySelector('[data-xbotmenu]') : document.querySelector('.hmenu');
       const listOpen = () => phone ? document.body.classList.contains('botmenu') : !document.body.classList.contains('navshut');
       const openList = () => { if (!listOpen()) menu.click(); }, closeList = () => { if (phone && listOpen()) menu.click(); };
       // a screen in a closed group is reached by tapping its group heading (which must itself be on screen), then the screen button

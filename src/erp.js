@@ -2495,7 +2495,62 @@ function reportGo(k){
   if (k === "reorder") reorderSheet(); else if (k === "alerts") alertsSheet("1");
   else if (k === "receipts" || k.startsWith("sales")) setTimeout(() => document.querySelector(k === "receipts" ? "[data-xsale]" : "[data-xper]")?.closest(".sec")?.scrollIntoView({block:"start"}), 50);
 }
-{ const baseReports = window.reportsView || (() => ""); ERP_VIEWS.reports = () => reportsIndex() + baseReports(); }
+/* ---- reports overview: charts and tables for one month and the 12 months up to it. Every figure comes from
+   monthMoney() and the saved sales, the same sums the Cash box uses, so the numbers always agree ---- */
+const monthsUpTo = (m, n) => Array.from({length:n}, (_, i) => { const d = new Date(+m.slice(0, 4), +m.slice(5, 7) - n + i, 1); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); });
+const pctOf = (a, b) => b ? Math.round(a / b * 1000) / 10 + "%" : "—";
+function repTable(head, rows, foot){ // head [[label, numeric]], rows/foot are arrays of cell html
+  const al = i => head[i][1] ? ' class="n num"' : ""; // headings stay words (translated), cells are numbers
+  return `<div class="tablewrap"><table class="rep"><thead><tr>${head.map(([h], i) => `<th${head[i][1] ? ' class="n"' : ""}>${esc(h)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${r.map((c, i) => `<td${al(i)}>${c}</td>`).join("")}</tr>`).join("")}</tbody>${foot ? `<tfoot><tr>${foot.map((c, i) => `<td${al(i)}><b>${c}</b></td>`).join("")}</tr></tfoot>` : ""}</table></div>`;
+}
+function reportsOverview(){
+  if (!canUse("reports")) return "";
+  const m = S.repM || (S.repM = today().slice(0, 7)), money = canUse("money"), f = v => esc(iqd(v));
+  const ss = E.sales.filter(s => !s.voided && ym(s.date) === m), mm = monthMoney(m);
+  const items = {}, staff = {}, pay = {cash:0, card:0, debt:0};
+  for (const s of ss){ const p = payOf(s); pay.cash += p.cash; pay.card += p.card; pay.debt += p.debt;
+    const k = s.staffName || "No login"; staff[k] = (staff[k] || 0) + n0(s.total);
+    for (const l of s.lines || []){ const x = items[l.pid] || (items[l.pid] = {name:l.name, qty:0, total:0, cost:0}); x.qty += n0(l.qty) * n0(l.per || 1); x.total += n0(l.total); x.cost += (l.alloc || []).reduce((b, a) => b + n0(a.q) * n0(a.cost), 0); } }
+  const top = Object.values(items).sort((a, b) => b.total - a.total).slice(0, 10);
+  const months = monthsUpTo(m, 12), mms = months.map(monthMoney), tipRow = (l, v) => `<div><span>${l}</span> <b class="num">${chSigned(v)}</b></div>`;
+  const year = chCols({title:"Last 12 months", sel:11, wrap:true, step:2, series:[{name:"Sales", cls:"c1", vals:mms.map(x => x.sales)}, ...(money ? [{name:"Net profit", cls:"c2", vals:mms.map(x => x.net)}] : [])],
+    cats:months.map((k, i) => ({label:chMonth(k), aria:k, attr:`data-xrepm="${k}"`, tip:`<b data-keep>${esc(chMonth(k, true))}</b>${tipRow("Sales", mms[i].sales)}${money ? tipRow(mms[i].net < 0 ? "Net loss" : "Net profit", mms[i].net) : ""}`}))});
+  const charts = [year,
+    chBars("Top 10 items by sales", top.map(x => ({label:x.name, v:x.total, cls:"c1"}))),
+    chBars("Sales by payment", [{label:"Cash", v:pay.cash, cls:"c1"}, {label:"Card", v:pay.card, cls:"c1"}, {label:"On debt", v:pay.debt, cls:"c2"}]),
+    chBars("Sales by staff", Object.entries(staff).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({label:k, v, cls:"c1"}))),
+    money ? expenseChart(mm.byCat) : ""].filter(Boolean);
+  const kpi = (l, v) => `<div class="kpi"><span class="l">${esc(l)}</span><span class="v num">${v}</span></div>`;
+  const monthRows = months.map((k, i) => [k, mms[i]]).reverse().filter(([, x]) => x.count || x.expenses || x.sales);
+  const sumOf = f2 => monthRows.reduce((a, [, x]) => a + f2(x), 0);
+  const monthTable = repTable(money ? [["Month"], ["Receipts", 1], ["Sales", 1], ["Cost of goods", 1], ["Expenses", 1], ["Net profit", 1], ["Margin", 1]] : [["Month"], ["Receipts", 1], ["Sales", 1]],
+    monthRows.map(([k, x]) => [`<button type="button" class="linkbtn" data-xrepm="${k}">${esc(chMonth(k, true))}</button>`, String(x.count), f(x.sales), ...(money ? [f(x.cost), f(x.expenses), `<span class="${x.net < 0 ? "bad" : ""}">${esc(chSigned(x.net))}</span>`, pctOf(x.net, x.sales)] : [])]),
+    monthRows.length > 1 ? ["Total", String(sumOf(x => x.count)), f(sumOf(x => x.sales)), ...(money ? [f(sumOf(x => x.cost)), f(sumOf(x => x.expenses)), esc(chSigned(sumOf(x => x.net))), pctOf(sumOf(x => x.net), sumOf(x => x.sales))] : [])] : null);
+  const itemTable = repTable(money ? [["Item"], ["Units sold", 1], ["Sales", 1], ["Profit", 1], ["Margin", 1]] : [["Item"], ["Units sold", 1], ["Sales", 1]],
+    top.map(x => [esc(x.name), String(Math.round(x.qty * 100) / 100), f(x.total), ...(money ? [esc(chSigned(x.total - x.cost)), pctOf(x.total - x.cost, x.total)] : [])]));
+  return `<section class="sec"><div class="sechead"><h2>Overview</h2><div class="actions"><input id="repM" type="month" value="${esc(m)}" style="width:auto"></div></div>
+    <section class="kpis">${kpi("Sales", f(mm.sales))}${kpi("Receipts", String(mm.count))}${kpi("Average receipt", f(mm.count ? mm.sales / mm.count : 0))}${money ? kpi(mm.net < 0 ? "Net loss" : "Net profit", esc(chSigned(mm.net))) : ""}</section>
+    ${charts.length ? `<div class="repch">${charts.join("")}</div><p class="note">Tap a month in the chart or the table to open it.</p>` : `<div class="empty">No sales in this month yet.</div>`}
+    ${monthRows.length ? `<h3>Month by month</h3>${monthTable}` : ""}
+    ${top.length ? `<h3>Top items in ${esc(chMonth(m, true))}</h3>${itemTable}` : ""}
+    ${money && mm.noCost ? `<p class="note">Some sales have no cost saved, so profit for this month may be too high.</p>` : ""}</section>`;
+}
+document.addEventListener("click", ev => { const t = ev.target.closest("[data-xrepm]"); if (t){ S.repM = t.dataset.xrepm; render(); } });
+document.addEventListener("change", ev => { if (ev.target.id === "repM" && ev.target.value){ S.repM = ev.target.value; render(); } });
+document.head.insertAdjacentHTML("beforeend", `<style>
+.repch{display:grid;gap:12px;margin-bottom:6px;align-items:start}@media (min-width:900px){.repch{grid-template-columns:1fr 1fr}.repch>.ch:first-child{grid-column:1/-1}}
+table.rep{min-width:0}table.rep td.n,table.rep th.n{white-space:nowrap}@media (max-width:760px){table.rep{font-size:12.5px}table.rep th,table.rep td{padding:7px 8px}}table.rep tfoot td{border-top:2px solid var(--line)}table.rep .bad{color:var(--bad)}
+.linkbtn{all:unset;cursor:pointer;color:var(--accent);font-weight:600;white-space:nowrap}.linkbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sec h3{font-size:14px;margin:14px 0 6px}
+</style>`);
+{ const baseReports = window.reportsView || (() => ""); ERP_VIEWS.reports = () => reportsOverview() + reportsIndex() + baseReports(); }
+for (const [k, v] of Object.entries({"Overview":"نظرة عامة","Last 12 months":"آخر 12 شهراً","Top 10 items by sales":"أعلى 10 مواد مبيعاً","Sales by payment":"المبيعات حسب طريقة الدفع","Sales by staff":"المبيعات حسب الموظف",
+  "Sales":"المبيعات","Receipts":"الوصولات","Average receipt":"متوسط الوصل","Net profit":"صافي الربح","Net loss":"صافي الخسارة","Cash":"نقداً","Card":"بطاقة","On debt":"دين","No login":"بدون تسجيل دخول",
+  "Month by month":"شهراً بشهر","Month":"الشهر","Cost of goods":"كلفة البضاعة","Expenses":"المصاريف","Margin":"الهامش","Total":"المجموع","Item":"المادة","Units sold":"الوحدات المباعة","Profit":"الربح",
+  "Tap a month in the chart or the table to open it.":"اضغط على شهر في الرسم أو الجدول لفتحه.","No sales in this month yet.":"لا مبيعات في هذا الشهر بعد.",
+  "Some sales have no cost saved, so profit for this month may be too high.":"بعض المبيعات بدون كلفة محفوظة، لذا قد يظهر ربح هذا الشهر أعلى من الحقيقي."})) if (!AR[k]) AR[k] = v;
+AR_RX.push([/^Top items in (.+)$/, "أعلى المواد في $1"]);
 document.addEventListener("click", ev => { const t = ev.target.closest("[data-xrepgo]"); if (t) reportGo(t.dataset.xrepgo); });
 Object.assign(AR, {"Quick actions":"إجراءات سريعة","All reports":"كل التقارير","Profit and accounts":"الأرباح والحسابات","Sales today: total, profit, top items, busy hours":"مبيعات اليوم: المجموع، الربح، الأكثر بيعاً، أوقات الذروة","Sales this month":"مبيعات هذا الشهر","Receipts: reprint, return or cancel":"الوصولات: إعادة طباعة، إرجاع أو إلغاء","Cash box, expenses and profit by month":"صندوق النقد، المصاريف والربح الشهري","Low and out of stock":"المواد القليلة والنافدة","Reorder list":"قائمة إعادة الطلب","Prices below cost":"أسعار أقل من الكلفة","Items with no sell price":"مواد بدون سعر بيع","Hours, salary and activity log":"الساعات، الرواتب وسجل النشاط","Supplier reports (what to pay, expiry, prices, monthly, statement check) are below.":"تقارير الموردين (ما يجب دفعه، الصلاحية، الأسعار، الشهري، مطابقة كشف الحساب) في الأسفل."});
 { const baseStaff = ERP_VIEWS.staff; ERP_VIEWS.staff = () => baseStaff() + activitySection(); }

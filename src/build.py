@@ -348,6 +348,9 @@ rep(HEAD_OLD, ERP_CSS + "\n" + HEAD_NEW + "\n" + nav)
 rep('<div class="toast" id="toast" hidden></div>', '<div class="toast" id="toast" hidden></div>\n<div id="printArea"></div>')
 rep('<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>',
     '<script>\n' + shim + '\n</script>\n<script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>')  # Excel library loads in the background so the app opens fast
+# the font list must not hold up the first screen: it loads alongside, and the app's own fonts show until it arrives
+rep('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">',
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap" media="print" onload="this.media=\'all\'">')
 rep("<script>\n// motion:", "<script>\n" + erp + "\n</script>\n<script>\n// motion:")
 
 dist = os.path.join(HERE, "..", "dist"); os.makedirs(os.path.join(dist, "app"), exist_ok=True)

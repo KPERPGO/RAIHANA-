@@ -162,5 +162,19 @@
     if (name === "user") return user;
     return null; // photo reading needs Claude: only on claude.ai for now
   } };
-  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol === "https:"){ navigator.serviceWorker.register("sw.js").catch(() => {});
+    // the app opens from the copy saved on the phone; when a newer version has been saved meanwhile, offer to switch now
+    navigator.serviceWorker.addEventListener("message", e => { if (e.data?.type === "raihana-update") updateBar(); });
+    window.addEventListener("load", () => navigator.serviceWorker.controller?.postMessage("raihana-check"));
+  }
+  function updateBar(){
+    if (document.getElementById("updBar")) return;
+    const ar = lsGet("rp.lang", "ar") !== "en", b = document.createElement("button");
+    b.id = "updBar"; b.type = "button"; b.dir = ar ? "rtl" : "ltr";
+    b.textContent = ar ? "نسخة جديدة · اضغط للتحديث" : "New version ready · Tap to update";
+    b.style.cssText = "position:fixed;z-index:9999;left:50%;transform:translateX(-50%);bottom:calc(76px + env(safe-area-inset-bottom));max-width:calc(100% - 32px);padding:10px 16px;border:0;border-radius:999px;background:var(--accent,#0b6bcb);color:var(--bg,#fff);font:600 14px/1.2 inherit;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.2);cursor:pointer";
+    b.onclick = () => location.reload();
+    document.body.appendChild(b);
+  }
+  window.ERP_UPDATE_BAR = updateBar;
 })();

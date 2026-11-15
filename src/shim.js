@@ -105,6 +105,20 @@
       lsSet("erp.userId", j.user?.id || me().id); lsSet("erp.userName", j.user?.user_metadata?.name || email);
       this.run();
     },
+    // forgot PIN: the owner proves who they are with the cloud email and password. Nothing is saved: the token is only used
+    // to ask the server whether this account is on the pharmacy list (erp_members), then thrown away
+    async verify(email, password){
+      const c = this.cfg(); if (!c) throw new Error("This device is not connected to the cloud, so the PIN can't be reset here.");
+      email = String(email || "").trim(); if (!email || !password) throw new Error("Type the email and password.");
+      let r; try { r = await fetch(c.url + "/auth/v1/token?grant_type=password", {method: "POST", headers: {apikey: c.anon, "Content-Type": "application/json"}, body: JSON.stringify({email, password})}); }
+      catch { throw new Error("Can't reach the cloud. Check the internet and try again."); }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.access_token) throw new Error(r.status === 400 || /invalid/i.test(j.error_description || j.msg || "") ? "Wrong email or password. Check them and try again." : "Sign-in failed (" + r.status + "). Try again.");
+      let m; try { m = await fetch(c.url + "/rest/v1/rpc/erp_is_member", {method: "POST", headers: {apikey: c.anon, Authorization: "Bearer " + j.access_token, "Content-Type": "application/json"}, body: "{}"}); }
+      catch { throw new Error("Can't reach the cloud. Check the internet and try again."); }
+      if (!m.ok || (await m.json().catch(() => false)) !== true) throw new Error("This account is not on the pharmacy list.");
+      return true;
+    },
     clearConflicts(){ lsSet("erp.conflicts", 0); this.set({state: "ok"}); },
     logout(){ lsSet("erp.sync", null); this.set({state: "off"}); },
     async token(c){

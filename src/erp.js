@@ -1012,6 +1012,8 @@ S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice
 /* screen permissions: the owner ticks which screens each employee may use. "newinv" is the + Invoice / Scan buttons.
    Staff stays owner-only, so nobody can give themselves more screens */
 const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","POS"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["money","Cash box"],["reports","Reports"],["settings","Settings"]];
+Object.assign(AR, {"Forgot PIN?":"نسيت الرمز؟","New PIN (4 to 6 digits)":"الرمز الجديد (4 إلى 6 أرقام)","New PIN again":"الرمز الجديد مرة أخرى","Set new PIN":"حفظ الرمز الجديد","The two PINs are not the same.":"الرمزان غير متطابقين.","New PIN saved. Enter it to start your shift.":"تم حفظ الرمز الجديد. أدخله لبدء دوامك.","Type the email and password you use for the pharmacy's cloud (Supabase). Your sales, stock and invoices are not touched.":"اكتب البريد وكلمة المرور التي تستخدمها لسحابة الصيدلية (Supabase). لن تتغير المبيعات أو المخزون أو الفواتير.","This device is not connected to the cloud, so the PIN can't be reset here. Please do not delete the app or clear its data: that would lose your records. Ask for help to reset the PIN from the cloud.":"هذا الجهاز غير مربوط بالسحابة، لذلك لا يمكن تغيير الرمز هنا. لا تحذف التطبيق ولا تمسح بياناته، فستفقد سجلاتك. اطلب المساعدة لتغيير الرمز من السحابة.","This device is not connected to the cloud, so the PIN can't be reset here.":"هذا الجهاز غير مربوط بالسحابة، لذلك لا يمكن تغيير الرمز هنا.","Type the email and password.":"اكتب البريد وكلمة المرور.","Can't reach the cloud. Check the internet and try again.":"لا يمكن الوصول للسحابة. تأكد من الإنترنت وحاول مرة أخرى.","This account is not on the pharmacy list.":"هذا الحساب ليس في قائمة الصيدلية.","PIN must be 4 to 6 digits.":"الرمز يجب أن يكون من 4 إلى 6 أرقام.","Email":"البريد","Password":"كلمة المرور","Cancel":"إلغاء"});
+AR_RX.push([/^Set a new PIN for (.+)$/, "رمز جديد لـ: $1"]);
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
 const canUse = k => isOwner() || (k !== "staff" && myPerms().includes(k));
@@ -1049,6 +1051,7 @@ function lockHtml(){
     ${sel ? `<p>Hello <b>${esc(sel.name)}</b>. Enter your PIN to start your shift.</p>
       <div class="pindots">${[0,1,2,3,4,5].map(i => `<span class="${(S.lockPin || "").length > i ? "on" : ""}"></span>`).join("")}</div><p class="err" id="lockErr">${esc(S.lockErr || "")}</p>
       <div class="pinpad">${[1,2,3,4,5,6,7,8,9].map(n => `<button type="button" data-xpin="${n}">${n}</button>`).join("")}<button type="button" data-xpinback="1" aria-label="Back">←</button><button type="button" data-xpin="0">0</button><button type="button" class="primary" data-xpinok="1">OK</button></div>
+      ${sel.role === "owner" ? `<button type="button" data-xforgot="1" style="width:100%">Forgot PIN?</button>` : ""}
       <button type="button" data-xlocksel="" style="width:100%">Choose another name</button>` :
     `<p>Who is working now?</p><div class="lockstaff">${list.map(x => { const o = E.shifts.find(y => y.staffId === x.id && !y.end && !y.voided); return `<button type="button" data-xlocksel="${esc(x.id)}"><b>${esc(x.name)}</b><span>${esc(x.role === "owner" ? "Owner" : x.role === "cashier" ? "Cashier" : "Pharmacist")}${o ? " · on shift since " + esc(hm(o.start)) : ""}</span></button>`; }).join("")}</div>`}</div>`;
 }
@@ -1181,6 +1184,7 @@ document.addEventListener("click", ev => { const t = ev.target.closest("button")
   if (d.xpin !== undefined){ if ((S.lockPin || "").length < 6){ S.lockPin = (S.lockPin || "") + d.xpin; S.lockErr = ""; } drawLock(); if (S.lockPin.length === 6) tryLogin(); return; }
   if (d.xpinback){ S.lockPin = (S.lockPin || "").slice(0, -1); drawLock(); return; }
   if (d.xpinok){ tryLogin(); return; }
+  if (d.xforgot){ pinReset(S.lockSel); return; }
   if (d.xstaff){ if (!isOwner()){ toast("Only the owner can do this."); return; } staffSheet(d.xstaff); return; }
   if (d.xendshift){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Tap again to end shift"; setTimeout(() => { t.dataset.sure = ""; t.textContent = "End shift"; }, 4000); return; } if (curShift()) cashSheet("end"); else endShift(false); return; }
   if (d.xlock){ endShift(true); return; }
@@ -1231,6 +1235,39 @@ async function pinCheck(st, pin){
     return {ok:true}; }
   f.n++; if (f.n >= PIN_TRIES) f.until = Date.now() + 30000 * 2 ** (f.n - PIN_TRIES); all[st.id] = f; lsSet("erp.pinFail", all);
   return {ok:false, left:Math.max(0, PIN_TRIES - f.n), wait:f.n >= PIN_TRIES ? f.until - Date.now() : 0};
+}
+/* forgot PIN (LTH, 15 Nov 2026): only an owner, and only by signing in again with the pharmacy's cloud email and password.
+   The server checks the password and the member list, so a wrong guess here costs nothing on this device and nothing is unlocked
+   without the cloud account. Staff who forget their PIN ask the owner, who sets a new one in Staff. */
+function pinReset(id){
+  const o = activeStaff().find(x => x.id === id && x.role === "owner"); if (!o || $("#pinReset")) return;
+  const cloud = !!window.ERP_SYNC?.cfg?.();
+  const el = document.createElement("div"); el.id = "pinReset"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); document.body.appendChild(el);
+  el.innerHTML = `<form class="lockin" id="pinResetForm" autocomplete="off"><b>Set a new PIN for ${esc(o.name)}</b>
+    ${cloud ? `<p class="note">Type the email and password you use for the pharmacy's cloud (Supabase). Your sales, stock and invoices are not touched.</p>
+      <label>Email<input id="rEmail" type="email" autocapitalize="none" autocorrect="off" spellcheck="false" value="${esc(window.ERP_SYNC.cfg().email || "")}"></label>
+      <label>Password<input id="rPass" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off"></label>
+      <div class="grid2"><label>New PIN (4 to 6 digits)<input id="rPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></label><label>New PIN again<input id="rPin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></label></div>
+      <p class="err" id="rErr"></p><button type="submit" class="primary" id="rGo">Set new PIN</button>`
+    : `<p class="note">This device is not connected to the cloud, so the PIN can't be reset here. Please do not delete the app or clear its data: that would lose your records. Ask for help to reset the PIN from the cloud.</p>`}
+    <button type="button" data-rcancel="1">Cancel</button></form>`;
+  if (S.lang === "ar") translate(el);
+  const close = () => el.remove();
+  el.addEventListener("click", ev => { ev.stopPropagation(); if (ev.target.closest("[data-rcancel]")) close(); });
+  el.addEventListener("keydown", ev => { ev.stopPropagation(); if (ev.key === "Escape") close(); });
+  el.addEventListener("submit", async ev => { ev.preventDefault(); ev.stopPropagation();
+    const err = $("#rErr"), go = $("#rGo"), pin = $("#rPin").value.trim(), say = m => { err.textContent = m; if (S.lang === "ar") translate(err); };
+    if (!/^\d{4,6}$/.test(pin)){ say("PIN must be 4 to 6 digits."); return; }
+    if (pin !== $("#rPin2").value.trim()){ say("The two PINs are not the same."); return; }
+    go.disabled = true; say("");
+    try { await window.ERP_SYNC.verify($("#rEmail").value, $("#rPass").value);
+      const cur = E.staff.find(x => x.id === o.id); if (!cur || cur.role !== "owner") throw new Error("Only the owner can do this.");
+      await write("staff/" + o.id, {pinHash:await pinHash2(o.id, pin), pinResetAt:nowIso()}, true);
+      const all = lsGet("erp.pinFail", {}); delete all[o.id]; lsSet("erp.pinFail", all);
+      close(); S.lockSel = o.id; S.lockPin = ""; S.lockErr = ""; drawLock(); toast("New PIN saved. Enter it to start your shift."); syncNow();
+    } catch(e){ say(e.message); go.disabled = false; }
+  });
+  setTimeout(() => $("#rPass")?.focus(), 0);
 }
 const pinErr = r => r.wait ? `Too many wrong PINs. Try again in ${Math.ceil(r.wait / 1000)} seconds.` : `Wrong PIN. ${r.left} tries left.`;
 // resolves to the approving owner's id (the person themself when they are the owner), or null when cancelled

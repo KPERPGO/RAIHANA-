@@ -107,8 +107,9 @@
     },
     // forgot PIN: the owner proves who they are with the cloud email and password. Nothing is saved: the token is only used
     // to ask the server whether this account is on the pharmacy list (erp_members), then thrown away
-    async verify(email, password){
-      const c = this.cfg(); if (!c) throw new Error("This device is not connected to the cloud, so the PIN can't be reset here.");
+    async verify(email, password, url, anon){ // url and anon: typed by hand when this device is not connected; nothing is saved
+      const c = url ? {url: this.cleanUrl(url), anon: String(anon || "").trim()} : this.cfg();
+      if (!c || !c.url || !c.anon) throw new Error("Type the Project URL and the Publishable key from Supabase.");
       email = String(email || "").trim(); if (!email || !password) throw new Error("Type the email and password.");
       let r; try { r = await fetch(c.url + "/auth/v1/token?grant_type=password", {method: "POST", headers: {apikey: c.anon, "Content-Type": "application/json"}, body: JSON.stringify({email, password})}); }
       catch { throw new Error("Can't reach the cloud. Check the internet and try again."); }

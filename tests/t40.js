@@ -101,10 +101,17 @@ const URL0 = 'https://test-ref.supabase.co';
     const left = await p.evaluate(() => [...document.querySelectorAll('#pinReset b, #pinReset p, #pinReset label, #pinReset button')].map(x => x.childNodes[0]?.textContent.trim() || '').filter(t => /[A-Za-z]{3,}/.test(t) && !/Supabase|Owner/.test(t)));
     ok('Arabic: the form is translated', !left.length, left); await p.click('#pinReset [data-rcancel]'); }
   else ok('Arabic switch found', false);
-  // not connected to the cloud: a warning, no form
+  // not connected to the cloud: the URL and key are typed by hand, checked once, and nothing is saved
   await p.evaluate(() => { lsSet('erp.sync', null); document.getElementById('pinReset')?.remove(); S.staff = null; S.lockSel = 'ST-O'; drawLock(); });
   await p.click('#lockScreen [data-xforgot]'); await p.waitForTimeout(200);
-  ok('no cloud: warning not to clear the app, no password form', await p.evaluate(() => !document.getElementById('rPass') && /(not connected|غير مربوط)/.test(document.getElementById('pinReset').textContent)));
+  ok('no cloud: asks for Project URL and key too', await p.evaluate(() => !!document.getElementById('rUrl') && !!document.getElementById('rKey') && !!document.getElementById('rPass')));
+  await p.fill('#rEmail', 'owner@example.com'); await p.fill('#rPass', 'right-pass'); await p.fill('#rPin', '9753'); await p.fill('#rPin2', '9753');
+  await p.click('#rGo'); await p.waitForTimeout(400);
+  e = await p.evaluate(() => document.getElementById('rErr')?.textContent || ''); ok('no cloud: missing URL and key refused', e.length > 0, e);
+  await p.fill('#rUrl', 'test-ref.supabase.co/'); await p.fill('#rKey', 'pub'); await p.click('#rGo'); await p.waitForTimeout(600);
+  const nc = await p.evaluate(async () => ({ closed: !document.getElementById('pinReset'), ok: (await pinCheck(E.staff.find(x => x.id === 'ST-O'), '9753')).ok, sync: localStorage.getItem('erp.sync'), pass: JSON.stringify(localStorage).includes('right-pass') }));
+  ok('no cloud: new PIN set after the password check', nc.closed && nc.ok, nc);
+  ok('no cloud: the device stays not connected, password not kept', (nc.sync === null || nc.sync === 'null') && !nc.pass, nc);
   ok('no page errors', !errs.length, errs);
   if (process.env.SHOTS) { await p.evaluate(() => { document.getElementById('pinReset')?.remove(); lsSet('erp.sync', {url:'https://x.supabase.co', anon:'p', email:'owner@example.com', exp: Date.now() + 36e5}); }); await p.click('#lockScreen [data-xforgot]'); await p.screenshot({ path: process.env.SHOTS + '/forgot-pin.png' }); }
   console.log(fails ? `${fails} FAILED` : 'PASS all forgot PIN checks'); await b.close(); process.exit(fails ? 1 : 0);

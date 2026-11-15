@@ -48,3 +48,8 @@ jobs:
           PGHOST: localhost
           PGPASSWORD: test
         run: sh tests/sql-lock.sh
+      - name: Change history (Phase 1, db/phase1-change-history.sql) on a realistic test pharmacy
+        env:
+          PGHOST: localhost
+          PGPASSWORD: test
+        run: sh tests/sql-history.sh

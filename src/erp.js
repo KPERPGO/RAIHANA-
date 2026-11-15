@@ -327,6 +327,7 @@ function saleCost(s){ return (s.lines || []).reduce((a,ln) => a + (ln.alloc || [
 const saleReturns = sid => E.moves.filter(m => !m.voided && m.saleId === sid);
 const returnedOf = (sid, li) => saleReturns(sid).filter(m => m.saleLine === li).reduce((a, m) => a + n0(m.rq), 0);
 const refundsWhere = f => E.moves.filter(m => !m.voided && m.saleId && f(m));
+const pinOn = () => E.cfg.pinOff !== true; // owner's switch (LTH, 15 Nov 2026): off = nobody types a PIN to sign in or to approve
 const debtOn = () => E.cfg.debtOn === true; // owner's rule (22 Oct 2026): no selling on debt unless switched on in Settings
 // how a sale was paid. "split" = part card, part cash: the card part is kept on the sale, the rest is cash
 const payOf = s => { const t = n0(s.total); if (s.method === "debt") return {cash:0, card:0, debt:t};
@@ -668,6 +669,8 @@ function settingsView(){
     <form id="cfgForm" class="sum" style="gap:10px"><div class="grid2 stack"><label>Pharmacy name on receipts<input id="cfgName" value="${esc(E.cfg.name || "صيدلية ريحانة · Raihana Pharmacy")}"></label><label>Phone on receipts<input id="cfgPhone" value="${esc(E.cfg.phone || "")}"></label></div>
       <label>Warn about chronic pickups this many days ahead<input id="sDays" class="num" inputmode="numeric" value="${ALERT_DAYS()}"></label>
       <label class="check"><input type="checkbox" id="sDebt" ${debtOn() ? "checked" : ""}> Allow selling on debt (دين)</label>
+      <label class="check"><input type="checkbox" id="sPinOn" ${pinOn() ? "checked" : ""}> Ask for a PIN to sign in and for owner approvals</label>
+      <p class="note">When this is off, tapping a name signs that person in with no PIN, and staff actions that need the owner go through without a PIN. Each person can change their own PIN with Change PIN at the top.</p>
       <fieldset style="border:0;padding:0;margin:0;display:grid;gap:6px"><b style="font-size:14px">Safe stock and shortage list</b><div class="grid2 stack">
         <label>Days the supplier takes to deliver<input id="sLead" class="num" inputmode="numeric" value="${fcCfg("fcLead")}"></label><label>Extra safety days<input id="sSafety" class="num" inputmode="numeric" value="${fcCfg("fcSafety")}"></label>
         <label>Order enough for this many days<input id="sOrder" class="num" inputmode="numeric" value="${fcCfg("fcOrder")}"></label><label>Stagnant after this many days without a sale<input id="sSlow" class="num" inputmode="numeric" value="${fcCfg("fcSlow")}"></label></div>
@@ -1012,7 +1015,7 @@ S.session = lsGet("erp.session", null); S.staff = null; S.staffM = today().slice
 /* screen permissions: the owner ticks which screens each employee may use. "newinv" is the + Invoice / Scan buttons.
    Staff stays owner-only, so nobody can give themselves more screens */
 const PERM_SCREENS = [["newinv","New purchase invoice"],["books","Accounts"],["home","Home"],["sell","POS"],["stock","Stock"],["pricing","Pricing"],["chronic","Chronic"],["invoices","Invoices"],["items","Items"],["payments","Payments"],["suppliers","Suppliers"],["customers","Customers"],["money","Cash box"],["reports","Reports"],["settings","Settings"]];
-Object.assign(AR, {"Forgot PIN?":"نسيت الرمز؟","New PIN (4 to 6 digits)":"الرمز الجديد (4 إلى 6 أرقام)","New PIN again":"الرمز الجديد مرة أخرى","Set new PIN":"حفظ الرمز الجديد","The two PINs are not the same.":"الرمزان غير متطابقين.","New PIN saved. Enter it to start your shift.":"تم حفظ الرمز الجديد. أدخله لبدء دوامك.","Type the email and password you use for the pharmacy's cloud (Supabase). Your sales, stock and invoices are not touched.":"اكتب البريد وكلمة المرور التي تستخدمها لسحابة الصيدلية (Supabase). لن تتغير المبيعات أو المخزون أو الفواتير.","This device is not connected to the cloud, so the PIN can't be reset here. Please do not delete the app or clear its data: that would lose your records. Ask for help to reset the PIN from the cloud.":"هذا الجهاز غير مربوط بالسحابة، لذلك لا يمكن تغيير الرمز هنا. لا تحذف التطبيق ولا تمسح بياناته، فستفقد سجلاتك. اطلب المساعدة لتغيير الرمز من السحابة.","This device is not connected to the cloud, so the PIN can't be reset here.":"هذا الجهاز غير مربوط بالسحابة، لذلك لا يمكن تغيير الرمز هنا.","Type the email and password.":"اكتب البريد وكلمة المرور.","Can't reach the cloud. Check the internet and try again.":"لا يمكن الوصول للسحابة. تأكد من الإنترنت وحاول مرة أخرى.","This account is not on the pharmacy list.":"هذا الحساب ليس في قائمة الصيدلية.","PIN must be 4 to 6 digits.":"الرمز يجب أن يكون من 4 إلى 6 أرقام.","Email":"البريد","Password":"كلمة المرور","Cancel":"إلغاء"});
+Object.assign(AR, {"Forgot PIN?":"نسيت الرمز؟","Change PIN":"تغيير الرمز","PIN now":"الرمز الحالي","Save new PIN":"حفظ الرمز الجديد","New PIN saved.":"تم حفظ الرمز الجديد.","The PIN now is wrong.":"الرمز الحالي خاطئ.","Forgot it? Lock the screen, tap your name, then Forgot PIN?":"نسيته؟ اقفل الشاشة واضغط اسمك ثم نسيت الرمز؟","Forgot it? Ask the owner to set a new one in Staff.":"نسيته؟ اطلب من المالك وضع رمز جديد من الموظفين.","Ask for a PIN to sign in and for owner approvals":"طلب الرمز عند الدخول ولموافقات المالك","When this is off, tapping a name signs that person in with no PIN, and staff actions that need the owner go through without a PIN. Each person can change their own PIN with Change PIN at the top.":"عند إيقافه، الضغط على الاسم يُدخل الشخص بدون رمز، وأعمال الموظفين التي تحتاج المالك تمر بدون رمز. كل شخص يستطيع تغيير رمزه من تغيير الرمز في الأعلى.","New PIN (4 to 6 digits)":"الرمز الجديد (4 إلى 6 أرقام)","New PIN again":"الرمز الجديد مرة أخرى","Set new PIN":"حفظ الرمز الجديد","The two PINs are not the same.":"الرمزان غير متطابقين.","New PIN saved. Enter it to start your shift.":"تم حفظ الرمز الجديد. أدخله لبدء دوامك.","Type the email and password you use for the pharmacy's cloud (Supabase). Your sales, stock and invoices are not touched.":"اكتب البريد وكلمة المرور التي تستخدمها لسحابة الصيدلية (Supabase). لن تتغير المبيعات أو المخزون أو الفواتير.","This device is not connected to the cloud. Also type the Project URL and the Publishable key (Supabase: Project Settings, then API Keys). They are only used to check your password once. This does not connect the device or change any records.":"هذا الجهاز غير مربوط بالسحابة. اكتب أيضاً رابط المشروع والمفتاح العام (Supabase: Project Settings ثم API Keys). يُستخدمان فقط للتحقق من كلمة المرور مرة واحدة، ولا يربطان الجهاز ولا يغيران أي سجل.","Publishable key":"المفتاح العام","Type the Project URL and the Publishable key from Supabase.":"اكتب رابط المشروع والمفتاح العام من Supabase.","The PIN can only be reset in the installed app.":"يمكن تغيير الرمز فقط في التطبيق المثبت.","Type the email and password.":"اكتب البريد وكلمة المرور.","Can't reach the cloud. Check the internet and try again.":"لا يمكن الوصول للسحابة. تأكد من الإنترنت وحاول مرة أخرى.","This account is not on the pharmacy list.":"هذا الحساب ليس في قائمة الصيدلية.","PIN must be 4 to 6 digits.":"الرمز يجب أن يكون من 4 إلى 6 أرقام.","Email":"البريد","Password":"كلمة المرور","Cancel":"إلغاء"});
 AR_RX.push([/^Set a new PIN for (.+)$/, "رمز جديد لـ: $1"]);
 const DEFAULT_PERMS = ["sell","newinv"];
 const myPerms = () => { const me = S.staff && (E.staff.find(x => x.id === S.staff.id) || S.staff); return Array.isArray(me?.perms) ? me.perms : DEFAULT_PERMS; };
@@ -1063,8 +1066,8 @@ function drawLock(){
 }
 async function tryLogin(){
   const st = activeStaff().find(x => x.id === S.lockSel), pin = S.lockPin || ""; if (!st) return;
-  if (pin.length < 4){ S.lockErr = "PIN is 4 to 6 digits."; drawLock(); return; }
-  const ck = await pinCheck(st, pin); if (!ck.ok){ S.lockErr = pinErr(ck); S.lockPin = ""; drawLock(); return; }
+  if (pinOn()){ if (pin.length < 4){ S.lockErr = "PIN is 4 to 6 digits."; drawLock(); return; }
+  const ck = await pinCheck(st, pin); if (!ck.ok){ S.lockErr = pinErr(ck); S.lockPin = ""; drawLock(); return; } }
   const opened = E.shifts.filter(x => x.staffId === st.id && !x.end && !x.voided).sort((p, q) => p.start < q.start ? -1 : 1);
   let sh = opened[0]; // one open shift per account, on any device: log in again and it carries on
   for (const dup of opened.slice(1)){ try { await write("shifts/" + dup.id, {voided:true, voidReason:"duplicate open shift"}, true); } catch(e){} }
@@ -1180,7 +1183,8 @@ navShut(lsGet("erp.navShut") === true);
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
   if (d.xmenu){ navShut(!document.body.classList.contains("navshut")); return; }
   if (d.xgo){ closeSheet(); S.tab = d.xgo; render(); return; }
-  if (d.xlocksel !== undefined){ S.lockSel = d.xlocksel || null; S.lockPin = ""; S.lockErr = ""; drawLock(); return; }
+  if (d.xlocksel !== undefined){ S.lockSel = d.xlocksel || null; S.lockPin = ""; S.lockErr = ""; if (S.lockSel && !pinOn()){ tryLogin(); return; } drawLock(); return; }
+  if (d.xmypin){ myPinSheet(); return; }
   if (d.xpin !== undefined){ if ((S.lockPin || "").length < 6){ S.lockPin = (S.lockPin || "") + d.xpin; S.lockErr = ""; } drawLock(); if (S.lockPin.length === 6) tryLogin(); return; }
   if (d.xpinback){ S.lockPin = (S.lockPin || "").slice(0, -1); drawLock(); return; }
   if (d.xpinok){ tryLogin(); return; }
@@ -1224,17 +1228,14 @@ function staffAfterData(){
 
 /* ---------- owner approval (audit F-02, F-04) ----------
    Screens only decide what people see. Sensitive actions also check here when they save: a member of staff can do them
-   only if the owner types their PIN on the spot. Wrong PINs lock that person for a growing time on this device. */
-const PIN_TRIES = 5;
+   only if the owner types their PIN on the spot. */
+// LTH, 15 Nov 2026: no waiting after a wrong PIN, on purpose ("remove it with no negotiations"). A wrong PIN only says so.
+try { localStorage.removeItem("erp.pinFail"); } catch(e){ /* the old wait list is no longer used */ }
 async function pinCheck(st, pin){
-  const all = lsGet("erp.pinFail", {}), f = all[st.id] || {n:0, until:0};
-  if (f.n >= PIN_TRIES && Date.now() < f.until) return {ok:false, wait:f.until - Date.now()};
   const v2 = String(st.pinHash || "").startsWith("p2$");
-  if ((v2 ? await pinHash2(st.id, pin) : await pinHash(st.id, pin)) === st.pinHash){ delete all[st.id]; lsSet("erp.pinFail", all);
-    if (!v2) write("staff/" + st.id, {pinHash:await pinHash2(st.id, pin)}, true).catch(() => {});
-    return {ok:true}; }
-  f.n++; if (f.n >= PIN_TRIES) f.until = Date.now() + 30000 * 2 ** (f.n - PIN_TRIES); all[st.id] = f; lsSet("erp.pinFail", all);
-  return {ok:false, left:Math.max(0, PIN_TRIES - f.n), wait:f.n >= PIN_TRIES ? f.until - Date.now() : 0};
+  if ((v2 ? await pinHash2(st.id, pin) : await pinHash(st.id, pin)) !== st.pinHash) return {ok:false};
+  if (!v2) write("staff/" + st.id, {pinHash:await pinHash2(st.id, pin)}, true).catch(() => {});
+  return {ok:true};
 }
 /* forgot PIN (LTH, 15 Nov 2026): only an owner, and only by signing in again with the pharmacy's cloud email and password.
    The server checks the password and the member list, so a wrong guess here costs nothing on this device and nothing is unlocked
@@ -1244,12 +1245,14 @@ function pinReset(id){
   const cloud = !!window.ERP_SYNC?.cfg?.();
   const el = document.createElement("div"); el.id = "pinReset"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); document.body.appendChild(el);
   el.innerHTML = `<form class="lockin" id="pinResetForm" autocomplete="off"><b>Set a new PIN for ${esc(o.name)}</b>
-    ${cloud ? `<p class="note">Type the email and password you use for the pharmacy's cloud (Supabase). Your sales, stock and invoices are not touched.</p>
-      <label>Email<input id="rEmail" type="email" autocapitalize="none" autocorrect="off" spellcheck="false" value="${esc(window.ERP_SYNC.cfg().email || "")}"></label>
-      <label>Password<input id="rPass" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off"></label>
-      <div class="grid2"><label>New PIN (4 to 6 digits)<input id="rPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></label><label>New PIN again<input id="rPin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></label></div>
-      <p class="err" id="rErr"></p><button type="submit" class="primary" id="rGo">Set new PIN</button>`
-    : `<p class="note">This device is not connected to the cloud, so the PIN can't be reset here. Please do not delete the app or clear its data: that would lose your records. Ask for help to reset the PIN from the cloud.</p>`}
+    <p class="note">Type the email and password you use for the pharmacy's cloud (Supabase). Your sales, stock and invoices are not touched.</p>
+    ${cloud ? "" : `<p class="note">This device is not connected to the cloud. Also type the Project URL and the Publishable key (Supabase: Project Settings, then API Keys). They are only used to check your password once. This does not connect the device or change any records.</p>
+      <label>Project URL<input id="rUrl" placeholder="https://xxxx.supabase.co" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+      <label>Publishable key<input id="rKey" autocapitalize="none" autocorrect="off" spellcheck="false"></label>`}
+    <label>Email<input id="rEmail" type="email" autocapitalize="none" autocorrect="off" spellcheck="false" value="${esc(cloud ? window.ERP_SYNC.cfg().email || "" : "")}"></label>
+    <label>Password<input id="rPass" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off"></label>
+    <div class="grid2"><label>New PIN (4 to 6 digits)<input id="rPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></label><label>New PIN again<input id="rPin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></label></div>
+    <p class="err" id="rErr"></p><button type="submit" class="primary" id="rGo">Set new PIN</button>
     <button type="button" data-rcancel="1">Cancel</button></form>`;
   if (S.lang === "ar") translate(el);
   const close = () => el.remove();
@@ -1260,20 +1263,39 @@ function pinReset(id){
     if (!/^\d{4,6}$/.test(pin)){ say("PIN must be 4 to 6 digits."); return; }
     if (pin !== $("#rPin2").value.trim()){ say("The two PINs are not the same."); return; }
     go.disabled = true; say("");
-    try { await window.ERP_SYNC.verify($("#rEmail").value, $("#rPass").value);
+    try { if (!window.ERP_SYNC?.verify) throw new Error("The PIN can only be reset in the installed app.");
+      await window.ERP_SYNC.verify($("#rEmail").value, $("#rPass").value, cloud ? null : $("#rUrl").value, cloud ? null : $("#rKey").value);
       const cur = E.staff.find(x => x.id === o.id); if (!cur || cur.role !== "owner") throw new Error("Only the owner can do this.");
       await write("staff/" + o.id, {pinHash:await pinHash2(o.id, pin), pinResetAt:nowIso()}, true);
-      const all = lsGet("erp.pinFail", {}); delete all[o.id]; lsSet("erp.pinFail", all);
       close(); S.lockSel = o.id; S.lockPin = ""; S.lockErr = ""; drawLock(); toast("New PIN saved. Enter it to start your shift."); syncNow();
     } catch(e){ say(e.message); go.disabled = false; }
   });
   setTimeout(() => $("#rPass")?.focus(), 0);
 }
-const pinErr = r => r.wait ? `Too many wrong PINs. Try again in ${Math.ceil(r.wait / 1000)} seconds.` : `Wrong PIN. ${r.left} tries left.`;
+const pinErr = () => "Wrong PIN. Try again.";
+/* change my own PIN (LTH, 15 Nov 2026): anyone signed in, after typing the PIN they have now. The owner can still set anyone's PIN in Staff. */
+function myPinSheet(){
+  const me = S.staff && E.staff.find(x => x.id === S.staff.id); if (!me) return;
+  openSheet("Change PIN", `<form id="myPinForm" style="display:grid;gap:10px" autocomplete="off"><p class="note">${esc(me.name)}</p>
+    ${me.pinHash ? `<label>PIN now<input id="mpOld" type="password" inputmode="numeric" autocomplete="current-password" maxlength="6"></label>` : ""}
+    <div class="grid2"><label>New PIN (4 to 6 digits)<input id="mpNew" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></label><label>New PIN again<input id="mpNew2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="6"></label></div>
+    ${me.role === "owner" ? `<p class="note">Forgot it? Lock the screen, tap your name, then Forgot PIN?</p>` : `<p class="note">Forgot it? Ask the owner to set a new one in Staff.</p>`}
+    <p class="err" id="mpErr"></p><button type="submit" class="primary">Save new PIN</button></form>`);
+  setTimeout(() => $(me.pinHash ? "#mpOld" : "#mpNew")?.focus(), 0);
+}
+document.addEventListener("submit", async ev => { if (ev.target.id !== "myPinForm") return; ev.preventDefault();
+  const me = S.staff && E.staff.find(x => x.id === S.staff.id), err = $("#mpErr"), pin = $("#mpNew").value.trim(), say = m => { err.textContent = m; if (S.lang === "ar") translate(err); };
+  if (!me) return;
+  if (me.pinHash && !(await pinCheck(me, $("#mpOld").value.trim())).ok){ say("The PIN now is wrong."); return; }
+  if (!/^\d{4,6}$/.test(pin)){ say("PIN must be 4 to 6 digits."); return; }
+  if (pin !== $("#mpNew2").value.trim()){ say("The two PINs are not the same."); return; }
+  try { await write("staff/" + me.id, {pinHash:await pinHash2(me.id, pin)}, true); closeSheet(); toast("New PIN saved."); } catch(e){ say(e.message); }
+});
 // resolves to the approving owner's id (the person themself when they are the owner), or null when cancelled
 function ownerOK(why, o = {}){ // o.always: ask the PIN even when the owner is the one signed in
   const owners = activeStaff().filter(x => x.role === "owner" && x.pinHash);
   if (isOwner() && !(o.always && owners.length)) return Promise.resolve(S.staff?.id || "owner");
+  if (!pinOn() && owners.length) return Promise.resolve(owners[0].id); // the owner switched PINs off: approvals need no PIN
   if (!owners.length) return Promise.resolve(null);
   return new Promise(done => {
     const st = {sel: owners.length === 1 ? owners[0].id : owners.find(x => x.id === S.staff?.id)?.id || null, pin:"", err:""};
@@ -1700,7 +1722,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved(), botbar: [0, 1, 2].map(i => $("#sBot" + i).value)}); toast("Settings saved."); botBar(); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, pinOff: !$("#sPinOn").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved(), botbar: [0, 1, 2].map(i => $("#sBot" + i).value)}); toast("Settings saved."); botBar(); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -1798,7 +1820,7 @@ AR_RX.push([/^Markup (-?[\d.]+%)$/, "نسبة $1"], [/^Margin (-?[\d.]+%|—)$/,
   [/^· next expiry (.+)$/, "· أقرب انتهاء $1"], [/^(.*) · next expiry (\S+)(.*)$/, "$1 · أقرب انتهاء $2$3"], [/^(.*) in stock · exp (\S+)$/, "$1 في المخزون · ينتهي $2"], [/^(.*) in stock$/, "$1 في المخزون"]);
 AR_RX.push([/^This line can't be removed because it has (sales|stock changes|a return to the supplier)\. Cancel those first, or correct the line instead\.$/, (m, w) => `لا يمكن حذف هذا السطر لأن عليه ${w === "sales" ? "مبيعات" : w === "stock changes" ? "تغييرات مخزون" : "إرجاع للمورد"}. ألغها أولاً أو صحح السطر بدلاً من ذلك.`]);
 Object.assign(AR, {"Owner approval needed":"تحتاج موافقة المالك","Not saved: this needs the owner's approval.":"لم يُحفظ: يحتاج موافقة المالك.","Confirm cancel":"تأكيد الإلغاء","Reason for cancelling":"سبب الإلغاء","Write the reason for cancelling.":"اكتب سبب الإلغاء.","Tap again to cancel":"اضغط مرة أخرى للإلغاء","Only the owner can do this.":"هذا للمالك فقط.","PIN is 4 to 6 digits.":"الرمز من 4 إلى 6 أرقام.","Discount staff may give without your PIN (% of the receipt)":"الخصم المسموح للموظف بدون رمزك (% من الوصل)","Staff also need your PIN to sell below the set price, sell more than the stock shows, cancel a sale or payment or expense, write off or add stock, and save a stocktake.":"يحتاج الموظف رمزك أيضاً للبيع بأقل من السعر المحدد، والبيع أكثر من المخزون، وإلغاء بيعة أو دفعة أو مصروف، وشطب أو إضافة مخزون، وحفظ الجرد."});
-AR_RX.push([/^Wrong PIN\. (\d+) tries left\.$/, "رمز خاطئ. بقيت $1 محاولات."], [/^Too many wrong PINs\. Try again in (\d+) seconds\.$/, "محاولات خاطئة كثيرة. حاول بعد $1 ثانية."], [/^(.+), enter your PIN to allow this\.$/, "$1، أدخل رمزك للسماح بهذا."], [/^Cancelled: (.+)$/, "ملغاة: $1"]);
+AR_RX.push([/^(.+), enter your PIN to allow this\.$/, "$1، أدخل رمزك للسماح بهذا."], [/^Cancelled: (.+)$/, "ملغاة: $1"]);
 Object.assign(AR, {"Restore backup":"استرجاع نسخة","Backup made":"تاريخ النسخة","Missing here, will be added":"غير موجودة هنا، ستُضاف","Newer in the file, will replace":"أحدث في الملف، ستُستبدل","Changed or cancelled here after the backup, kept":"تغيرت أو أُلغيت هنا بعد النسخة، تبقى كما هي","Already the same":"متطابقة","Nothing is deleted. Records you changed or cancelled after this backup stay as they are.":"لا يُحذف شيء. السجلات التي غيرتها أو ألغيتها بعد هذه النسخة تبقى كما هي.","You see what will change before anything is saved. Nothing is deleted, and nothing you changed or cancelled after the backup is undone.":"ترى ما سيتغير قبل الحفظ. لا يُحذف شيء، ولا يُلغى ما غيرته أو ألغيته بعد النسخة."});
 AR_RX.push([/^Restore (\d+) records$/, "استرجاع $1 سجل"], [/^Restored (\d+) records\.$/, "تم استرجاع $1 سجل."]);
 Object.assign(AR, {"Changes after closing (new sales, payments, cancels)":"تغييرات بعد الإغلاق (مبيعات ودفعات وإلغاءات جديدة)","Change today's day close":"تعديل إغلاق اليوم","That day is already closed. Use today's date.":"هذا اليوم مغلق. استخدم تاريخ اليوم.","Only the owner can approve invoices.":"اعتماد الفواتير للمالك فقط."});
@@ -1980,7 +2002,7 @@ render = window.render = function(){
   $("#netDot")?.classList.toggle("off", !navigator.onLine);
   let bar = $("#staffBar"); if (!bar){ bar = document.createElement("div"); bar.id = "staffBar"; $("header.top").appendChild(bar); }
   const sh = S.session && E.shifts.find(x => x.id === S.session.shiftId);
-  bar.innerHTML = S.staff ? `<div class="in2"><span class="who"><span class="av" aria-hidden="true">${esc(S.staff.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0,2).toUpperCase())}</span><b>${esc(S.staff.name)}</b><span class="t">On shift since <span class="num">${esc(hm(sh?.start))}</span></span></span><span class="clock num" id="topClock">${esc(localDT(nowIso()).replace("T", " "))}</span><span class="actions">${sh && !isNum(sh.openCount) ? `<button type="button" class="primary" data-xcountopen="1">Count cash</button>` : ""}<button type="button" data-xlock="1">Lock</button><button type="button" class="danger" data-xendshift="1">End shift</button></span></div>` : "";
+  bar.innerHTML = S.staff ? `<div class="in2"><span class="who"><span class="av" aria-hidden="true">${esc(S.staff.name.trim().split(/\s+/).map(w => w[0]).join("").slice(0,2).toUpperCase())}</span><b>${esc(S.staff.name)}</b><span class="t">On shift since <span class="num">${esc(hm(sh?.start))}</span></span></span><span class="clock num" id="topClock">${esc(localDT(nowIso()).replace("T", " "))}</span><span class="actions">${sh && !isNum(sh.openCount) ? `<button type="button" class="primary" data-xcountopen="1">Count cash</button>` : ""}<button type="button" data-xmypin="1">Change PIN</button><button type="button" data-xlock="1">Lock</button><button type="button" class="danger" data-xendshift="1">End shift</button></span></div>` : "";
   if (S.lang === "ar") translate(bar);
   const r = baseRenderERP.apply(this, arguments); drawLock();
   if (S.tab !== lastTabERP){ lastTabERP = S.tab; window.scrollTo(0, 0); document.querySelector(`nav.tabs [data-tab="${S.tab}"]`)?.scrollIntoView({block:"nearest", inline:"nearest"}); }

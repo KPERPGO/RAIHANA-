@@ -26,7 +26,7 @@ const URL0 = 'https://test-ref.supabase.co';
     await write('sales/S-1', { id: 'S-1', no: 1, date: '2026-11-01', total: 1000, lines: [] });
   });
   await p.waitForTimeout(400);
-  await p.evaluate(() => { S.staff = null; S.session = null; lsSet('erp.session', null); lsSet('erp.pinFail', { 'ST-O': { n: 7, until: Date.now() + 1e6 } }); S.lockSel = 'ST-A'; drawLock(); });
+  await p.evaluate(() => { S.staff = null; S.session = null; lsSet('erp.session', null); S.lockSel = 'ST-A'; drawLock(); });
   ok('pharmacist: no Forgot PIN button', !(await p.$('#lockScreen [data-xforgot]')));
   await p.evaluate(() => { S.lockSel = 'ST-O'; drawLock(); });
   ok('owner: Forgot PIN button shows', !!(await p.$('#lockScreen [data-xforgot]')));
@@ -48,18 +48,51 @@ const URL0 = 'https://test-ref.supabase.co';
   ok('PIN unchanged for a non-member', await p.evaluate(h => E.staff.find(x => x.id === 'ST-O').pinHash === h, before.h));
   member = true; e = await submit('right-pass', '2468', '2468'); await p.waitForTimeout(300);
   const r = await p.evaluate(async () => { const o = E.staff.find(x => x.id === 'ST-O');
-    return { closed: !document.getElementById('pinReset'), lock: !!document.getElementById('lockScreen'), sel: S.lockSel, fail: lsGet('erp.pinFail', {})['ST-O'] || null,
+    return { closed: !document.getElementById('pinReset'), lock: !!document.getElementById('lockScreen'), sel: S.lockSel,
       old: (await pinCheck(o, '1234')).ok, neu: (await pinCheck(E.staff.find(x => x.id === 'ST-O'), '2468')).ok, sale: JSON.stringify(E.sales), stored: JSON.stringify(localStorage).includes('right-pass') }; });
   ok('form closes, back on the PIN pad for the owner', r.closed && r.lock && r.sel === 'ST-O', r);
-  ok('wrong-PIN wait on this device is cleared', !r.fail, r.fail);
   ok('old PIN no longer works', !r.old);
   ok('new PIN works', r.neu);
   ok('sales untouched', r.sale === before.sale);
   ok('password never kept on the device', !r.stored);
   ok('new PIN queued for the cloud', await p.evaluate(() => (ERP_SYNC.pending() >= 0) && E.staff.find(x => x.id === 'ST-O').pinHash.startsWith('p2$')));
+  // no wait after wrong PINs (LTH, 15 Nov 2026): after 20 wrong tries the right PIN still works at once
+  const w = await p.evaluate(async () => { const o = E.staff.find(x => x.id === 'ST-A'), out = [];
+    for (let i = 0; i < 20; i++) out.push(await pinCheck(o, '0000')); const good = await pinCheck(o, '5555');
+    return { anyOk: out.some(r => r.ok), msg: pinErr(out[19]), good: good.ok, stored: localStorage.getItem('erp.pinFail') }; });
+  ok('wrong PINs are refused', !w.anyOk);
+  ok('no waiting: right PIN works straight after 20 wrong ones', w.good, w);
+  ok('message just says wrong PIN', w.msg === 'Wrong PIN. Try again.', w.msg);
+  ok('no wrong-PIN list is kept', w.stored === null, w.stored);
   // signing in with the new PIN starts the shift
   await p.evaluate(async () => { S.lockSel = 'ST-O'; S.lockPin = '2468'; await tryLogin(); }); await p.waitForTimeout(300);
   ok('owner logs in with the new PIN', await p.evaluate(() => S.staff?.id === 'ST-O' && !document.getElementById('lockScreen')));
+  // Change PIN from the top bar: needs the PIN now, then the new one twice
+  await p.evaluate(() => closeSheet()); await p.waitForTimeout(200); await p.click('[data-xmypin]'); await p.waitForTimeout(200);
+  const fill = async (a, b2, c) => { await p.fill('#mpOld', a); await p.fill('#mpNew', b2); await p.fill('#mpNew2', c); await p.click('#myPinForm button[type=submit]'); await p.waitForTimeout(400); return p.evaluate(() => document.getElementById('mpErr')?.textContent || ''); };
+  let m = await fill('1111', '1357', '1357'); ok('change PIN: wrong PIN now refused', /wrong/.test(m), m);
+  m = await fill('2468', '1357', '1358'); ok('change PIN: different new PINs refused', /not the same/.test(m), m);
+  await fill('2468', '1357', '1357');
+  ok('change PIN: new PIN works, old does not', await p.evaluate(async () => { const o = E.staff.find(x => x.id === 'ST-O'); return (await pinCheck(o, '1357')).ok && !(await pinCheck(o, '2468')).ok; }));
+  ok('top bar fits the phone with Change PIN', await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  // owner switches PINs off in Settings: tapping a name signs in, approvals pass, no PIN pad
+  await p.evaluate(() => { S.tab = 'settings'; render(); }); await p.waitForTimeout(200);
+  await p.evaluate(() => { document.getElementById('sPinOn').checked = false; document.querySelector('#cfgForm button[type=submit]').click(); }); await p.waitForTimeout(500);
+  ok('switch saved as PIN off', await p.evaluate(() => E.cfg.pinOff === true && !pinOn()));
+  await p.evaluate(() => { S.staff = null; S.session = null; lsSet('erp.session', null); S.lockSel = null; drawLock(); }); await p.waitForTimeout(200);
+  await p.click('#lockScreen [data-xlocksel="ST-A"]'); await p.waitForTimeout(500);
+  ok('PIN off: tapping a name signs in with no PIN', await p.evaluate(() => S.staff?.id === 'ST-A' && !document.getElementById('lockScreen')));
+  ok('PIN off: owner approval goes through with no PIN pad', await p.evaluate(async () => (await ownerOK(['test'])) === 'ST-O' && !document.getElementById('ownerPin')));
+  await p.evaluate(() => closeSheet());
+  // switch back on: PIN asked again
+  await p.evaluate(async () => { await write('meta/erp', {...E.cfg, pinOff:false}); }); await p.waitForTimeout(300);
+  await p.evaluate(() => { S.staff = null; S.session = null; lsSet('erp.session', null); S.lockSel = null; drawLock(); }); await p.waitForTimeout(200);
+  await p.click('#lockScreen [data-xlocksel="ST-A"]'); await p.waitForTimeout(400);
+  ok('PIN on again: tapping a name shows the PIN pad', await p.evaluate(() => !S.staff && !!document.querySelector('#lockScreen .pinpad')));
+  const ap = p.evaluate(() => ownerOK(['test'])); await p.waitForTimeout(200);
+  ok('PIN on again: approval asks the owner PIN', await p.evaluate(() => !!document.getElementById('ownerPin')));
+  await p.click('#ownerPin [data-ocancel]'); await ap;
+  await p.evaluate(() => { S.lockSel = null; drawLock(); });
   // Arabic
   await p.evaluate(() => { localStorage.setItem('rp.lang', '"ar"'); localStorage.removeItem('erp.session'); }); await p.reload(); await p.waitForTimeout(1200);
   await p.evaluate(() => { S.lockSel = 'ST-O'; drawLock(); });
@@ -68,10 +101,17 @@ const URL0 = 'https://test-ref.supabase.co';
     const left = await p.evaluate(() => [...document.querySelectorAll('#pinReset b, #pinReset p, #pinReset label, #pinReset button')].map(x => x.childNodes[0]?.textContent.trim() || '').filter(t => /[A-Za-z]{3,}/.test(t) && !/Supabase|Owner/.test(t)));
     ok('Arabic: the form is translated', !left.length, left); await p.click('#pinReset [data-rcancel]'); }
   else ok('Arabic switch found', false);
-  // not connected to the cloud: a warning, no form
+  // not connected to the cloud: the URL and key are typed by hand, checked once, and nothing is saved
   await p.evaluate(() => { lsSet('erp.sync', null); document.getElementById('pinReset')?.remove(); S.staff = null; S.lockSel = 'ST-O'; drawLock(); });
   await p.click('#lockScreen [data-xforgot]'); await p.waitForTimeout(200);
-  ok('no cloud: warning not to clear the app, no password form', await p.evaluate(() => !document.getElementById('rPass') && /(not connected|غير مربوط)/.test(document.getElementById('pinReset').textContent)));
+  ok('no cloud: asks for Project URL and key too', await p.evaluate(() => !!document.getElementById('rUrl') && !!document.getElementById('rKey') && !!document.getElementById('rPass')));
+  await p.fill('#rEmail', 'owner@example.com'); await p.fill('#rPass', 'right-pass'); await p.fill('#rPin', '9753'); await p.fill('#rPin2', '9753');
+  await p.click('#rGo'); await p.waitForTimeout(400);
+  e = await p.evaluate(() => document.getElementById('rErr')?.textContent || ''); ok('no cloud: missing URL and key refused', e.length > 0, e);
+  await p.fill('#rUrl', 'test-ref.supabase.co/'); await p.fill('#rKey', 'pub'); await p.click('#rGo'); await p.waitForTimeout(600);
+  const nc = await p.evaluate(async () => ({ closed: !document.getElementById('pinReset'), ok: (await pinCheck(E.staff.find(x => x.id === 'ST-O'), '9753')).ok, sync: localStorage.getItem('erp.sync'), pass: JSON.stringify(localStorage).includes('right-pass') }));
+  ok('no cloud: new PIN set after the password check', nc.closed && nc.ok, nc);
+  ok('no cloud: the device stays not connected, password not kept', (nc.sync === null || nc.sync === 'null') && !nc.pass, nc);
   ok('no page errors', !errs.length, errs);
   if (process.env.SHOTS) { await p.evaluate(() => { document.getElementById('pinReset')?.remove(); lsSet('erp.sync', {url:'https://x.supabase.co', anon:'p', email:'owner@example.com', exp: Date.now() + 36e5}); }); await p.click('#lockScreen [data-xforgot]'); await p.screenshot({ path: process.env.SHOTS + '/forgot-pin.png' }); }
   console.log(fails ? `${fails} FAILED` : 'PASS all forgot PIN checks'); await b.close(); process.exit(fails ? 1 : 0);

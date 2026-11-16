@@ -1,21 +1,29 @@
--- Raihana ERP · Phase 1: change history (final version for review, 15 Nov 2026). NOT yet run.
+-- Raihana ERP · Phase 1: change history · revision 3 (16 Nov 2026), for review. NOT yet run anywhere but test servers.
 -- Run once in Supabase: SQL Editor > New query > paste ALL of this > Run. Safe to run again.
 --
 -- What it does
---   * Keeps a permanent copy of every change to public.erp_docs (the app's records) and public.erp_members
---     (who may sign in): whole row before, whole row after, database time, operation, record path, and who sent it.
---   * Saves one BASELINE copy of every record that exists now, so the history starts complete.
---   * Seals every history row to the one before it (SHA-256 chain), so an edited or removed history row is detected.
---   * Pharmacy saves always go through (owner's decision 1). If a history row can't be written, the save still
---     happens and a GAP is written instead, with the values that were missed. erp_audit.audit_status shows
---     COMPLETE only when there are no open gaps, no record without history and the seal chain is intact.
+--   * Keeps a permanent event history of every change to public.erp_docs (the app's records) and public.erp_members
+--     (who may sign in): whole row before, whole row after, database times, operation, record key, and who sent it.
+--   * Saves one BASELINE copy of every record that exists now. Both tables are locked against writes while the copy is
+--     made and the recorder is attached, so no save can fall between the two (saves wait, then go through).
+--   * Pharmacy saves always go through (owner's decision 1). If a history row can't be written, a GAP row keeps the missed
+--     values. erp_audit.reconcile() later puts the missed event itself back into the history (marked as recovered, with
+--     its original time) or, where the values are lost, adds a clearly marked RECONSTRUCTED event.
+--   * erp_audit.audit_status checks the history event by event, by version number: COMPLETE, RECOVERED, INCOMPLETE or PAUSED.
+--   * Seals every history row to the one before (SHA-256 over a canonical JSON form). This makes changes to the history
+--     EVIDENT; it can't PREVENT them by someone with owner access to the database (see the review page).
 -- What it never does
---   * It does not change, move or delete any existing record, table, function or rule.
---   * It does not change how the app saves, syncs or works out stock, batches, product IDs, sales or profit.
--- Identity (owner's decision 2): the Supabase account is checked by Supabase. Device and employee come from the app
--- and are stored in columns ending in _unverified. Individual identity comes in Phase 4.
+--   * It does not change, move or delete any existing record, table, function or rule of the app.
+--   * It does not change how the app saves, syncs or works out stock, batches, product IDs, sales, prices or profit.
+-- Identity (owner's decision 2): the Supabase account and session come from the signed sign-in token. Device and employee
+-- come from the app and are kept in columns ending in _unverified. They are not proof of who acted.
 
 begin;
+set local lock_timeout = '20s';  -- if the tables are busy for longer than this, the whole file stops and changes nothing
+
+-- 0. No save may happen while the starting copy is made and the recorder is attached. SHARE ROW EXCLUSIVE lets devices
+--    read but makes every write wait until this file commits (normally under a few seconds).
+lock table public.erp_docs, public.erp_members in share row exclusive mode;
 
 -- 1. A private folder (schema). The app's cloud API serves only the "public" folder, so no device can reach this one.
 create schema if not exists erp_audit;
@@ -26,19 +34,22 @@ do $$ declare r text; begin
   end loop;
 end $$;
 
--- 2. The history: one row per change, never updated or deleted.
+-- 2. The event history: one row per event, never updated or deleted.
 create table if not exists erp_audit.erp_history (
   id                    bigint generated always as identity primary key,
-  at                    timestamptz not null,   -- database time of the change
+  recorded_at           timestamptz not null,   -- database time this history row was written
+  event_at              timestamptz not null,   -- database time of the change itself (earlier for recovered events)
   tx_id                 bigint      not null,   -- records saved together share this number
-  table_name            text        not null,   -- erp_docs, erp_members, or erp_audit (for PAUSED / RESUMED notes)
-  op                    text        not null check (op in ('BASELINE','INSERT','UPDATE','DELETE','PAUSED','RESUMED','RESYNC')),
+  table_name            text        not null,   -- erp_docs, erp_members, or erp_audit (PAUSED / RESUMED notes)
+  op                    text        not null check (op in ('BASELINE','INSERT','UPDATE','DELETE','RECONSTRUCTED','PAUSED','RESUMED')),
   record_key            text        not null,   -- erp_docs: path (sales/SL-...); erp_members: email
-  old_row               jsonb,                  -- whole row before (null for INSERT, BASELINE, RESYNC)
+  ord                   numeric,                -- position in the record's own timeline: its version number (ver) in erp_docs
+  old_row               jsonb,                  -- whole row before (null for INSERT and BASELINE)
   new_row               jsonb,                  -- whole row after (null for DELETE)
-  account_uid           uuid,                   -- Supabase account, checked by Supabase (the shared login for now)
-  account_email         text,                   -- its email, checked by Supabase
-  account_session       text,                   -- the sign-in session (one per device sign-in), checked by Supabase
+  recovered_gap_id      bigint,                 -- set when this event was put back from a gap row by reconcile()
+  account_uid           uuid,                   -- Supabase account, from the signed token (the shared login for now)
+  account_email         text,                   -- its email, from the signed token
+  account_session       text,                   -- the sign-in session (one per device sign-in), from the signed token
   account_role          text,                   -- authenticated = app, service_role = Edge Function, null = SQL Editor
   db_user               text        not null,   -- database login (postgres in the SQL Editor)
   device_unverified     text,                   -- device ID sent by the app. UNVERIFIED
@@ -46,21 +57,21 @@ create table if not exists erp_audit.erp_history (
   staff_name_unverified text,                   -- their name (staffByName). UNVERIFIED
   note                  text,
   prev_hash             text        not null,   -- seal of the row before ('' for the first row)
-  row_hash              text        not null    -- SHA-256 of prev_hash + this row's content
+  row_hash              text        not null    -- SHA-256 of the canonical form of prev_hash + this row
 );
-create index if not exists erp_history_key_idx on erp_audit.erp_history (table_name, record_key, id);
-create index if not exists erp_history_at_idx  on erp_audit.erp_history (at);
+create index if not exists erp_history_key_idx on erp_audit.erp_history (table_name, record_key, ord, id);
+create index if not exists erp_history_at_idx  on erp_audit.erp_history (event_at);
 
--- 3. Gaps: a change that was saved but whose history row could not be written. Keeps what is needed to investigate.
+-- 3. Gaps: a change that was saved but whose history row could not be written, with what is needed to recover it.
 create table if not exists erp_audit.erp_audit_gaps (
   id                    bigint generated always as identity primary key,
-  at                    timestamptz not null default clock_timestamp(),
+  at                    timestamptz not null default clock_timestamp(),  -- database time of the missed change
   tx_id                 bigint      not null default txid_current(),
   table_name            text,
   op                    text,
   record_key            text,
-  ver                   bigint,                 -- the version the record got in this save
-  old_row               jsonb,                  -- the values the history missed (null if even these couldn't be kept)
+  ver                   bigint,
+  old_row               jsonb,                  -- the missed values (both null if even these couldn't be kept)
   new_row               jsonb,
   account_email         text,
   account_session       text,
@@ -69,12 +80,13 @@ create table if not exists erp_audit.erp_audit_gaps (
   error                 text,
   sqlstate              text
 );
--- 4. A gap is closed by a separate row (gaps themselves are never changed).
+-- 4. A gap is closed by a separate row, only after its recovery or documentation is written (gaps are never changed).
 create table if not exists erp_audit.erp_audit_gap_closures (
   id         bigint generated always as identity primary key,
   gap_id     bigint not null references erp_audit.erp_audit_gaps (id),
   at         timestamptz not null default clock_timestamp(),
-  history_id bigint references erp_audit.erp_history (id),  -- the RESYNC row that now holds the record's state
+  history_id bigint references erp_audit.erp_history (id),   -- the recovered or reconstructed event
+  how        text not null check (how in ('recovered', 'reconstructed', 'documented')),
   note       text
 );
 
@@ -89,14 +101,17 @@ do $$ declare r text; t text; begin
   end loop;
 end $$;
 
--- 6. The seal of one row. The same formula is used when writing and when checking.
+-- 6. The seal of one row: SHA-256 of one JSON array in a fixed order. JSON gives every value an unambiguous form:
+--    text is quoted and escaped, null is null (never confused with a text value), numbers and nested JSON have
+--    PostgreSQL's single jsonb text form, and times are written in UTC with microseconds, whatever the session time zone.
+create or replace function erp_audit.utc(t timestamptz) returns text
+language sql stable set search_path = '' as $$ select to_char(t at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') $$;
 create or replace function erp_audit.seal(h erp_audit.erp_history) returns text
-language sql immutable set search_path = '' as $$
-  select encode(sha256(convert_to(concat_ws(chr(31), h.prev_hash, (extract(epoch from h.at) * 1000000)::bigint::text, h.tx_id::text,
-    h.table_name, h.op, h.record_key, coalesce(h.old_row::text, '~'), coalesce(h.new_row::text, '~'), coalesce(h.account_uid::text, '~'),
-    coalesce(h.account_email, '~'), coalesce(h.account_session, '~'), coalesce(h.account_role, '~'), h.db_user,
-    coalesce(h.device_unverified, '~'), coalesce(h.staff_id_unverified, '~'), coalesce(h.staff_name_unverified, '~'),
-    coalesce(h.note, '~')), 'UTF8')), 'hex')
+language sql stable set search_path = '' as $$
+  select encode(sha256(convert_to(jsonb_build_array('raihana-audit-seal-v1', h.prev_hash, erp_audit.utc(h.recorded_at),
+    erp_audit.utc(h.event_at), h.tx_id, h.table_name, h.op, h.record_key, h.ord, h.old_row, h.new_row, h.recovered_gap_id,
+    h.account_uid, h.account_email, h.account_session, h.account_role, h.db_user, h.device_unverified,
+    h.staff_id_unverified, h.staff_name_unverified, h.note)::text, 'UTF8')), 'hex')
 $$;
 
 -- 7. Sign-in details that Supabase attaches to each request (empty in the SQL Editor).
@@ -107,32 +122,40 @@ begin
 exception when others then return '{}'::jsonb;
 end $$;
 
--- 8. Add one row to the history, one at a time (a short lock) so the seal chain has no forks. Returns the new row's id.
-create or replace function erp_audit.append(tbl text, op text, k text, o jsonb, n jsonb, note text default null) returns bigint
+-- 8. Add one event to the history, one at a time (a short lock), so the seal chain has no forks. Returns the new id.
+--    ord, the position in the record's timeline: erp_docs uses the version number (a DELETE sits just after the version
+--    it removed); erp_members has no version, so it uses the event time.
+create or replace function erp_audit.append(tbl text, op text, k text, o jsonb, n jsonb, note text default null,
+  ev_at timestamptz default null, gap bigint default null, pos numeric default null) returns bigint
 language plpgsql security definer set search_path = '' as $$
 declare c jsonb := erp_audit.claims(); d jsonb := coalesce(n, o); h erp_audit.erp_history; new_id bigint;
 begin
   perform pg_advisory_xact_lock(hashtext('erp_audit.erp_history'));
-  h.at := clock_timestamp(); h.tx_id := txid_current(); h.table_name := tbl; h.op := op; h.record_key := k;
-  h.old_row := o; h.new_row := n; h.note := note; h.db_user := session_user;
+  h.recorded_at := clock_timestamp(); h.event_at := coalesce(ev_at, h.recorded_at); h.tx_id := txid_current();
+  h.table_name := tbl; h.op := op; h.record_key := k; h.old_row := o; h.new_row := n; h.note := note;
+  h.recovered_gap_id := gap; h.db_user := session_user;
+  h.ord := coalesce(pos, case when tbl = 'erp_docs' then coalesce((n ->> 'ver')::numeric, (o ->> 'ver')::numeric + 0.5)
+                              when tbl = 'erp_members' then extract(epoch from h.event_at) end);
   begin h.account_uid := nullif(c ->> 'sub', '')::uuid; exception when others then h.account_uid := null; end;
   h.account_email := c ->> 'email'; h.account_session := c ->> 'session_id'; h.account_role := c ->> 'role';
   h.device_unverified := d ->> 'device'; h.staff_id_unverified := d -> 'data' ->> 'staffBy'; h.staff_name_unverified := d -> 'data' ->> 'staffByName';
   select x.row_hash into h.prev_hash from erp_audit.erp_history x order by x.id desc limit 1;
   h.prev_hash := coalesce(h.prev_hash, '');
   h.row_hash := erp_audit.seal(h);
-  insert into erp_audit.erp_history (at, tx_id, table_name, op, record_key, old_row, new_row, account_uid, account_email, account_session,
-    account_role, db_user, device_unverified, staff_id_unverified, staff_name_unverified, note, prev_hash, row_hash)
-  values (h.at, h.tx_id, h.table_name, h.op, h.record_key, h.old_row, h.new_row, h.account_uid, h.account_email, h.account_session,
-    h.account_role, h.db_user, h.device_unverified, h.staff_id_unverified, h.staff_name_unverified, h.note, h.prev_hash, h.row_hash)
+  insert into erp_audit.erp_history (recorded_at, event_at, tx_id, table_name, op, record_key, ord, old_row, new_row,
+    recovered_gap_id, account_uid, account_email, account_session, account_role, db_user, device_unverified,
+    staff_id_unverified, staff_name_unverified, note, prev_hash, row_hash)
+  values (h.recorded_at, h.event_at, h.tx_id, h.table_name, h.op, h.record_key, h.ord, h.old_row, h.new_row,
+    h.recovered_gap_id, h.account_uid, h.account_email, h.account_session, h.account_role, h.db_user, h.device_unverified,
+    h.staff_id_unverified, h.staff_name_unverified, h.note, h.prev_hash, h.row_hash)
   returning id into new_id;
   return new_id;
 end $$;
 
--- 9. The recorder: runs after every insert, update or delete. Three levels, so the save itself never fails:
---    (a) history row; if that fails (b) a gap row with the missed values; if that fails (c) a gap row with only the
---    path and error; if even that fails (d) a warning in the Supabase database log. Level (d) is the only silent case,
---    and the status check below still finds it while the record exists (see "if both fail" on the review page).
+-- 9. The recorder: runs after every insert, update or delete, inside the same save. Three levels, so the save never fails:
+--    (a) history row; if that fails (b) a gap row with the missed values; if that fails (c) a gap row with only the key
+--    and the error; if even that fails (d) a warning in the Supabase database log. A level (b) gap can be fully recovered.
+--    Levels (c) and (d) lose the values; the status still finds the break by version number (see the review page).
 create or replace function erp_audit.record_change() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare
@@ -148,7 +171,7 @@ begin
       c := erp_audit.claims();
       insert into erp_audit.erp_audit_gaps (table_name, op, record_key, ver, old_row, new_row, account_email, account_session,
         device_unverified, staff_id_unverified, error, sqlstate)
-      values (tg_table_name, tg_op, k, (coalesce(n, o) ->> 'ver')::bigint, o, n, c ->> 'email', c ->> 'session_id',
+      values (tg_table_name, tg_op, k, coalesce(n ->> 'ver', o ->> 'ver')::bigint, o, n, c ->> 'email', c ->> 'session_id',
         coalesce(n, o) ->> 'device', coalesce(n, o) -> 'data' ->> 'staffBy', msg, st);
     exception when others then
       begin
@@ -176,75 +199,151 @@ do $$ declare t text; begin
   end loop;
 end $$;
 
--- 11. The status: COMPLETE only when every check passes. Read it with:  select * from erp_audit.audit_status;
+-- 11. Findings: every place where the history does not account for the records, one row each.
+--     Each record's events are put in timeline order (ord). Then:
+--       break          an UPDATE, DELETE or RECONSTRUCTED whose "before" is not exactly the previous event's "after"
+--                      (one or more changes were missed in between: this is what catches a value changed and changed back,
+--                      because the version number in the row is different), or an INSERT/BASELINE that follows a record
+--                      that was never seen deleted
+--       not_current    a record whose current row (with its version) is not exactly the "after" of its latest event
+--       missing_delete a record whose latest event says it exists, but it is gone from the table
+create or replace function erp_audit.findings() returns table (kind text, table_name text, record_key text, event_id bigint,
+  prev_id bigint, prev_ord numeric, this_ord numeric, known_before jsonb, known_after jsonb)
+language sql stable security definer set search_path = '' as $$
+  with ev as (
+    select h.id, h.table_name, h.record_key, h.op, h.ord, h.old_row, h.new_row,
+           lag(h.id) over w as p_id, lag(h.new_row) over w as p_new, lag(h.ord) over w as p_ord,
+           row_number() over (partition by h.table_name, h.record_key order by h.ord desc, h.id desc) as from_end
+    from erp_audit.erp_history h where h.table_name in ('erp_docs', 'erp_members')
+    window w as (partition by h.table_name, h.record_key order by h.ord, h.id)),
+  latest as (select * from ev where from_end = 1),
+  cur as (select 'erp_docs'::text as t, d.path as k, to_jsonb(d) as r from public.erp_docs d
+          union all select 'erp_members', m.email, to_jsonb(m) from public.erp_members m)
+  select 'break', e.table_name, e.record_key, e.id, e.p_id, e.p_ord, e.ord, e.p_new,
+         case when e.op in ('INSERT', 'BASELINE') then null else e.old_row end
+  from ev e
+  where (e.op in ('UPDATE', 'DELETE', 'RECONSTRUCTED') and e.p_new is distinct from e.old_row)
+     or (e.op in ('INSERT', 'BASELINE') and e.p_new is not null)
+  union all
+  select 'not_current', c.t, c.k, null, l.id, l.ord, null, l.new_row, c.r
+  from cur c left join latest l on l.table_name = c.t and l.record_key = c.k
+  where l.new_row is distinct from c.r
+  union all
+  select 'missing_delete', l.table_name, l.record_key, null, l.id, l.ord, null, l.new_row, null
+  from latest l
+  where l.new_row is not null and not exists (select 1 from cur c where c.t = l.table_name and c.k = l.record_key)
+$$;
+
+-- 12. The status. Read it with:  select * from erp_audit.audit_status;
+--       COMPLETE    recorder on, seals intact, no open gap, no finding, and no event was ever recovered or reconstructed
+--       RECOVERED   as COMPLETE, but some events were put back from gaps or reconstructed; they are marked as such
+--       INCOMPLETE  a seal is broken, a gap is open, a finding exists, or the recorder is off without a PAUSED note
+--       PAUSED      recording was turned off on purpose (rollback); changes made now are found later, when it is turned on again
 create or replace view erp_audit.audit_status as
 with
-  recorder as (select count(distinct event_object_table) as n from information_schema.triggers
-               where trigger_name = 'zz_erp_history' and event_object_table in ('erp_docs', 'erp_members')),
-  open_gaps as (select count(*) as n from erp_audit.erp_audit_gaps g
-                where not exists (select 1 from erp_audit.erp_audit_gap_closures c where c.gap_id = g.id)),
-  uncovered as (
-    select (select count(*) from public.erp_docs d where not exists (
-              select 1 from erp_audit.erp_history h where h.table_name = 'erp_docs' and h.record_key = d.path and h.new_row = to_jsonb(d)))
-         + (select count(*) from public.erp_members m where not exists (
-              select 1 from erp_audit.erp_history h where h.table_name = 'erp_members' and h.record_key = m.email and h.new_row = to_jsonb(m))) as n),
+  trg as (select count(*) filter (where t.tgenabled <> 'D') as on_n from pg_trigger t
+          where t.tgname = 'zz_erp_history' and t.tgrelid in ('public.erp_docs'::regclass, 'public.erp_members'::regclass)),
+  ctl as (select op from erp_audit.erp_history where op in ('PAUSED', 'RESUMED') order by id desc limit 1),
+  gaps as (select count(*) filter (where not exists (select 1 from erp_audit.erp_audit_gap_closures c where c.gap_id = g.id)) as open_n,
+                  count(*) filter (where g.at > now() - interval '7 days') as week_n, max(g.at) as last_at
+           from erp_audit.erp_audit_gaps g),
+  f as (select count(*) filter (where kind = 'break') as breaks, count(*) filter (where kind = 'not_current') as not_current,
+               count(*) filter (where kind = 'missing_delete') as missing from erp_audit.findings()),
+  marks as (select count(*) filter (where recovered_gap_id is not null) as recovered, count(*) filter (where op = 'RECONSTRUCTED') as rebuilt
+            from erp_audit.erp_history),
   chain as (select count(*) filter (where s.prev_hash <> coalesce(s.prev, '') or s.row_hash <> s.recomputed) as broken, count(*) as rows
             from (select h.prev_hash, h.row_hash, lag(h.row_hash) over (order by h.id) as prev, erp_audit.seal(h) as recomputed
                   from erp_audit.erp_history h) s),
-  last as (select id, row_hash, at from erp_audit.erp_history order by id desc limit 1)
+  last as (select id, row_hash from erp_audit.erp_history order by id desc limit 1)
 select
-  case when recorder.n = 2 and open_gaps.n = 0 and uncovered.n = 0 and chain.broken = 0 then 'COMPLETE'
-       else 'INCOMPLETE' end as status,
-  recorder.n = 2 as recorder_on,
-  open_gaps.n as open_gaps,
-  uncovered.n as records_without_history,
-  chain.broken as broken_seals,
+  case when chain.broken > 0 then 'INCOMPLETE'
+       when trg.on_n < 2 and (select op from ctl) = 'PAUSED' then 'PAUSED'
+       when trg.on_n < 2 or gaps.open_n > 0 or f.breaks + f.not_current + f.missing > 0 then 'INCOMPLETE'
+       when marks.recovered + marks.rebuilt > 0 then 'RECOVERED'
+       else 'COMPLETE' end as status,
+  case when trg.on_n = 2 then 'ON' when (select op from ctl) = 'PAUSED' then 'PAUSED' else 'OFF' end as recording,
+  chain.broken = 0 as seals_intact,
+  gaps.open_n as open_gaps,
+  f.breaks as missed_event_breaks,
+  f.not_current as records_not_matching_history,
+  f.missing as deletes_not_in_history,
+  marks.recovered as recovered_events,
+  marks.rebuilt as reconstructed_events,
+  gaps.week_n as gaps_last_7_days,
+  gaps.last_at as last_gap_at,
   chain.rows as history_rows,
-  (select at from last) as last_change_at,
   (select id from last) as last_id,
-  (select row_hash from last) as last_seal
-from recorder, open_gaps, uncovered, chain;
+  (select row_hash from last) as last_seal,
+  now() as checked_at
+from trg, gaps, f, marks, chain;
 revoke all on erp_audit.audit_status from public;
 
--- 12. Close gaps: copy the current state of every record without history (RESYNC), then close each open gap.
---     The gap row keeps the values that were missed at the time. Run by the owner only:  select * from erp_audit.reconcile('why');
-create or replace function erp_audit.reconcile(why text default null) returns table (resynced int, gaps_closed int)
+-- 13. Reconcile: account for every gap and every finding, without touching any pharmacy record.
+--     Step 1: each gap that kept its values becomes the missed event itself: original operation and values, its original
+--             time in event_at, linked by recovered_gap_id; then the gap is closed ('recovered').
+--     Step 2: each remaining finding gets a RECONSTRUCTED event that bridges exactly the known before and after.
+--             Its note says that one or more changes in between were missed and their in-between values are unknown.
+--     Step 3: gaps that kept no values are closed ('reconstructed' with the bridging event, or 'documented').
+--     Run by the owner only:  select * from erp_audit.reconcile('why');
+create or replace function erp_audit.reconcile(why text default null) returns table (recovered int, reconstructed int, gaps_closed int)
 language plpgsql security definer set search_path = '' as $$
-declare d record; g record; hid bigint; r int := 0; c int := 0;
+declare g record; x record; hid bigint; r int := 0; b int := 0; c int := 0; pos numeric;
 begin
-  for d in select x.* from public.erp_docs x where not exists (
-      select 1 from erp_audit.erp_history h where h.table_name = 'erp_docs' and h.record_key = x.path and h.new_row = to_jsonb(x)) order by x.path loop
-    perform erp_audit.append('erp_docs', 'RESYNC', d.path, null, to_jsonb(d), why); r := r + 1; end loop;
-  for d in select x.* from public.erp_members x where not exists (
-      select 1 from erp_audit.erp_history h where h.table_name = 'erp_members' and h.record_key = x.email and h.new_row = to_jsonb(x)) order by x.email loop
-    perform erp_audit.append('erp_members', 'RESYNC', d.email, null, to_jsonb(d), why); r := r + 1; end loop;
-  for g in select x.* from erp_audit.erp_audit_gaps x where not exists (select 1 from erp_audit.erp_audit_gap_closures y where y.gap_id = x.id) order by x.id loop
-    select h.id into hid from erp_audit.erp_history h where h.table_name = g.table_name and h.record_key = g.record_key order by h.id desc limit 1;
-    insert into erp_audit.erp_audit_gap_closures (gap_id, history_id, note)
-    values (g.id, hid, coalesce(why, '') || case when hid is null then ' (record no longer exists; missed values are kept in the gap row)' else '' end);
-    c := c + 1; end loop;
-  return query select r, c;
+  -- saves wait while reconcile runs (normally well under a second), so nothing changes under it
+  lock table public.erp_docs, public.erp_members in share row exclusive mode;
+  for g in select y.* from erp_audit.erp_audit_gaps y
+           where not exists (select 1 from erp_audit.erp_audit_gap_closures z where z.gap_id = y.id)
+             and (y.old_row is not null or y.new_row is not null) order by y.id loop
+    hid := erp_audit.append(g.table_name, g.op, g.record_key, g.old_row, g.new_row,
+      concat_ws(' · ', 'recovered from gap ' || g.id, 'original error: ' || g.error, why), g.at, g.id);
+    insert into erp_audit.erp_audit_gap_closures (gap_id, history_id, how, note) values (g.id, hid, 'recovered', why);
+    r := r + 1; c := c + 1;
+  end loop;
+  for x in select * from erp_audit.findings() order by table_name, record_key, prev_ord nulls first loop
+    pos := case when x.kind = 'break' then (coalesce(x.prev_ord, x.this_ord - 1) + x.this_ord) / 2
+                when x.kind = 'not_current' and x.table_name = 'erp_docs' then (x.known_after ->> 'ver')::numeric
+                when x.kind = 'missing_delete' and x.table_name = 'erp_docs' then x.prev_ord + 0.75
+                else extract(epoch from clock_timestamp()) end;
+    perform erp_audit.append(x.table_name, 'RECONSTRUCTED', x.record_key, x.known_before, x.known_after,
+      concat_ws(' · ', case x.kind when 'break' then 'one or more changes were missed between these two known states'
+                               when 'not_current' then 'one or more changes were missed before the current state'
+                               else 'the record was deleted without a history entry' end,
+                'in-between values unknown; real time unknown', why), clock_timestamp(), null, pos);
+    b := b + 1;
+  end loop;
+  for g in select y.* from erp_audit.erp_audit_gaps y
+           where not exists (select 1 from erp_audit.erp_audit_gap_closures z where z.gap_id = y.id) order by y.id loop
+    select h.id into hid from erp_audit.erp_history h
+      where h.table_name = g.table_name and h.record_key = g.record_key and h.op = 'RECONSTRUCTED' order by h.id desc limit 1;
+    insert into erp_audit.erp_audit_gap_closures (gap_id, history_id, how, note)
+    values (g.id, hid, case when hid is null then 'documented' else 'reconstructed' end,
+            concat_ws(' · ', 'values were not kept', case when hid is null then 'no break found for this record' end, why));
+    c := c + 1;
+  end loop;
+  return query select r, b, c;
 end $$;
 
-revoke all on function erp_audit.seal(erp_audit.erp_history), erp_audit.claims(), erp_audit.append(text, text, text, jsonb, jsonb, text),
-  erp_audit.record_change(), erp_audit.refuse_change(), erp_audit.reconcile(text) from public;
+revoke all on function erp_audit.utc(timestamptz), erp_audit.seal(erp_audit.erp_history), erp_audit.claims(),
+  erp_audit.append(text, text, text, jsonb, jsonb, text, timestamptz, bigint, numeric), erp_audit.record_change(),
+  erp_audit.refuse_change(), erp_audit.findings(), erp_audit.reconcile(text) from public;
 
--- 13. Start or restart. First run: BASELINE copy of every record. Run again after the rollback: a RESUMED note, then
---     RESYNC copies of the records that changed while recording was off, so the pause is closed and visible.
+-- 14. Start or restart, still under the lock from step 0.
+--     First run: a BASELINE copy of every record. Run again after the rollback: a RESUMED note, then reconcile, which
+--     accounts for everything changed while recording was off. Run again while recording is on: nothing here.
 do $$
-declare d record; first boolean := not exists (select 1 from erp_audit.erp_history);
-  was_off boolean := not exists (select 1 from information_schema.triggers where trigger_name = 'zz_erp_history');
+declare d record; was_on boolean := (select count(*) from pg_trigger where tgname = 'zz_erp_history' and tgenabled <> 'D'
+  and tgrelid in ('public.erp_docs'::regclass, 'public.erp_members'::regclass)) = 2;
 begin
-  if first then
+  if not exists (select 1 from erp_audit.erp_history) then
     for d in select * from public.erp_docs order by path loop perform erp_audit.append('erp_docs', 'BASELINE', d.path, null, to_jsonb(d)); end loop;
     for d in select * from public.erp_members order by email loop perform erp_audit.append('erp_members', 'BASELINE', d.email, null, to_jsonb(d)); end loop;
-  elsif was_off then
+  elsif not was_on then
     perform erp_audit.append('erp_audit', 'RESUMED', 'recording', null, null, 'recording turned on again');
     perform erp_audit.reconcile('changes made while recording was off');
   end if;
 end $$;
 
--- 14. Attach the recorder. The name starts with "zz_" so it runs after any other trigger and sees the final version number.
+-- 15. Attach the recorder. The name starts with "zz_" so it runs after any other trigger and sees the final version number.
 drop trigger if exists zz_erp_history on public.erp_docs;
 create trigger zz_erp_history after insert or update or delete on public.erp_docs
   for each row execute function erp_audit.record_change('path');
@@ -254,6 +353,7 @@ create trigger zz_erp_history after insert or update or delete on public.erp_mem
 
 commit;
 
--- Result: what the history holds now, then the status (expect COMPLETE).
+-- Result: what the history holds now, then the status (expect COMPLETE on a first run).
 select table_name, op, count(*) as rows from erp_audit.erp_history group by 1, 2 order by 1, 2;
-select status, open_gaps, records_without_history, broken_seals, history_rows, last_seal from erp_audit.audit_status;
+select status, recording, seals_intact, open_gaps, missed_event_breaks, records_not_matching_history, deletes_not_in_history,
+       history_rows, last_seal from erp_audit.audit_status;

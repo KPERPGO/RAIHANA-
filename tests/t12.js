@@ -7,7 +7,7 @@ const fs = require('fs'); const D = require('path').join(__dirname, 'fixtures');
   for (const [w,h] of [[390,760],[1280,720]]) {
   const page = await b.newPage({ viewport: { width: w, height: h } }); const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.goto('http://localhost:8765/index.html'); await page.waitForTimeout(800);
-  await page.evaluate(async inv => { await ERP_LOCAL.put('invoices/' + inv.id, inv); }, JSON.parse(fs.readFileSync(D + '/invoices/PI-2026-0001.json'))); await page.waitForTimeout(400);
+  await page.evaluate(async inv => { await ERP_LOCAL.put('invoices/' + inv.id, inv); }, require('./fixture')('invoices/PI-2026-0001.json')); await page.waitForTimeout(400);
   const box = () => page.evaluate(() => { const r = document.querySelector('#sheet .panel').getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom), Math.round(innerHeight - r.bottom), Math.round(r.left)]; });
   // chronic card: open, pick medicines from the list (re-draws inside)
   await page.click('nav.tabs [data-tab="chronic"]'); await page.waitForTimeout(200);

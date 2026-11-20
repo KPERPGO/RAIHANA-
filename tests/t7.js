@@ -2,7 +2,7 @@ const ROOT = require('path').resolve(__dirname, '..'); // repo folder: src, dist
 const { chromium } = require('./pw');
 const fs = require('fs'); const path = require('path');
 const D = require('path').join(__dirname, 'fixtures');
-const rd = p => JSON.parse(fs.readFileSync(path.join(D, p)));
+const rd = require('./fixture');
 (async () => {
   const b = await chromium.launch();
   const page = await b.newPage({ viewport: { width: 400, height: 860 }, hasTouch: true, isMobile: true });

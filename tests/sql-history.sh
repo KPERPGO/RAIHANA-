@@ -214,6 +214,38 @@ race hist_n "$PAUSE; s/^lock table public.erp_docs, public.erp_members in share 
 t "control test without the lock: saves slip through and the status finds them (not COMPLETE)" "$(st hist_n "status")|$(test "$(v hist_n "select count(*) from erp_audit.findings()")" -gt 0 && echo found)" "INCOMPLETE|found"
 q -c "drop database hist_r" -c "drop database hist_n" >/dev/null
 
+echo "== run as Supabase runs it: the owner is not a superuser"
+# In Supabase the SQL Editor's "postgres" role is not a superuser. Here every file runs as sb_admin, a role with the same
+# limits (no superuser; may create roles and bypass row security), which owns the app's tables as in Supabase.
+q -c "drop database if exists hist_s" -c "create database hist_s" >/dev/null
+q -d hist_s >/dev/null <<'EOSQL'
+do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+do $$ begin create role sb_admin nologin nosuperuser createrole bypassrls; exception when duplicate_object then null; end $$;
+grant anon, authenticated, service_role to sb_admin;
+grant create on database hist_s to sb_admin; grant all on schema public to sb_admin;
+grant usage on schema public to anon, authenticated, service_role;
+create schema auth; grant usage on schema auth to anon, authenticated, service_role, sb_admin;
+create function auth.jwt() returns jsonb language sql stable as $f$ select nullif(current_setting('request.jwt.claims', true), '')::jsonb $f$;
+create function auth.uid() returns uuid language sql stable as $f$ select nullif(auth.jwt() ->> 'sub', '')::uuid $f$;
+EOSQL
+# (connects as postgres and switches to sb_admin at once, so it needs no password of its own in CI)
+qs(){ PGOPTIONS="$PGOPTIONS -c role=sb_admin" psql -q -X -U postgres -d hist_s -v ON_ERROR_STOP=1 "$@"; }
+sed "s/PUT-YOUR-EMAIL-HERE/owner@example.com/" "$ROOT/src/supabase-setup.sql" | qs >/dev/null 2>&1 && qs -f "$ROOT/src/supabase-update-2026-10-23.sql" >/dev/null 2>&1 \
+  && qs -f $T/base.sql >/dev/null 2>&1; t "the app's own setup and a test pharmacy load as the non-superuser owner" "$?" "0"
+NS=$(qs -At -c "select count(*) from erp_docs")
+t "Phase 1 runs as the non-superuser owner; the last result line shows the baseline count and COMPLETE" "$(qs -At -f "$SQL" 2>&1 | tail -1 | cut -d'|' -f1-3)" "$NS|COMPLETE|ON"
+qs -c "update erp_docs set data = data || '{\"t\":1}' where path = (select min(path) from erp_docs where path like 'products/%')" >/dev/null
+t "a change is recorded, still COMPLETE" "$(qs -At -c "select status from erp_audit.audit_status")|$(qs -At -c "select count(*) from erp_audit.erp_history where op='UPDATE'")" "COMPLETE|1"
+t "the owner still can't delete history" "$(qs -At -c "select current_user, (select rolsuper from pg_roles where rolname = current_user)" | tr -d "\n")$(qs -At -c "delete from erp_audit.erp_history" 2>&1 | grep -c 'can only grow')" "sb_admin|f1"
+t "rollback runs as the non-superuser owner: PAUSED" "$(qs -At -f "$ROOT/db/phase1-rollback.sql" 2>&1 | tail -1 | cut -d'|' -f1-2)" "PAUSED|PAUSED"
+q -d hist_s -c "insert into erp_audit.erp_audit_gaps (table_name, op, record_key, error) values ('erp_docs','UPDATE','x','test')" >/dev/null
+t "an open gap is never hidden behind PAUSED" "$(qs -At -c "select status||' '||recording from erp_audit.audit_status")" "INCOMPLETE PAUSED"
+qs -c "update erp_docs set data = data || '{\"t\":2}' where path = (select min(path) from erp_docs where path like 'products/%')" >/dev/null
+t "turning it on again as the non-superuser owner: RECOVERED, ON, nothing open" "$(qs -At -f "$SQL" 2>&1 | tail -1 | cut -d'|' -f2-6)" "RECOVERED|ON|t|0|0"
+q -c "drop database hist_s" >/dev/null
+
 echo "== speed"
 ms(){ q -d $1 -At -c "select set_config('request.jwt.claims','{\"email\":\"owner@example.com\"}',false)" -c "\\timing on" \
   -c "select jsonb_array_length(erp_push((select jsonb_agg(jsonb_build_object('path','sales/SPEED'||g,'data',jsonb_build_object('id','SPEED'||g,'total',g,'lines',jsonb_build_array(1,2,3)),'base',0)) from generate_series(1,100) g)))" | grep Time | sed 's/Time: //'; }

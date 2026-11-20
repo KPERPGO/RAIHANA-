@@ -256,7 +256,7 @@ with
                   from erp_audit.erp_history h) s),
   last as (select id, row_hash from erp_audit.erp_history order by id desc limit 1)
 select
-  case when chain.broken > 0 then 'INCOMPLETE'
+  case when chain.broken > 0 or gaps.open_n > 0 then 'INCOMPLETE'   -- an open gap is never hidden, not even by PAUSED
        when trg.on_n < 2 and (select op from ctl) = 'PAUSED' then 'PAUSED'
        when trg.on_n < 2 or gaps.open_n > 0 or f.breaks + f.not_current + f.missing > 0 then 'INCOMPLETE'
        when marks.recovered + marks.rebuilt > 0 then 'RECOVERED'
@@ -353,7 +353,9 @@ create trigger zz_erp_history after insert or update or delete on public.erp_mem
 
 commit;
 
--- Result: what the history holds now, then the status (expect COMPLETE on a first run).
+-- Result: what the history holds now, then the status (expect COMPLETE on a first run). The Supabase SQL Editor shows
+-- only the last result, so the status line also gives baseline_records: it must equal select count(*) from public.erp_docs.
 select table_name, op, count(*) as rows from erp_audit.erp_history group by 1, 2 order by 1, 2;
-select status, recording, seals_intact, open_gaps, missed_event_breaks, records_not_matching_history, deletes_not_in_history,
+select (select count(*) from erp_audit.erp_history where table_name = 'erp_docs' and op = 'BASELINE') as baseline_records,
+       status, recording, seals_intact, open_gaps, missed_event_breaks, records_not_matching_history, deletes_not_in_history,
        history_rows, last_seal from erp_audit.audit_status;

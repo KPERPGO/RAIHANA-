@@ -1,6 +1,6 @@
 const ROOT = require('path').resolve(__dirname, '..'); // repo folder: src, dist, tests
 const { chromium, devices } = require('./pw');
-const fs = require('fs'), path = require('path'); const D = require('path').join(__dirname, 'fixtures'); const rd = p => JSON.parse(fs.readFileSync(path.join(D, p)));
+const fs = require('fs'), path = require('path'); const D = require('path').join(__dirname, 'fixtures'); const rd = require('./fixture');
 (async () => {
   const b = await chromium.launch();
   const ctx = await b.newContext({ ...devices['iPhone 13'] }); const page = await ctx.newPage();

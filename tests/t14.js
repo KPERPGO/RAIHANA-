@@ -7,7 +7,7 @@ const fs = require('fs'); const D = require('path').join(__dirname, 'fixtures');
   for (const [w, h] of [[390, 844], [1280, 720]]) for (const lang of ['en', 'ar']) {
     const p = await b.newPage({ viewport: { width: w, height: h } }); const errs = []; p.on('pageerror', e => errs.push(e.message));
     await p.addInitScript({ path: 'fake.js' }); await p.goto('file://' + ROOT + '/tests/erp-artifact-test.html'); await p.waitForTimeout(600);
-    await p.evaluate(inv => __seed('invoices', [inv]), JSON.parse(fs.readFileSync(D + '/invoices/PI-2026-0001.json'))); await p.waitForTimeout(300);
+    await p.evaluate(inv => __seed('invoices', [inv]), require('./fixture')('invoices/PI-2026-0001.json')); await p.waitForTimeout(300);
     if (lang === 'ar') { await p.click('#langBtn'); await p.waitForTimeout(300); }
     const r = await p.evaluate(() => new Promise(res => {
       let shift = 0, renders = 0, mut = 0; const o = window.render; window.render = render = function(){ renders++; return o.apply(this, arguments); };

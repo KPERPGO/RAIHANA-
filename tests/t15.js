@@ -19,7 +19,7 @@ const INV_FILE = path.join(TMP, 'invoice.xlsx'); XLSX.writeFile(wb, INV_FILE);
     const p = await b.newPage({ viewport: { width: w, height: h } }); const errs = []; p.on('pageerror', e => errs.push('PAGEERR ' + e.message));
     await p.route('**/xlsx.full.min.js', r => r.fulfill({ path: XLSX_FILE, contentType: 'text/javascript' }));
     await p.addInitScript({ path: path.join(__dirname, 'fake.js') }); await p.goto('file://' + ROOT + '/tests/erp-artifact-test.html'); await p.waitForTimeout(700);
-    const rd = f => JSON.parse(fs.readFileSync(path.join(D, f)));
+    const rd = require('./fixture');
     await p.evaluate(([i, s]) => { __seed('suppliers', [s]); __seed('invoices', [i]); }, [rd('invoices/PI-2026-0001.json'), rd('suppliers/SUP-001.json')]); await p.waitForTimeout(400);
     if (lang === 'ar') { await p.click('#langBtn'); await p.waitForTimeout(300); }
     const tag = `[${w} ${lang}]`;

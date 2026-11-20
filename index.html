@@ -341,7 +341,7 @@ header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 @media (max-width:560px){header.top .in{gap:8px;padding-block:8px}.logo{width:28px;height:28px}.scr{font-size:16px}.hbtn{padding:0 10px}#addBtn{font-size:0;width:40px;padding:0;justify-content:center}#addBtn::before{content:"+";font-size:22px;font-weight:500}#staffBar .clock{display:none}}
 @media (max-width:360px){.bn{display:none}}
 .paybtn{padding:16px!important;font-size:17px}
-@media print{body{padding:0!important;background:#fff}body > *:not(#printArea){display:none!important}#printArea{display:block!important}#printArea #receipt{max-width:72mm!important;margin:0!important;padding:0!important}}
+@media print{body{padding:0!important;background:#fff}body > *:not(#printArea){display:none!important}#printArea{display:block!important}#printArea #receipt{width:72mm;max-width:72mm!important;margin:0!important;padding:0!important}#printArea[data-paper="58"] #receipt{width:48mm;max-width:48mm!important;font-size:11px!important}@page{margin:0}}
 </style>
 <div id="boot" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
   <div class="ring"><svg viewBox="0 0 120 120" width="132" height="132" aria-hidden="true"><defs><linearGradient id="bootG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--accent)"/><stop offset="1" style="stop-color:var(--accent2)"/></linearGradient></defs>
@@ -2379,7 +2379,16 @@ const debtOn = () => E.cfg.debtOn === true; // owner's rule (22 Oct 2026): no se
 // how a sale was paid. "split" = part card, part cash: the card part is kept on the sale, the rest is cash
 const payOf = s => { const t = n0(s.total); if (s.method === "debt") return {cash:0, card:0, debt:t};
   const card = s.method === "card" ? t : s.method === "split" ? Math.min(t, n0(s.card)) : 0; return {cash:t - card, card, debt:0}; };
-const payText = s => { const p = payOf(s); return s.method === "debt" ? "On debt" : s.method === "split" ? `Cash ${f0(p.cash)} + card ${f0(p.card)}` : s.method === "card" ? "Card" : "Cash"; };
+/* the non-cash part of a sale (method card, or the card part of split) is paid by card, Zain Cash or Qi card (s.via; old
+   sales have none and count as card). All three stay out of the cash box; they are only told apart in totals and on the receipt. */
+const VIA = {card:"Card", zain:"Zain Cash", qi:"Qi card"};
+const viaOf = s => VIA[s && s.via] ? s.via : "card", viaName = s => VIA[viaOf(s)];
+function viaTotals(ss, rets = []){ // non-cash sales by kind, less refunds given back the same way
+  const o = {card:0, zain:0, qi:0}; for (const s of ss) o[viaOf(s)] += payOf(s).card;
+  for (const m of rets) if (m.refundBy === "card") o[viaOf(E.sales.find(x => x.id === m.saleId))] -= n0(m.refund);
+  return o;
+}
+const payText = s => { const p = payOf(s), v = viaOf(s); return s.method === "debt" ? "On debt" : s.method === "split" ? `Cash ${f0(p.cash)} + ${v === "card" ? "card" : VIA[v]} ${f0(p.card)}` : s.method === "card" ? VIA[v] : "Cash"; };
 function custBalance(cid){
   const debt = E.sales.filter(s => !s.voided && s.method === "debt" && s.customerId === cid).reduce((a,s) => a + n0(s.total), 0)
     - refundsWhere(m => m.refundBy === "debt" && m.customerId === cid).reduce((a, m) => a + n0(m.refund), 0);
@@ -2394,7 +2403,8 @@ function cashParts(d, keep){ // d = null: any date (a shift can run past midnigh
   const exp = sum(E.expenses.filter(x => keep(x) && on(x) && x.fromCash !== false), x => x.amount);
   const debtSales = sum(E.sales.filter(s => keep(s) && on(s)), s => payOf(s).debt), cardSales = sum(E.sales.filter(s => keep(s) && on(s)), s => payOf(s).card);
   const ref = sum(E.moves.filter(m => keep(m) && m.saleId && on(m) && m.refundBy === "cash"), m => m.refund); // cash given back for returns
-  return {sales, cin, sup, exp, ref, debtSales, cardSales, expected: sales + cin - sup - exp - ref};
+  const via = viaTotals(E.sales.filter(s => keep(s) && on(s)));
+  return {sales, cin, sup, exp, ref, debtSales, cardSales, via, expected: sales + cin - sup - exp - ref};
 }
 const closeOf = d => E.closes.find(x => x.id === d) || null;
 // a closed day shows what it was closed with; sales, payments and cancels made after closing are shown apart ("after")
@@ -2432,7 +2442,7 @@ function salesStats(k){
   const items = {}; ss.forEach(s => (s.lines || []).forEach(l => { const x = items[l.pid] || (items[l.pid] = {pid:l.pid, name:l.name, qty:0, total:0, unit:l.unit}); x.total += n0(l.total); x.qty += n0(l.qty); }));
   const hours = Array(24).fill(0); ss.forEach(s => { const h = new Date(s.at || s.date).getHours(); if (isFinite(h)) hours[h] += n0(s.total); });
   const days = {}; ss.forEach(s => days[s.date] = (days[s.date] || 0) + n0(s.total));
-  return {from, to, count:ss.length, total, cash:ss.reduce((a,s) => a + payOf(s).cash, 0) - cashRef, card:ss.reduce((a,s) => a + payOf(s).card, 0) - cardRef, debt:ss.reduce((a,s) => a + payOf(s).debt, 0) - (refunds - cashRef - cardRef), refunds, disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
+  return {from, to, count:ss.length, total, cash:ss.reduce((a,s) => a + payOf(s).cash, 0) - cashRef, card:ss.reduce((a,s) => a + payOf(s).card, 0) - cardRef, debt:ss.reduce((a,s) => a + payOf(s).debt, 0) - (refunds - cashRef - cardRef), refunds, via:viaTotals(ss, rets), disc:ss.reduce((a,s) => a + n0(s.discount), 0), profit:total - cost, avg: ss.length ? total / ss.length : 0, top:Object.values(items).sort((a,b) => b.total - a.total).slice(0,5), hours, days, voided:E.sales.filter(s => s.voided && inPeriod(s, k)).length,
     byStaff:Object.values(ss.reduce((m, s) => { const id = s.staffId || "-", x = m[id] || (m[id] = {id, name:s.staffName || "No login", count:0, total:0}); x.count++; x.total += n0(s.total); return m; }, {})).sort((a,b) => b.total - a.total)};
 }
 /* quick buttons on Sell: the owner's pinned items come first and always keep their place. The other places go to the
@@ -2462,7 +2472,7 @@ function sellDash(){
     <div class="kpis">
       <div class="kpi lead"><span class="l">${k === "today" ? "Sold today" : k === "week" ? "Sold this week" : k === "month" ? "Sold this month" : "Sold in this time"}</span><span class="v num">${iqd(st.total)}</span><span class="l">${st.count} receipts · average ${iqd(st.avg)}</span></div>
       <div class="kpi"><span class="l">Cash</span><span class="v num">${iqd(st.cash)}</span></div>
-      ${st.card ? `<div class="kpi"><span class="l">Card</span><span class="v num">${iqd(st.card)}</span></div>` : ""}
+      ${Object.keys(VIA).filter(v => st.via[v]).map(v => `<div class="kpi"><span class="l">${VIA[v]}</span><span class="v num">${iqd(st.via[v])}</span></div>`).join("")}
       ${!debtOn() && !st.debt ? "" : `<div class="kpi"><span class="l">On debt</span><span class="v num" style="color:var(--${st.debt ? "warn" : "fg"})">${iqd(st.debt)}</span></div>`}
       <div class="kpi"><span class="l">Profit (after cost)</span><span class="v num" style="color:var(--good)">${iqd(st.profit)}</span><span class="l">${st.total ? "Margin " + PRICING.pctTxt(PRICING.marginPct(st.total, st.total - st.profit)) : "—"}</span></div>
       <div class="kpi"><span class="l">Discounts given</span><span class="v num">${iqd(st.disc)}</span>${st.voided ? `<span class="l">${st.voided} cancelled</span>` : ""}${st.refunds ? `<span class="l">Returns −${iqd(st.refunds)}</span>` : ""}</div>
@@ -2527,7 +2537,7 @@ function sellView(){
       <div class="r"><span>Subtotal</span><span class="num">${iqd(sub)}</span></div>
       ${disc ? `<div class="r"><span>Discount</span><span class="num">−${iqd(disc)}</span></div>` : ""}
       <div class="r big"><span>Total</span><span class="num">${iqd(total)}</span></div>
-      ${pay.method === "debt" ? `<div class="r"><span>On debt</span><span class="num">${iqd(total)}</span></div>` : `<div class="r" id="billCardRow" ${pay.card ? "" : "hidden"}><span>Card</span><span class="num" id="billCard">${iqd(pay.card)}</span></div><div class="r"><span>Cash</span><span class="num" id="billCash">${iqd(pay.cash)}</span></div>`}
+      ${pay.method === "debt" ? `<div class="r"><span>On debt</span><span class="num">${iqd(total)}</span></div>` : `<div class="r" id="billCardRow" ${pay.card ? "" : "hidden"}><span>${VIA[pay.via]}</span><span class="num" id="billCard">${iqd(pay.card)}</span></div><div class="r"><span>Cash</span><span class="num" id="billCash">${iqd(pay.cash)}</span></div>`}
     </div>` : ""}
   </section>`;
   // phone: one part at a time, with a switch at the bottom (Items / Invoice); wider screens show both and hide the switch
@@ -2541,15 +2551,15 @@ function sellView(){
    or taps All cash / All card. Cash received and change are for the cash part only. */
 function cartPay(total){
   const m = S.cartMeta.method;
-  if (m === "debt" && debtOn()) return {method:"debt", card:0, cash:0, over:false};
+  if (m === "debt" && debtOn()) return {method:"debt", card:0, cash:0, over:false, via:"card"};
   const typed = wIQD(n0(S.cartMeta.card)), card = m === "card" ? total : Math.max(0, Math.min(total, typed));
-  return {method: total > 0 && card >= total ? "card" : card > 0 ? "split" : "cash", card, cash:total - card, over: m !== "card" && typed > total};
+  return {method: total > 0 && card >= total ? "card" : card > 0 ? "split" : "cash", card, cash:total - card, over: m !== "card" && typed > total, via:viaOf(S.cartMeta)};
 }
 function payForm(sub, total, pay){
   const debt = pay.method === "debt", m = S.cartMeta.method, given = S.cartMeta.given;
   return `<form id="sellForm" class="sum paybox" style="gap:10px">
-      <div class="chips paykind" role="group" aria-label="Payment"><button type="button" data-xpay="cash" aria-pressed="${!debt && pay.method === "cash"}">All cash</button><button type="button" data-xpay="card" aria-pressed="${!debt && m === "card"}">All card</button>${debtOn() ? `<button type="button" data-xpay="debt" aria-pressed="${debt}">On debt (دين)</button>` : ""}</div>
-      ${debt ? "" : `<div class="grid2"><label>Card amount (IQD)<input id="xCard" class="num" inputmode="numeric" placeholder="0" value="${esc(m === "card" ? total : S.cartMeta.card ?? "")}"></label><label>Cash part<input id="xCashPart" class="num" value="${f0(pay.cash)}" disabled></label></div>
+      <div class="chips paykind" role="group" aria-label="Payment"><button type="button" data-xpay="cash" aria-pressed="${!debt && pay.method === "cash"}">All cash</button>${Object.keys(VIA).map(v => `<button type="button" data-xpay="${v}" aria-pressed="${!debt && m === "card" && pay.via === v}">All ${v === "card" ? "card" : VIA[v]}</button>`).join("")}${debtOn() ? `<button type="button" data-xpay="debt" aria-pressed="${debt}">On debt (دين)</button>` : ""}</div>
+      ${debt ? "" : `<div class="grid2"><label>Non-cash part paid by<select id="xVia">${Object.keys(VIA).map(v => `<option value="${v}" ${pay.via === v ? "selected" : ""}>${VIA[v]}</option>`).join("")}</select></label><label>${pay.via === "card" ? "Card amount (IQD)" : VIA[pay.via] + " amount (IQD)"}<input id="xCard" class="num" inputmode="numeric" placeholder="0" value="${esc(m === "card" ? total : S.cartMeta.card ?? "")}"></label><label>Cash part<input id="xCashPart" class="num" value="${f0(pay.cash)}" disabled></label></div>
       <p class="err" id="xCardErr">${pay.over ? `The card amount is more than the total (${esc(f0(total))} IQD).` : ""}</p>
       <div class="grid2" ${pay.cash > 0 ? "" : "hidden"} id="xCashRow"><label>Cash received (IQD)<input id="xGiven" class="num" inputmode="numeric" value="${esc(given ?? "")}"></label><label>Change to give back<input id="xChange" class="num" value="${isNum(given) && given >= pay.cash ? (given - pay.cash).toLocaleString("en-US") : ""}" disabled></label></div>`}
       ${(() => { const pct = S.cartMeta.discMode === "pct"; return `<div class="discrow"><label>${pct ? "Discount (%)" : "Discount (IQD)"}<input id="xDisc" class="num" inputmode="decimal" value="${esc((pct ? S.cartMeta.discPct : S.cartMeta.disc) ?? "")}"></label>
@@ -2690,7 +2700,7 @@ function moneyView(){
   const d = today(), dc = dayCash(d), cl = E.closes.find(x => x.id === d), mm = monthMoney(S.moneyM);
   const exps = E.expenses.filter(x => !x.voided && ym(x.date) === S.moneyM).sort((a,b) => (b.date || "").localeCompare(a.date || ""));
   return `<section class="sec"><div class="sechead"><h2>Cash box today · ${esc(d)}</h2></div>
-    <div class="sum"><div class="r"><span>Cash sales</span><span class="num">${iqd(dc.sales)}</span></div><div class="r"><span>Customers paid debt</span><span class="num">+${iqd(dc.cin)}</span></div><div class="r"><span>Paid to suppliers in cash</span><span class="num">−${iqd(dc.sup)}</span></div><div class="r"><span>Expenses from the box</span><span class="num">−${iqd(dc.exp)}</span></div><div class="r big"><span>Cash that should be in the box</span><span class="num">${iqd(dc.expected)}</span></div><div class="r"><span>Sold on debt today (not in the box)</span><span class="num">${iqd(dc.debtSales)}</span></div><div class="r"><span>Paid by card today (not in the box)</span><span class="num">${iqd(dc.cardSales)}</span></div>
+    <div class="sum"><div class="r"><span>Cash sales</span><span class="num">${iqd(dc.sales)}</span></div><div class="r"><span>Customers paid debt</span><span class="num">+${iqd(dc.cin)}</span></div><div class="r"><span>Paid to suppliers in cash</span><span class="num">−${iqd(dc.sup)}</span></div><div class="r"><span>Expenses from the box</span><span class="num">−${iqd(dc.exp)}</span></div><div class="r big"><span>Cash that should be in the box</span><span class="num">${iqd(dc.expected)}</span></div><div class="r"><span>Sold on debt today (not in the box)</span><span class="num">${iqd(dc.debtSales)}</span></div>${Object.keys(VIA).filter(v => v === "card" || dc.via[v]).map(v => `<div class="r"><span>${({card:"Paid by card today (not in the box)", zain:"Paid by Zain Cash today (not in the box)", qi:"Paid by Qi card today (not in the box)"})[v]}</span><span class="num">${iqd(dc.via[v])}</span></div>`).join("")}
     ${dc.closed && dc.after ? `<div class="r"><span>Changes after closing (new sales, payments, cancels)</span><span class="num" style="color:var(--warn)">${dc.after > 0 ? "+" : "−"}${iqd(Math.abs(dc.after))}</span></div>` : ""}</div>
     <form id="closeForm" class="sum" style="gap:10px"><b>Close the day</b><label>Cash counted in the box (IQD)<input id="clAmt" class="num" inputmode="numeric" value="${cl ? esc(cl.counted) : ""}" required></label>${cl ? `<p class="note">Closed${cl.lastBy ? " by " + esc(whoName(cl.lastBy)) : ""}: difference <b class="num" style="color:var(--${Math.abs(cl.diff) <= TOL ? "good" : "bad"})">${iqd(cl.diff)}</b></p>` : ""}<label>Note<input id="clNote" value="${esc(cl?.note || "")}"></label><button type="submit">${cl ? "Update day close" : "Save day close"}</button></form></section>
   <section class="sec"><div class="sechead"><h2>Profit by month</h2><input id="moneyM" type="month" value="${esc(S.moneyM)}" style="width:auto"></div>
@@ -2714,6 +2724,7 @@ function settingsView(){
   const sy = window.ERP_SYNC, c = sy?.cfg();
   return `<section class="sec"><h2>Settings</h2>
     <form id="cfgForm" class="sum" style="gap:10px"><div class="grid2 stack"><label>Pharmacy name on receipts<input id="cfgName" value="${esc(E.cfg.name || "صيدلية ريحانة · Raihana Pharmacy")}"></label><label>Phone on receipts<input id="cfgPhone" value="${esc(E.cfg.phone || "")}"></label></div>
+      <label>Receipt printer paper<select id="sPaper"><option value="80" ${PAPER() === "80" ? "selected" : ""}>80 mm (wide)</option><option value="58" ${PAPER() === "58" ? "selected" : ""}>58 mm (small)</option></select></label>
       <label>Warn about chronic pickups this many days ahead<input id="sDays" class="num" inputmode="numeric" value="${ALERT_DAYS()}"></label>
       <label class="check"><input type="checkbox" id="sDebt" ${debtOn() ? "checked" : ""}> Allow selling on debt (دين)</label>
       <label class="check"><input type="checkbox" id="sPinOn" ${pinOn() ? "checked" : ""}> Ask for a PIN to sign in and for owner approvals</label>
@@ -3419,13 +3430,15 @@ async function saveSaleNow(){
   let approvedBy = null; if (why.length && (!isOwner() || overs)){ approvedBy = await ownerOK(why, {always:overs}); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
   if (customerId === "__new"){ customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
   const id = newId("SL"), d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
-  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, ...(disc && S.cartMeta.discMode === "pct" ? {discPct:n0(S.cartMeta.discPct)} : {}), total:sub - disc, method, ...(method === "split" ? {card:pay.card, cash:pay.cash} : {}), customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - pay.cash} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
+  const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, ...(disc && S.cartMeta.discMode === "pct" ? {discPct:n0(S.cartMeta.discPct)} : {}), total:sub - disc, method, ...(method === "split" ? {card:pay.card, cash:pay.cash} : {}), ...((method === "card" || method === "split") && pay.via !== "card" ? {via:pay.via} : {}), customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - pay.cash} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
   try {
     await write("sales/" + id, sale);
     if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) await write("chronic/" + ch.id, {given:{...(ch.given || {}), [ym(d)]:id}}, true); }
     closeTab(S.tabAt); render(); toast(sale.change > 0 ? `Sale saved. Give back ${f0(sale.change)} IQD.` : "Sale saved."); receiptSheet(id, sale);
   } catch(x){ err.textContent = x.message; }
 }
+const viaPaid = (s, split) => ({card:["Paid by card", "Paid by cash and card"], zain:["Paid by Zain Cash", "Paid by cash and Zain Cash"], qi:["Paid by Qi card", "Paid by cash and Qi card"]})[viaOf(s)][split ? 1 : 0];
+const PAPER = () => E.cfg.paper === "58" ? "58" : "80"; // receipt printer roll width; 80 mm prints 72 mm wide, 58 mm prints 48 mm
 function receiptHtml(s){
   const cu = E.customers.find(c => c.id === s.customerId);
   return `<div id="receipt" style="font-family:var(--mono);font-size:13px;background:#fff;color:#000;padding:12px;border-radius:8px;max-width:320px;margin:0 auto">
@@ -3434,9 +3447,9 @@ function receiptHtml(s){
     ${(s.lines || []).map(l => `<div>${esc(l.name)}</div><div style="display:flex;justify-content:space-between"><span>${l.qty} ${esc(l.unit)} × ${Math.round(l.price).toLocaleString("en-US")}</span><span>${Math.round(l.total).toLocaleString("en-US")}</span></div>`).join("")}<hr>
     ${s.discount ? `<div style="display:flex;justify-content:space-between"><span>Discount${s.discPct ? ` ${s.discPct}%` : ""}</span><span>−${Math.round(s.discount).toLocaleString("en-US")}</span></div>` : ""}
     <div style="display:flex;justify-content:space-between;font-weight:600"><span>Total IQD</span><span>${Math.round(s.total).toLocaleString("en-US")}</span></div>
-    ${s.method === "split" ? `<div style="display:flex;justify-content:space-between"><span>Card</span><span>${Math.round(payOf(s).card).toLocaleString("en-US")}</span></div>${isNum(s.given) ? "" : `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(payOf(s).cash).toLocaleString("en-US")}</span></div>`}` : ""}
+    ${s.method === "split" ? `<div style="display:flex;justify-content:space-between"><span>${viaName(s)}</span><span>${Math.round(payOf(s).card).toLocaleString("en-US")}</span></div>${isNum(s.given) ? "" : `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(payOf(s).cash).toLocaleString("en-US")}</span></div>`}` : ""}
     ${isNum(s.given) ? `<div style="display:flex;justify-content:space-between"><span>Cash</span><span>${Math.round(s.given).toLocaleString("en-US")}</span></div><div style="display:flex;justify-content:space-between"><span>Change</span><span>${Math.round(s.change).toLocaleString("en-US")}</span></div>` : ""}
-    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : s.method === "card" ? `Paid by card${cu ? " · " + esc(cu.name) : ""}` : s.method === "split" ? `Paid by cash and card${cu ? " · " + esc(cu.name) : ""}` : `Paid cash${cu ? " · " + esc(cu.name) : ""}`}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
+    <div>${s.method === "debt" ? `On debt: ${esc(cu?.name || "")}` : s.method === "card" ? `${viaPaid(s)}${cu ? " · " + esc(cu.name) : ""}` : s.method === "split" ? `${viaPaid(s, true)}${cu ? " · " + esc(cu.name) : ""}` : `Paid cash${cu ? " · " + esc(cu.name) : ""}`}</div><div style="text-align:center;margin-top:6px">شكراً لزيارتكم</div></div>`;
 }
 function receiptSheet(id, fresh){
   const s = fresh || E.sales.find(x => x.id === id); if (!s) return;
@@ -3460,8 +3473,8 @@ function returnSheet(id){
     ${(s.lines || []).map((l, i) => { const left = r6(n0(l.qty) - returnedOf(s.id, i)); return `<label><span>${esc(l.name)}</span> <span class="note">sold <span class="num">${l.qty}</span> ${esc(l.unit)}${left < n0(l.qty) ? ` · <span class="num">${left}</span> can still come back` : ""}</span><input class="num" inputmode="numeric" data-xrq="${i}" placeholder="0" ${left <= 0 ? "disabled" : ""}></label>`; }).join("")}
     <label>What happens to the items<select id="rWhere"><option value="shelf">Back on the shelf (stock goes back)</option><option value="damaged">Damaged or opened (stock stays out)</option></select></label>
     <label>Reason<input id="rReason"></label>
-    ${s.method === "split" ? `<label>Give the refund back by<select id="rBy"><option value="cash">Cash, from the cash box</option><option value="card">Card</option></select></label>` : ""}
-    <p class="note"><span>${s.method === "split" ? `This receipt was paid ${esc(payText(s))} IQD.` : s.method === "debt" ? "The refund comes off the customer's debt." : s.method === "card" ? "The refund goes back to the customer's card, not from the cash box." : "The refund is paid from the cash box."}</span> <span>Needs the owner's PIN.</span></p>
+    ${s.method === "split" ? `<label>Give the refund back by<select id="rBy"><option value="cash">Cash, from the cash box</option><option value="card">${viaName(s)}</option></select></label>` : ""}
+    <p class="note"><span>${s.method === "split" ? `This receipt was paid ${esc(payText(s))} IQD.` : s.method === "debt" ? "The refund comes off the customer's debt." : s.method === "card" ? ({card:"The refund goes back to the customer's card, not from the cash box.", zain:"The refund goes back to the customer's Zain Cash, not from the cash box.", qi:"The refund goes back to the customer's Qi card, not from the cash box."})[viaOf(s)] : "The refund is paid from the cash box."}</span> <span>Needs the owner's PIN.</span></p>
     <p class="err" id="rErr"></p><button type="submit" class="primary">Save return</button></form>`);
 }
 async function saveReturn(f){
@@ -3596,10 +3609,10 @@ document.addEventListener("click", ev => {
   if (d.xphotodel){ const f = t.closest("form"); S.prodPhoto = {id:f?.dataset.id, v:null}; const b = $("#pPhotoBox"); if (b) b.innerHTML = ""; t.remove(); return; }
   if (d.xpane){ S.posPane = d.xpane; render(); $("#view")?.scrollTo(0, 0); return; }
   if (d.xdisc){ if ((S.cartMeta.discMode || "iqd") !== d.xdisc){ S.cartMeta.discMode = d.xdisc; S.cartMeta.disc = null; S.cartMeta.discPct = null; saveCart(); render(); setTimeout(() => $("#xDisc")?.focus(), 0); } return; }
-  if (d.xpay){ S.cartMeta.method = d.xpay; if (d.xpay !== "debt") S.cartMeta.card = null; saveCart(); render(); return; }
+  if (d.xpay){ const v = VIA[d.xpay] ? d.xpay : null; S.cartMeta.method = v ? "card" : d.xpay; if (v) S.cartMeta.via = v; if (d.xpay !== "debt") S.cartMeta.card = null; saveCart(); render(); return; }
   if (d.xsale){ receiptSheet(d.xsale); return; }
   if (d.xsaleret){ returnSheet(d.xsaleret); return; }
-  if (d.xprint){ const s = E.sales.find(x => x.id === d.xprint); if (!s) return; const pa = $("#printArea"); pa.innerHTML = receiptHtml(s); try { window.print(); } catch {} return; }
+  if (d.xprint){ const s = E.sales.find(x => x.id === d.xprint); if (!s) return; const pa = $("#printArea"); pa.dataset.paper = PAPER(); pa.innerHTML = receiptHtml(s); try { window.print(); } catch {} return; }
   if (d.xsalevoid){ if (t.dataset.sure !== "1"){ t.dataset.sure = "1"; t.textContent = "Confirm cancel"; t.insertAdjacentHTML("beforebegin", `<label style="flex-basis:100%">Reason for cancelling<input id="voidReason"></label>`); if (S.lang === "ar") translate(t.parentElement); $("#voidReason").focus(); return; }
     cancelSale(d.xsalevoid); return; }
   if (d.xprod){ if (!canUse("stock")){ toast("The owner has not given you this screen."); return; } prodSheet(d.xprod); return; }
@@ -3652,6 +3665,7 @@ document.addEventListener("change", ev => {
   if (d.xq !== undefined || d.xp !== undefined || t.id === "xDisc"){ render(); return; }
   if (d.xmode !== undefined){ const c = S.cart[+d.xmode], p = catalog().find(x => x.id === c.pid); c.mode = t.value; c.price = p ? lvlPrice(p, c.mode) ?? null : null; saveCart(); render(); return; }
   if (t.id === "xCust"){ S.cartMeta.customerId = t.value; saveCart(); render(); return; }
+  if (t.id === "xVia"){ S.cartMeta.via = t.value; saveCart(); render(); return; }
   if (d.xcm !== undefined){ S.chrMeds[+d.xcm].mode = t.value; drawChrMeds(); return; }
   if (t.id === "prRound"){ S.pr.round = +t.value; prSave(); return; }
   if (d.xprck){ const set = new Set(S.pr.sel); t.checked ? set.add(d.xprck) : set.delete(d.xprck); S.pr.sel = [...set]; prSave(); const b = document.querySelector('[data-xprapply="sel"]'); if (b) b.textContent = `Apply to ticked (${set.size})`; return; }
@@ -3769,7 +3783,7 @@ document.addEventListener("submit", async ev => {
     }
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
-      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, pinOff: !$("#sPinOn").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved(), botbar: [0, 1, 2].map(i => $("#sBot" + i).value)}); toast("Settings saved."); botBar(); return;
+      await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), paper:$("#sPaper").value, alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, pinOff: !$("#sPinOn").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved(), botbar: [0, 1, 2].map(i => $("#sBot" + i).value)}); toast("Settings saved."); botBar(); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -3807,7 +3821,7 @@ window.extraSheets = function(add){
   baseExtraSheets?.(add);
   const cat = catalog(), used = usedMap();
   add("Stock", cat.map(p => { const s = stockOf(p, used), u = usageOf(p, s); return {"Item":p.name, "Dose":p.strength || "", "Form":p.form || "", "Barcode":p.barcode, "Packaging":levelText(p), "Sell price middle unit (IQD)":p.m?.sellMid ?? "", "Sell price smallest unit (IQD)":p.m?.sellSub ?? "", "In stock":qtyText(p, s.good), "In stock (small units)":s.good, "Expired":s.exp, "Next expiry":s.next?.expiry || "", "Sold per day (small units)":Math.round(u.day * 100) / 100, "Sold in 30 days (small units)":r6(u.sold30), "Safe level (small units)":u.safe ?? "", "Fast-moving":u.fast ? "yes" : "", "Stagnant":u.stagnant ? "yes" : "", "Sell price box (IQD)":p.sellBox ?? "", "Cost per box (IQD)":(c => isNum(c) ? Math.round(c) : "")(lastCostBox(p)), "Markup %":(c => { const v = PRICING.markupPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Margin %":(c => { const v = PRICING.marginPct(p.sellBox, c); return isNum(v) ? Math.round(v * 10) / 10 : ""; })(lastCostBox(p)), "Value at cost (IQD)":Math.round(s.value), "Refrigerated":p.fridge ? "Yes" : "No"}; }));
-  add("Sales", E.sales.flatMap(s => (s.lines || []).map(l => ({"Receipt":s.no, "Date":s.date, "Time":hm(s.at), "Pharmacist":s.staffName || "", "Item":l.name, "Qty":l.qty, "Unit":l.unit, "Price (IQD)":l.price, "Line total (IQD)":l.total, "Cost (IQD)":Math.round((l.alloc || []).reduce((a,x) => a + n0(x.q) * n0(x.cost), 0)), "Batches":(l.alloc || []).map(a => `${a.batch || "-"} × ${a.q}`).join("; "), "Receipt discount (IQD)":s.discount, "Receipt total (IQD)":s.total, "Payment":s.method === "debt" ? "Debt" : s.method === "card" ? "Card" : s.method === "split" ? "Cash and card" : "Cash", "Paid by card (IQD)":payOf(s).card, "Paid in cash (IQD)":payOf(s).cash, "Customer":E.customers.find(c => c.id === s.customerId)?.name || "", "Cancelled":s.voided ? "Yes" : ""}))));
+  add("Sales", E.sales.flatMap(s => (s.lines || []).map(l => ({"Receipt":s.no, "Date":s.date, "Time":hm(s.at), "Pharmacist":s.staffName || "", "Item":l.name, "Qty":l.qty, "Unit":l.unit, "Price (IQD)":l.price, "Line total (IQD)":l.total, "Cost (IQD)":Math.round((l.alloc || []).reduce((a,x) => a + n0(x.q) * n0(x.cost), 0)), "Batches":(l.alloc || []).map(a => `${a.batch || "-"} × ${a.q}`).join("; "), "Receipt discount (IQD)":s.discount, "Receipt total (IQD)":s.total, "Payment":s.method === "debt" ? "Debt" : s.method === "card" ? viaName(s) : s.method === "split" ? "Cash and " + (viaOf(s) === "card" ? "card" : viaName(s)) : "Cash", "Paid by card (IQD)":payOf(s).card, "Paid in cash (IQD)":payOf(s).cash, "Customer":E.customers.find(c => c.id === s.customerId)?.name || "", "Cancelled":s.voided ? "Yes" : ""}))));
   add("Customers", E.customers.filter(c => !c.deleted).map(c => { const b = custBalance(c.id); return {"Name":c.name, "Phone":c.phone || "", "Bought on debt (IQD)":b.debt, "Paid (IQD)":b.paid, "Owes (IQD)":b.bal}; }));
   add("Chronic cards", E.chronic.filter(c => !c.deleted).flatMap(c => (c.meds || []).map(m => { const p = cat.find(x => x.id === m.pid); return {"Patient":c.name, "Phone":c.phone || "", "Day each month":c.day, "Next pickup":chrDate(c), "Active":c.active !== false ? "Yes" : "No", "Medicine":p ? pname(p) : m.pid, "Qty per month":m.qty, "Unit":p ? unitName(p, m.mode || "box") : "box", "In stock":p ? qtyText(p, stockOf(p, used).good) : ""}; })));
   add("Expenses", E.expenses.map(x => ({"Date":x.date, "Type":x.category, "Amount (IQD)":x.amount, "From cash box":x.fromCash === false ? "No" : "Yes", "Note":x.note || "", "Cancelled":x.voided ? "Yes" : ""})));
@@ -4190,7 +4204,7 @@ function bkEntries(){
     for (const l of lines){ let dr = n0(l.dr), cr = n0(l.cr); if (dr < 0){ cr -= dr; dr = 0; } if (cr < 0){ dr -= cr; cr = 0; } if (dr || cr) ls.push({acct:l.acct, dr, cr, tag:l.tag || ""}); }
     if (ls.length) out.push({date:date || "", src, ref, desc, lines:ls, id:src + ref + out.length}); };
   for (const s of E.sales) if (!s.voided){ const p = payOf(s), c = saleCost(s);
-    add(s.date, "Sale", "#" + (s.no || s.id), s.method === "debt" ? "Sale on debt" : s.method === "card" ? "Sale paid by card" : s.method === "split" ? "Sale paid by cash and card" : "Sale paid in cash", [{acct:"1000", dr:p.cash}, {acct:"1010", dr:p.card}, {acct:"1100", dr:p.debt}, {acct:"4000", cr:s.total}, {acct:"5000", dr:c}, {acct:"1200", cr:c}]); }
+    add(s.date, "Sale", "#" + (s.no || s.id), s.method === "debt" ? "Sale on debt" : s.method === "card" || s.method === "split" ? "Sale p" + viaPaid(s, s.method === "split").slice(1) : "Sale paid in cash", [{acct:"1000", dr:p.cash}, {acct:"1010", dr:p.card}, {acct:"1100", dr:p.debt}, {acct:"4000", cr:s.total}, {acct:"5000", dr:c}, {acct:"1200", cr:c}]); }
   for (const m of refundsWhere(() => true)){ const a = m.refundBy === "card" ? "1010" : m.refundBy === "debt" ? "1100" : "1000", v = -n0(m.q) * n0(m.cost);
     add(m.date, "Return", "#" + (m.saleNo || m.saleId), "Customer return", [{acct:"4090", dr:m.refund}, {acct:a, cr:m.refund}, {acct:"1200", dr:v}, {acct:"5000", cr:v}]); }
   for (const inv of S.invoices) if (BOOKED.includes(inv.status)){ const t = calc(inv).total, sp = supplier(inv.supplierId);
@@ -4614,8 +4628,8 @@ function reportsOverview(){
   if (!canUse("reports")) return "";
   const m = S.repM || (S.repM = today().slice(0, 7)), money = canUse("money"), f = v => esc(iqd(v));
   const ss = E.sales.filter(s => !s.voided && ym(s.date) === m), mm = monthMoney(m);
-  const items = {}, staff = {}, pay = {cash:0, card:0, debt:0};
-  for (const s of ss){ const p = payOf(s); pay.cash += p.cash; pay.card += p.card; pay.debt += p.debt;
+  const items = {}, staff = {}, pay = {cash:0, debt:0, ...viaTotals(ss)};
+  for (const s of ss){ const p = payOf(s); pay.cash += p.cash; pay.debt += p.debt;
     const k = s.staffName || "No login"; staff[k] = (staff[k] || 0) + n0(s.total);
     for (const l of s.lines || []){ const x = items[l.pid] || (items[l.pid] = {name:l.name, qty:0, total:0, cost:0}); x.qty += n0(l.qty) * n0(l.per || 1); x.total += n0(l.total); x.cost += (l.alloc || []).reduce((b, a) => b + n0(a.q) * n0(a.cost), 0); } }
   const top = Object.values(items).sort((a, b) => b.total - a.total).slice(0, 10);
@@ -4624,7 +4638,7 @@ function reportsOverview(){
     cats:months.map((k, i) => ({label:chMonth(k), aria:k, attr:`data-xrepm="${k}"`, tip:`<b data-keep>${esc(chMonth(k, true))}</b>${tipRow("Sales", mms[i].sales)}${money ? tipRow(mms[i].net < 0 ? "Net loss" : "Net profit", mms[i].net) : ""}`}))});
   const charts = [year,
     chBars("Top 10 items by sales", top.map(x => ({label:x.name, v:x.total, cls:"c1"}))),
-    chBars("Sales by payment", [{label:"Cash", v:pay.cash, cls:"c1"}, {label:"Card", v:pay.card, cls:"c1"}, {label:"On debt", v:pay.debt, cls:"c2"}]),
+    chBars("Sales by payment", [{label:"Cash", v:pay.cash, cls:"c1"}, ...Object.keys(VIA).filter(v => v === "card" || pay[v]).map(v => ({label:VIA[v], v:pay[v], cls:"c1"})), {label:"On debt", v:pay.debt, cls:"c2"}]),
     chBars("Sales by staff", Object.entries(staff).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({label:k, v, cls:"c1"}))),
     money ? expenseChart(mm.byCat) : ""].filter(Boolean);
   const kpi = (l, v) => `<div class="kpi"><span class="l">${esc(l)}</span><span class="v num">${v}</span></div>`;
@@ -4650,6 +4664,16 @@ table.rep{min-width:0}table.rep td.n,table.rep th.n{white-space:nowrap}@media (m
 .linkbtn{all:unset;cursor:pointer;color:var(--accent);font-weight:600;white-space:nowrap}.linkbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .sec h3{font-size:14px;margin:14px 0 6px}
 </style>`);
+/* Arabic for receipt paper and the Zain Cash / Qi card payment kinds */
+for (const [k, v] of Object.entries({"Zain Cash":"زين كاش", "Qi card":"كي كارد", "All Zain Cash":"زين كاش بالكامل", "All Qi card":"كي كارد بالكامل", "Non-cash part paid by":"الجزء غير النقدي يُدفع بـ",
+  "Zain Cash amount (IQD)":"مبلغ زين كاش (دينار)", "Qi card amount (IQD)":"مبلغ كي كارد (دينار)", "Paid by Zain Cash":"مدفوع بزين كاش", "Paid by Qi card":"مدفوع بكي كارد",
+  "Paid by cash and Zain Cash":"مدفوع نقداً وزين كاش", "Paid by cash and Qi card":"مدفوع نقداً وكي كارد", "Paid by cash and card":"مدفوع نقداً وبالبطاقة",
+  "Sale paid by Zain Cash":"بيع مدفوع بزين كاش", "Sale paid by Qi card":"بيع مدفوع بكي كارد", "Sale paid by cash and Zain Cash":"بيع مدفوع نقداً وزين كاش", "Sale paid by cash and Qi card":"بيع مدفوع نقداً وكي كارد",
+  "Paid by Zain Cash today (not in the box)":"مدفوع بزين كاش اليوم (ليس في الصندوق)", "Paid by Qi card today (not in the box)":"مدفوع بكي كارد اليوم (ليس في الصندوق)",
+  "The refund goes back to the customer's Zain Cash, not from the cash box.":"يُرد المبلغ إلى زين كاش الزبون وليس من الصندوق.", "The refund goes back to the customer's Qi card, not from the cash box.":"يُرد المبلغ إلى كي كارد الزبون وليس من الصندوق.",
+  "Receipt printer paper":"ورق طابعة الوصل", "80 mm (wide)":"80 ملم (عريض)", "58 mm (small)":"58 ملم (صغير)"})) if (!AR[k]) AR[k] = v;
+AR_RX.push([/^Cash ([\d,]+) \+ Zain Cash ([\d,]+)$/, "نقد $1 + زين كاش $2"], [/^Cash ([\d,]+) \+ Qi card ([\d,]+)$/, "نقد $1 + كي كارد $2"],
+  [/^This receipt was paid Cash ([\d,]+) \+ Zain Cash ([\d,]+) IQD\.$/, "دُفع هذا الوصل: نقد $1 + زين كاش $2 دينار."], [/^This receipt was paid Cash ([\d,]+) \+ Qi card ([\d,]+) IQD\.$/, "دُفع هذا الوصل: نقد $1 + كي كارد $2 دينار."]);
 { const baseReports = window.reportsView || (() => ""); ERP_VIEWS.reports = () => reportsOverview() + reportsIndex() + baseReports(); }
 for (const [k, v] of Object.entries({"Overview":"نظرة عامة","Last 12 months":"آخر 12 شهراً","Top 10 items by sales":"أعلى 10 مواد مبيعاً","Sales by payment":"المبيعات حسب طريقة الدفع","Sales by staff":"المبيعات حسب الموظف",
   "Sales":"المبيعات","Receipts":"الوصولات","Average receipt":"متوسط الوصل","Net profit":"صافي الربح","Net loss":"صافي الخسارة","Cash":"نقداً","Card":"بطاقة","On debt":"دين","No login":"بدون تسجيل دخول",

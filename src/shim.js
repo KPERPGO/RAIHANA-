@@ -88,19 +88,25 @@
   const SYNC = window.ERP_SYNC = {
     cfg: () => lsGet("erp.sync", null),
     status: lsGet("erp.syncStatus", {state: "off"}),
-    set(st){ this.status = {...st, at: new Date().toISOString()}; lsSet("erp.syncStatus", this.status); window.render && window.render(); },
+    set(st){ this.status = {...st, at: new Date().toISOString()}; if (st.state === "ok") this.status.okAt = this.status.at; else if (this.lastOk()) this.status.okAt = this.lastOk(); lsSet("erp.syncStatus", this.status); window.render && window.render(); },
+    lastOk(){ return this.status?.okAt || lsGet("erp.syncStatus", {}).okAt || null; },
+    // the cloud refused this device's sign-in (password changed, or the session was ended): it needs the password again.
+    // Everything saved meanwhile stays on the device in the upload list and goes up after signing in.
+    signedOut(){ return !!this.cfg()?.signedOut; },
+    async relogin(password){ const c = this.cfg(); if (!c) throw new Error("Connect cloud sync first."); if (!password) throw new Error("Type the password.");
+      const keep = c.ver || 0; await this.login(c.url, c.anon, c.email, password, keep); },
     pending: () => dirty.size,
     t: null,
     soon(){ clearTimeout(this.t); this.t = setTimeout(() => this.run(), 1500); },
     // the pharmacy types these by hand: fix the usual slips (http, missing https, trailing slash, spaces) before using them
     cleanUrl(u){ u = String(u || "").trim().replace(/\s+/g, "").replace(/\/+$/, ""); if (u && !/^[a-z]+:\/\//i.test(u)) u = "https://" + u; return /^http:\/\/(?!localhost|127\.)/i.test(u) ? u.replace(/^http:/i, "https:") : u; },
-    async login(url, anon, email, password){
+    async login(url, anon, email, password, ver = 0){
       url = this.cleanUrl(url); anon = String(anon || "").trim(); email = String(email || "").trim();
       let r; try { r = await fetch(url + "/auth/v1/token?grant_type=password", {method: "POST", headers: {apikey: anon, "Content-Type": "application/json"}, body: JSON.stringify({email, password})}); }
       catch { throw new Error("Can't reach the cloud. Check the internet, and that the Project URL looks like https://xxxx.supabase.co"); }
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(/invalid login/i.test(j.error_description || j.msg || "") ? "Wrong email or password. Check them and try again." : r.status === 401 || /api key|apikey/i.test(j.message || j.msg || "") ? "The public key is not right. Copy the Publishable key again from Supabase." : (j.error_description || j.msg || "Sign-in failed. Check the Project URL, key, email and password."));
-      lsSet("erp.sync", {url, anon, email, token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, ver: 0});
+      lsSet("erp.sync", {url, anon, email, token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, ver});
       for (const [p, v] of cache) if (!v.__ver && !v.__deleted) dirty.add(p); lsSet("erp.dirty", [...dirty]); // a device with data joins the pharmacy: upload it
       lsSet("erp.userId", j.user?.id || me().id); lsSet("erp.userName", j.user?.user_metadata?.name || email);
       this.run();
@@ -122,15 +128,29 @@
     },
     clearConflicts(){ lsSet("erp.conflicts", 0); this.set({state: "ok"}); },
     logout(){ lsSet("erp.sync", null); this.set({state: "off"}); },
+    // Supabase gives each refresh token once: using an old one again ends the session on every device.
+    // So only one tab refreshes at a time, and it first takes the newest token another tab may have saved.
     async token(c){
       if (Date.now() < c.exp - 60000) return c.token;
-      const r = await fetch(c.url + "/auth/v1/token?grant_type=refresh_token", {method: "POST", headers: {apikey: c.anon, "Content-Type": "application/json"}, body: JSON.stringify({refresh_token: c.refresh})});
-      const j = await r.json(); if (!r.ok) throw new Error("Signed out. Sign in again in Settings.");
-      Object.assign(c, {token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000}); lsSet("erp.sync", c); return c.token;
+      const go = async () => {
+        const f = this.cfg(); if (f && f.refresh !== c.refresh) Object.assign(c, {token: f.token, refresh: f.refresh, exp: f.exp});
+        if (Date.now() < c.exp - 60000) return c.token;
+        let r; try { r = await fetch(c.url + "/auth/v1/token?grant_type=refresh_token", {method: "POST", headers: {apikey: c.anon, "Content-Type": "application/json"}, body: JSON.stringify({refresh_token: c.refresh})}); }
+        catch { throw new Error("Can't reach the cloud. It will try again by itself."); }
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.access_token){
+          if ([400, 401, 403].includes(r.status)){ const f2 = this.cfg(); if (f2){ f2.signedOut = true; lsSet("erp.sync", f2); } const e = new Error("Signed out of the cloud. Type the password again in Settings."); e.signedOut = true; throw e; }
+          throw new Error("The cloud is not answering (" + r.status + "). It will try again by itself.");
+        }
+        Object.assign(c, {token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000});
+        const f3 = this.cfg() || {}; lsSet("erp.sync", {...f3, token: c.token, refresh: c.refresh, exp: c.exp}); return c.token;
+      };
+      return navigator.locks?.request ? navigator.locks.request("erp-sync-token", go) : go();
     },
     busy: false,
     async run(){
       const c = this.cfg(); if (!c || this.busy) return;
+      if (c.signedOut){ if (this.status.state !== "signedout") this.set({state: "signedout", msg: "Signed out of the cloud. Type the password again in Settings."}); return; }
       if (!navigator.onLine){ this.set({state: "offline"}); return; }
       this.busy = true;
       try {
@@ -159,9 +179,9 @@
           for (const row of rows){ const cur = cache.get(row.path); if (!dirty.has(row.path) && (!cur || (cur.__ver || 0) < row.ver)) await put(row.path, {...row.data, __ver: row.ver}, true); since = Math.max(since, row.ver); top = Math.max(top, row.ver); }
           more = rows.length === 500;
         }
-        c.ver = top; lsSet("erp.sync", c);
+        const f = this.cfg(); if (f) lsSet("erp.sync", {...f, ver: Math.max(top, f.ver || 0)}); // write over the newest copy: another tab may have saved a newer sign-in token
         this.set(lsGet("erp.conflicts", 0) ? {state: "ok", conflicts: lsGet("erp.conflicts", 0)} : {state: "ok"});
-      } catch(e){ this.set({state: "error", msg: e.message}); }
+      } catch(e){ this.set(e.signedOut ? {state: "signedout", msg: e.message} : {state: "error", msg: e.message}); }
       finally { this.busy = false; }
     }
   };

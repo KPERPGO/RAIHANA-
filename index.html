@@ -324,6 +324,7 @@ header.top .in{display:flex;align-items:center;justify-content:space-between;gap
 .bt{display:grid;gap:1px;min-width:0}
 .bn{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bn .ar{color:var(--accent2)}
 .scr{display:flex;align-items:center;gap:7px;font-size:18px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#saveDot{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 56px);z-index:40;font-size:12.5px;font-weight:600;padding:4px 12px;border-radius:999px;background:var(--surface);color:var(--muted);border:1px solid var(--line);box-shadow:0 4px 14px rgba(16,36,61,.14);white-space:nowrap;max-width:calc(100vw - 32px);overflow:hidden;text-overflow:ellipsis;pointer-events:none}#saveDot.good{background:var(--good-bg);color:var(--good)}#saveDot.bad{background:var(--bad-bg);color:var(--bad);cursor:pointer;pointer-events:auto}#saveDot.wait{background:var(--warn-bg);color:var(--warn)}
 .netdot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 3px var(--good-bg)}.netdot.off{background:var(--muted);box-shadow:0 0 0 3px var(--sunk)}
 header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 .hbtn{min-height:40px!important;height:40px;padding:0 12px;border-radius:10px;font-size:14px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line)}
@@ -376,6 +377,7 @@ window.BOOT = (function(){
   </div>
   <input type="file" id="photoIn" accept="image/jpeg,image/png,image/webp" hidden>
 </div></header>
+<div id="saveDot" role="status" aria-live="polite" hidden></div>
 <div class="shell"><nav class="tabs" aria-label="Sections"><div class="in">
   <button type="button" class="navmenu" data-xmenu="1" aria-label="Show or hide screens" aria-expanded="true"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Menu</span></button>
   <div class="tl">
@@ -433,39 +435,74 @@ window.BOOT = (function(){
     r.onsuccess = () => { const d = r.result; d.onclose = () => { dbp = null; }; d.onversionchange = () => { d.close(); dbp = null; }; res(d); };
     r.onerror = () => { dbp = null; rej(r.error); };
   }));
-  const tx1 = (store, mode, fn) => idb().then(d => new Promise((res, rej) => { const t = d.transaction(store, mode); const out = fn(t.objectStore(store)); t.oncomplete = () => res(out && out.result !== undefined ? out.result : out); t.onerror = t.onabort = () => rej(t.error || new DOMException("aborted", "AbortError")); }));
+  const tx1 = (store, mode, fn) => idb().then(d => new Promise((res, rej) => { const t = d.transaction(store, mode); let out;
+    try { out = fn(t.objectStore(store)); } catch(e){ try { t.abort(); } catch {} return rej(e); } // nothing of a half-written group is kept
+    t.oncomplete = () => res(out && out.result !== undefined ? out.result : out); t.onerror = t.onabort = () => rej(t.error || new DOMException("aborted", "AbortError")); }));
   const isFull = e => e && (e.name === "QuotaExceededError" || /quota/i.test(e.message || ""));
   const tx = (store, mode, fn) => tx1(store, mode, fn).catch(e => { if (isFull(e)) throw e; try { dbp && dbp.then(d => d.close(), () => {}); } catch {} dbp = null; return tx1(store, mode, fn); }); // one retry on a fresh connection
-  const cache = new Map(), subs = new Map();
+  // every record by path, and the same records grouped by collection (a screen list reads only its own collection)
+  const cache = new Map(), byColl = new Map(), subs = new Map();
+  const collOf = p => p.split("/")[0];
+  const cset = (p, v) => { cache.set(p, v); let m = byColl.get(collOf(p)); if (!m) byColl.set(collOf(p), m = new Map()); m.set(p, v); };
+  const cdel = p => { cache.delete(p); byColl.get(collOf(p))?.delete(p); };
   const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
   const readAll = () => idb().then(d => new Promise((res, rej) => {
     const rq = d.transaction("docs").objectStore("docs").openCursor();
-    rq.onsuccess = () => { const c = rq.result; if (c){ cache.set(c.key, c.value); c.continue(); } else res(); };
+    rq.onsuccess = () => { const c = rq.result; if (c){ cset(c.key, c.value); c.continue(); } else res(); };
     rq.onerror = () => rej(rq.error);
   }));
   const loaded = readAll().catch(() => { dbp = null; return readAll(); }).catch(e => console.error("local load failed", e));
   const strip = v => { const o = {...v}; delete o.__ver; return o; };
   const clean = v => { const o = {...v}; delete o.__deleted; delete o.__rev; delete o.__ver; return o; };
-  const snap = coll => ({docs: [...cache].filter(([p, v]) => p.split("/")[0] === coll && !v.__deleted).map(([p, v]) => ({id: p.split("/").slice(1).join("/"), data: () => clean(v)}))});
+  const snap = coll => ({docs: [...(byColl.get(coll) || [])].filter(([, v]) => !v.__deleted).map(([p, v]) => ({id: p.split("/").slice(1).join("/"), data: () => clean(v)}))});
   const emit = coll => (subs.get(coll) || []).forEach(cb => { try { cb(snap(coll)); } catch(e){ console.error(e); } });
   let dirty = new Set(lsGet("erp.dirty", []));
-  async function put(path, val, fromSync){
-    const had = cache.has(path), prev = cache.get(path);
-    cache.set(path, val);
-    try { await tx("docs", "readwrite", s => s.put(val, path)); }
-    catch(e){ had ? cache.set(path, prev) : cache.delete(path); // the screen must not show what the phone did not keep
+  // the fields an "update" changed, kept until the change reaches the cloud: {path: {field: [before, after]}}.
+  // If another device saved the same record first, these fields are put on top of its copy (when it did not change them too).
+  let patches = lsGet("erp.patches", {});
+  const savePatches = () => lsSet("erp.patches", patches);
+  // several records saved together in ONE device transaction: all of them are kept, or none (a sale and its customer, a return's stock lines)
+  async function putMany(list, fromSync){
+    if (!list.length) return;
+    const prev = list.map(([p]) => [p, cache.has(p), cache.get(p)]);
+    list.forEach(([p, v]) => cset(p, v));
+    try { await tx("docs", "readwrite", s => { list.forEach(([p, v]) => s.put(v, p)); }); }
+    catch(e){ prev.reverse().forEach(([p, had, v]) => had ? cset(p, v) : cdel(p)); // the screen must not show what the phone did not keep
       console.error("local save failed", e); window.ERP_STORE && ERP_STORE.check(); throw isFull(e) ? Object.assign(new Error("Storage is full on this device."), {code: "quota_exceeded"}) : Object.assign(new Error("Couldn't save on this device."), {code: "local_failed", detail: (e && (e.name + ": " + e.message)) || ""}); }
-    if (!fromSync){ dirty.add(path); lsSet("erp.dirty", [...dirty]); SYNC.soon(); }
-    emit(path.split("/")[0]);
+    if (!fromSync){ list.forEach(([p]) => dirty.add(p)); lsSet("erp.dirty", [...dirty]); SYNC.soon(); }
+    new Set(list.map(([p]) => collOf(p))).forEach(emit);
+  }
+  const put = (path, val, fromSync) => putMany([[path, val]], fromSync);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const STAMPS = ["lastBy", "lastAt", "staffBy", "staffByName", "staffAt"]; // who saved last and when: never a reason to drop a change
+  // what one write turns into on this device: [path, stored value]; "update" also notes the fields it changed
+  function prep({path, data, op}){
+    const cur = cache.get(path), ver = cur?.__ver || 0;
+    if (op === "update"){
+      if (!cur || cur.__deleted) throw Object.assign(new Error("not found"), {code: "not_found"});
+      const pt = patches[path] ? {...patches[path]} : dirty.has(path) ? null : {}; // a full save is already waiting: that one goes up whole
+      if (pt){ for (const k of Object.keys(data)) pt[k] = [k in pt ? pt[k][0] : cur[k], data[k]]; }
+      return [[path, {...cur, ...data, __rev: Date.now(), __ver: ver}], pt];
+    }
+    return [[path, op === "delete" ? {__deleted: true, __rev: Date.now(), __ver: ver} : {...data, __rev: Date.now(), __ver: ver}], null];
+  }
+  async function writeOps(ops){
+    await loaded;
+    const done = ops.map(prep), had = {...patches};
+    done.forEach(([[p], pt], i) => { if (pt) patches[p] = pt; else delete patches[p]; });
+    try { await putMany(done.map(x => x[0])); } catch(e){ patches = had; throw e; }
+    savePatches();
   }
   const db = {
     doc(path){ return {
-      set: async data => { await loaded; return put(path, {...data, __rev: Date.now(), __ver: cache.get(path)?.__ver || 0}); },
-      update: async data => { await loaded; const cur = cache.get(path); if (!cur || cur.__deleted) throw Object.assign(new Error("not found"), {code: "not_found"}); return put(path, {...cur, ...data, __rev: Date.now(), __ver: cur.__ver || 0}); },
-      delete: async () => { await loaded; return put(path, {__deleted: true, __rev: Date.now(), __ver: cache.get(path)?.__ver || 0}); },
+      set: data => writeOps([{path, data, op: "set"}]),
+      update: data => writeOps([{path, data, op: "update"}]),
+      delete: () => writeOps([{path, op: "delete"}]),
       get: async () => { await loaded; const v = cache.get(path); return {exists: !!v && !v.__deleted, id: path.split("/").pop(), data: () => v ? clean(v) : undefined}; }
     }; },
+    // [{path, data, merge}]: saved together, all or nothing
+    batch: list => writeOps(list.map(x => ({path: x.path, data: x.data, op: x.merge ? "update" : "set"}))),
     collection(coll){ return { onSnapshot(cb, err){
       if (!subs.has(coll)) subs.set(coll, new Set()); subs.get(coll).add(cb);
       loaded.then(() => cb(snap(coll))).catch(e => err && err(e));
@@ -486,7 +523,7 @@ window.BOOT = (function(){
     }
   };
   try { navigator.storage && navigator.storage.persist && navigator.storage.persist().catch(() => {}).finally(() => STORE.check()); } catch {}
-  window.ERP_LOCAL = {all: async () => { await loaded; return [...cache].filter(([, v]) => !v.__deleted).map(([p, v]) => [p, clean(v)]); }, put: (p, v) => put(p, {...v, __rev: Date.now(), __ver: cache.get(p)?.__ver || 0})};
+  window.ERP_LOCAL = {all: async () => { await loaded; return [...cache].filter(([, v]) => !v.__deleted).map(([p, v]) => [p, clean(v)]); }, put: (p, v) => writeOps([{path: p, data: v, op: "set"}])};
 
   /* photos of paper invoices stay on the device (and sync as files later) */
   const urls = {};
@@ -504,6 +541,10 @@ window.BOOT = (function(){
   const user = { me: async () => me(), can: async () => true, profiles: async ids => { const names = lsGet("erp.names", {}); return Object.fromEntries(ids.map(id => [id, {name: names[id] || ""}])); } };
 
   /* ---------- cloud sync (Supabase). Off until the pharmacy connects its own project in Settings ---------- */
+  // a weak signal can leave a request hanging with no answer: give up after 25 s so the next try can start
+  const AUTH = "__auth", saveAuth = a => tx("blobs", "readwrite", s => s.put({token: a.token, refresh: a.refresh, exp: a.exp}, AUTH)).catch(() => {});
+  const fetchT = (url, o = {}, ms = SYNC.timeoutMs || 25000) => { const ac = typeof AbortController === "function" ? new AbortController() : null, t = ac && setTimeout(() => ac.abort(), ms);
+    return fetch(url, ac ? {...o, signal: ac.signal} : o).catch(e => { throw e && e.name === "AbortError" ? new Error("The cloud did not answer in time. It will try again by itself.") : e; }).finally(() => t && clearTimeout(t)); };
   const SYNC = window.ERP_SYNC = {
     cfg: () => lsGet("erp.sync", null),
     status: lsGet("erp.syncStatus", {state: "off"}),
@@ -515,8 +556,10 @@ window.BOOT = (function(){
     async relogin(password){ const c = this.cfg(); if (!c) throw new Error("Connect cloud sync first."); if (!password) throw new Error("Type the password.");
       const keep = c.ver || 0; await this.login(c.url, c.anon, c.email, password, keep); },
     pending: () => dirty.size,
-    t: null,
-    soon(){ clearTimeout(this.t); this.t = setTimeout(() => this.run(), 1500); },
+    t: null, fails: 0,
+    soon(ms = 1500){ clearTimeout(this.t); this.t = setTimeout(() => this.run(), ms); },
+    // after a failed try: again in 5 s, 15 s, 30 s, then every minute (the timer below), so a short drop costs seconds, not minutes
+    retry(){ const ms = [5000, 15000, 30000][this.fails++]; if (ms) this.soon(ms); },
     // the pharmacy types these by hand: fix the usual slips (http, missing https, trailing slash, spaces) before using them
     cleanUrl(u){ u = String(u || "").trim().replace(/\s+/g, "").replace(/\/+$/, ""); if (u && !/^[a-z]+:\/\//i.test(u)) u = "https://" + u; return /^http:\/\/(?!localhost|127\.)/i.test(u) ? u.replace(/^http:/i, "https:") : u; },
     async login(url, anon, email, password, ver = 0){
@@ -525,7 +568,8 @@ window.BOOT = (function(){
       catch { throw new Error("Can't reach the cloud. Check the internet, and that the Project URL looks like https://xxxx.supabase.co"); }
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(/invalid login/i.test(j.error_description || j.msg || "") ? "Wrong email or password. Check them and try again." : r.status === 401 || /api key|apikey/i.test(j.message || j.msg || "") ? "The public key is not right. Copy the Publishable key again from Supabase." : (j.error_description || j.msg || "Sign-in failed. Check the Project URL, key, email and password."));
-      lsSet("erp.sync", {url, anon, email, token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, ver});
+      const fresh = {token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000};
+      await saveAuth(fresh); lsSet("erp.sync", {url, anon, email, ...fresh, ver});
       for (const [p, v] of cache) if (!v.__ver && !v.__deleted) dirty.add(p); lsSet("erp.dirty", [...dirty]); // a device with data joins the pharmacy: upload it
       lsSet("erp.userId", j.user?.id || me().id); lsSet("erp.userName", j.user?.user_metadata?.name || email);
       this.run();
@@ -549,12 +593,15 @@ window.BOOT = (function(){
     logout(){ lsSet("erp.sync", null); this.set({state: "off"}); },
     // Supabase gives each refresh token once: using an old one again ends the session on every device.
     // So only one tab refreshes at a time, and it first takes the newest token another tab may have saved.
-    async token(c){
-      if (Date.now() < c.exp - 60000) return c.token;
+    async token(c, force){ // force: the cloud refused the current one, so refresh even if it looks unexpired
+      if (!force && Date.now() < c.exp - 60000) return c.token;
+      const was = c.token;
       const go = async () => {
-        const f = this.cfg(); if (f && f.refresh !== c.refresh) Object.assign(c, {token: f.token, refresh: f.refresh, exp: f.exp});
-        if (Date.now() < c.exp - 60000) return c.token;
-        let r; try { r = await fetch(c.url + "/auth/v1/token?grant_type=refresh_token", {method: "POST", headers: {apikey: c.anon, "Content-Type": "application/json"}, body: JSON.stringify({refresh_token: c.refresh})}); }
+        // the newest sign-in any tab saved: the device database is the same at once in every tab (the browser's quick storage can lag behind)
+        const saved = await tx("blobs", "readonly", s => s.get(AUTH)).catch(() => null);
+        for (const f of [this.cfg(), saved]) if (f && f.refresh && f.refresh !== c.refresh && (f.exp || 0) > (c.exp || 0)) Object.assign(c, {token: f.token, refresh: f.refresh, exp: f.exp});
+        if (Date.now() < c.exp - 60000 && !(force && c.token === was)) return c.token; // another tab already refreshed it
+        let r; try { r = await fetchT(c.url + "/auth/v1/token?grant_type=refresh_token", {method: "POST", headers: {apikey: c.anon, "Content-Type": "application/json"}, body: JSON.stringify({refresh_token: c.refresh})}); }
         catch { throw new Error("Can't reach the cloud. It will try again by itself."); }
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.access_token){
@@ -562,6 +609,7 @@ window.BOOT = (function(){
           throw new Error("The cloud is not answering (" + r.status + "). It will try again by itself.");
         }
         Object.assign(c, {token: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000});
+        await saveAuth(c);
         const f3 = this.cfg() || {}; lsSet("erp.sync", {...f3, token: c.token, refresh: c.refresh, exp: c.exp}); return c.token;
       };
       return navigator.locks?.request ? navigator.locks.request("erp-sync-token", go) : go();
@@ -575,36 +623,61 @@ window.BOOT = (function(){
       try {
         await loaded;
         const tok = await this.token(c), h = {apikey: c.anon, Authorization: "Bearer " + tok, "Content-Type": "application/json"};
-        const send = [...dirty].map(p => ({path: p, data: strip(cache.get(p)), base: cache.get(p)?.__ver || 0, rev: cache.get(p)?.__rev, device: me().id}));
+        let renewed = false; // the cloud says the sign-in ran out early: get a fresh one once, then ask again
+        const call = async (url, o = {}) => { let r = await fetchT(url, {...o, headers: h});
+          if (r.status === 401 && !renewed){ renewed = true; h.Authorization = "Bearer " + await this.token(c, true); r = await fetchT(url, {...o, headers: h}); }
+          return r; };
         let lost = 0;
-        for (let i = 0; i < send.length; i += 100){
-          const batch = send.slice(i, i + 100);
-          const r = await fetch(c.url + "/rest/v1/rpc/erp_push", {method: "POST", headers: h, body: JSON.stringify({rows: batch.map(({rev, ...x}) => x)})});
-          if (r.status === 404) throw new Error("The cloud setup is old. Run the newest setup SQL in Supabase.");
-          if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "This account is not on the pharmacy list. Ask the owner to add it." : "Cloud refused the changes (" + r.status + ").");
-          for (const x of await r.json()){
-            const sent = batch.find(b => b.path === x.path), cur = cache.get(x.path);
-            if (x.ok){ if (cur && cur.__rev === sent.rev){ dirty.delete(x.path); cur.__ver = x.ver; await tx("docs", "readwrite", s => s.put(cur, x.path)); } else if (cur) cur.__ver = x.ver; }
-            else { lost++; dirty.delete(x.path); await put(x.path, {...x.data, __rev: x.data.__rev || 0, __ver: x.ver}, true); } // another device saved first: take theirs, yours is kept in the cloud (erp_conflicts)
+        for (let round = 0; round < 3 && dirty.size; round++){ // a record merged with another device's copy goes up again in the next round
+          const send = [...dirty].map(p => ({path: p, data: strip(cache.get(p)), base: cache.get(p)?.__ver || 0, rev: cache.get(p)?.__rev, device: me().id}));
+          let again = false;
+          for (let i = 0; i < send.length; i += 100){
+            const batch = send.slice(i, i + 100);
+            const r = await call(c.url + "/rest/v1/rpc/erp_push", {method: "POST", body: JSON.stringify({rows: batch.map(({rev, ...x}) => x)})});
+            if (r.status === 404) throw new Error("The cloud setup is old. Run the newest setup SQL in Supabase.");
+            if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "This account is not on the pharmacy list. Ask the owner to add it." : "Cloud refused the changes (" + r.status + ").");
+            const keep = [];
+            for (const x of await r.json()){
+              const sent = batch.find(b => b.path === x.path), cur = cache.get(x.path);
+              if (!sent || !cur) continue;
+              if (x.ok){ // changed again while sending: it stays waiting, and its next upload builds on what the cloud has now
+                if (cur.__rev === sent.rev){ dirty.delete(x.path); delete patches[x.path]; } else if (patches[x.path]) for (const k in patches[x.path]) patches[x.path][k][0] = sent.data[k];
+                cur.__ver = x.ver; keep.push([x.path, cur]); continue; }
+              const pt = patches[x.path], theirs = x.data || {};
+              if (pt && round < 2 && !theirs.__deleted){ // only some fields were changed here: put them on top of the other device's copy
+                const merged = {...theirs}, still = {}; let clash = false;
+                for (const [k, [before, after]] of Object.entries(pt)){
+                  if (STAMPS.includes(k) || same(theirs[k], before) || same(theirs[k], after)){ merged[k] = after; still[k] = [theirs[k], after]; } else clash = true; // both changed this field: the first save keeps it
+                }
+                if (clash) lost++;
+                patches[x.path] = still; await put(x.path, {...merged, __rev: Date.now(), __ver: x.ver}, true); dirty.add(x.path); again = true; continue;
+              }
+              lost++; dirty.delete(x.path); delete patches[x.path]; await put(x.path, {...theirs, __rev: theirs.__rev || 0, __ver: x.ver}, true); // another device saved first: take theirs, yours is kept in the cloud (erp_conflicts)
+            }
+            if (keep.length) await tx("docs", "readwrite", s => keep.forEach(([p, v]) => s.put(v, p)));
+            lsSet("erp.dirty", [...dirty]); savePatches();
           }
-          lsSet("erp.dirty", [...dirty]);
+          if (!again) break;
         }
         if (lost) lsSet("erp.conflicts", (lsGet("erp.conflicts", 0)) + lost);
         let since = Math.max(0, (c.ver || 0) - 100), top = c.ver || 0, more = true; // a little overlap, in case a change committed late
         while (more){
-          const r = await fetch(c.url + "/rest/v1/erp_docs?select=path,data,ver&ver=gt." + since + "&order=ver.asc&limit=500", {headers: h});
+          const r = await call(c.url + "/rest/v1/erp_docs?select=path,data,ver&ver=gt." + since + "&order=ver.asc&limit=500");
           if (!r.ok) throw new Error("Couldn't read from the cloud (" + r.status + ").");
-          const rows = await r.json();
-          for (const row of rows){ const cur = cache.get(row.path); if (!dirty.has(row.path) && (!cur || (cur.__ver || 0) < row.ver)) await put(row.path, {...row.data, __ver: row.ver}, true); since = Math.max(since, row.ver); top = Math.max(top, row.ver); }
+          const rows = await r.json(), take = [];
+          for (const row of rows){ const cur = cache.get(row.path); if (!dirty.has(row.path) && (!cur || (cur.__ver || 0) < row.ver)) take.push([row.path, {...row.data, __ver: row.ver}]); since = Math.max(since, row.ver); top = Math.max(top, row.ver); }
+          await putMany(take, true); // one device transaction and one screen update per 500 records, not one per record
           more = rows.length === 500;
         }
         const f = this.cfg(); if (f) lsSet("erp.sync", {...f, ver: Math.max(top, f.ver || 0)}); // write over the newest copy: another tab may have saved a newer sign-in token
+        this.fails = 0;
         this.set(lsGet("erp.conflicts", 0) ? {state: "ok", conflicts: lsGet("erp.conflicts", 0)} : {state: "ok"});
-      } catch(e){ this.set(e.signedOut ? {state: "signedout", msg: e.message} : {state: "error", msg: e.message}); }
+      } catch(e){ this.set(e.signedOut ? {state: "signedout", msg: e.message} : {state: "error", msg: /failed to fetch|load failed|networkerror/i.test(e.message || "") ? "Can't reach the cloud. It will try again by itself." : e.message}); if (!e.signedOut) this.retry(); }
       finally { this.busy = false; }
     }
   };
-  window.addEventListener("online", () => SYNC.run());
+  window.addEventListener("online", () => { SYNC.fails = 0; SYNC.run(); });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && (dirty.size || SYNC.status.state !== "ok")) SYNC.soon(300); }); // back to the app: send what is waiting
   window.addEventListener("offline", () => SYNC.set({state: "offline"}));
   setInterval(() => SYNC.run(), 60000);
   setTimeout(() => SYNC.run(), 2000);
@@ -684,8 +757,10 @@ function parseDesc(desc){
   return {name, strength, form, pack, blisters, perBlister, fridge};
 }
 
+// the same line text always reads the same way: read each text once (screens ask for it thousands of times)
+const PD = new Map(), parseDescOnce = d => { const k = String(d || ""); let r = PD.get(k); if (!r){ if (PD.size > 20000) PD.clear(); PD.set(k, r = parseDesc(k)); } return r; };
 function attrs(l){
-  const p = parseDesc(l.desc);
+  const p = parseDescOnce(l.desc);
   const pick = (k, v) => (l[k] !== undefined && l[k] !== null && l[k] !== "") ? l[k] : v;
   return {name: pick("name", p.name), strength: pick("strength", p.strength), form: pick("form", p.form), pack: pick("pack", p.pack), blisters: pick("blisters", p.blisters), fridge: typeof l.cold === "boolean" ? l.cold : p.fridge};
 }
@@ -1237,16 +1312,46 @@ function supplierForm(id){
 }
 
 /* ---------- writes ---------- */
+const saveMsg = e => e?.code === "quota_exceeded" ? "This device's storage is full, so nothing was saved. Free space on the phone (old photos, videos, apps), then try again. Don't delete this app or its website data." : e?.code === "local_failed" ? "Couldn't save on this device. Close the app fully (swipe it away) and open it again, then try again. Your saved data is safe." : e?.code === "invalid_argument" ? "You don't have permission to change this data." : "Couldn't save. Check your connection and try again.";
+const stamp = data => data && typeof data === "object" && S.meId ? {...data, lastBy:S.meId, lastAt:new Date().toISOString()} : data;
 async function write(path, data, merge){
   if (!S.db) throw new Error("Saving is not available in this view.");
-  const ref = S.db.doc(path);
-  if (data && typeof data === "object" && S.meId) data = {...data, lastBy:S.meId, lastAt:new Date().toISOString()};
-  try { merge ? await ref.update(data) : await ref.set(data); }
+  const ref = S.db.doc(path); data = stamp(data);
+  const done = SAVE.start();
+  try { merge ? await ref.update(data) : await ref.set(data); done(true); }
   catch (e) {
     if (e && e.code === "invalid_argument" && !merge){ S.readOnly = true; }
-    throw new Error(e?.code === "quota_exceeded" ? "This device's storage is full, so nothing was saved. Free space on the phone (old photos, videos, apps), then try again. Don't delete this app or its website data." : e?.code === "local_failed" ? "Couldn't save on this device. Close the app fully (swipe it away) and open it again, then try again. Your saved data is safe." : e?.code === "invalid_argument" ? "You don't have permission to change this data." : "Couldn't save. Check your connection and try again.");
+    done(false, saveMsg(e)); throw new Error(saveMsg(e));
   }
 }
+// several records that belong together (a sale and its new customer, the stock lines of a return or a stocktake):
+// on the installed app they are saved in one go, all or none, so a failure half-way never leaves half a record behind
+async function writeMany(ops){
+  if (!S.db) throw new Error("Saving is not available in this view.");
+  if (!S.db.batch){ for (const o of ops) await write(o.path, o.data, o.merge); return; } // claude.ai storage: one after another
+  const done = SAVE.start();
+  try { await S.db.batch(ops.map(o => ({...o, data:stamp(o.data)}))); done(true); }
+  catch (e) { done(false, saveMsg(e)); throw new Error(saveMsg(e)); }
+}
+/* saving / saved / not saved, shown in a small label at the top of every screen (see saveDot) */
+const SAVE = {n:0, last:null, t:null,
+  start(){ this.n++; this.show(); let once = false; return (ok, msg) => { if (once) return; once = true; this.n--; this.last = {ok, msg:msg || "", at:Date.now()}; this.show(); }; },
+  show(){ try { this.draw(); } catch(e){ console.error(e); } }, // the label never stops a save
+  draw(){ const el = document.getElementById("saveDot"); if (!el) return; clearTimeout(this.t);
+    const sy = window.ERP_SYNC, wait = sy && sy.cfg && sy.pending && sy.cfg() ? sy.pending() : 0, stuck = wait && ["offline", "error", "signedout"].includes(sy.status?.state), l = this.last;
+    let cls = "", txt = "";
+    if (this.n > 0){ cls = "busy"; txt = "Saving…"; }
+    else if (l && !l.ok){ cls = "bad"; txt = "Not saved · tap to see why"; }
+    else if (l && Date.now() - l.at < 4000){ cls = "good"; txt = wait ? "Saved on this device" : "Saved"; }
+    else if (stuck){ cls = "wait"; txt = `${wait} not uploaded yet`; } // saved on the device; the cloud gets them when it can
+    el.className = cls; el.textContent = txt; el.hidden = !txt; el.title = l && !l.ok ? l.msg : "";
+    const h = document.querySelector("header.top"); if (txt && h) el.style.top = Math.max(4, h.getBoundingClientRect().bottom - 12) + "px"; // sits on the header's lower edge
+    if (S.lang === "ar") translate(el);
+    if (cls === "good") this.t = setTimeout(() => this.show(), 4100);
+  }
+};
+document.addEventListener("click", ev => { const el = ev.target.closest("#saveDot"); if (!el || !SAVE.last || SAVE.last.ok) return;
+  toast(SAVE.last.msg); SAVE.last = null; SAVE.show(); });
 function nextPid(){
   const y = new Date().getFullYear(); const nums = S.invoices.map(i => /PI-(\d{4})-(\d+)/.exec(i.pid||i.id)).filter(m => m && +m[1] === y).map(m => +m[2]);
   return `PI-${y}-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4,"0")}`;
@@ -1272,11 +1377,11 @@ async function saveInvoice(e){
   { const stop = window.ERP_INV_GUARD?.(inv); if (stop){ err.innerHTML = stop; return; } }
   if (S.saving) return; S.saving = true; // a second tap while saving must not create a second invoice
   for (const l of inv.lines){ for (const k of ["qty","bonus","bonusPct","discPct","discAmt","price","value","note","no","name","strength","form","pack","blisters"]) if (l[k] === null || l[k] === undefined) delete l[k]; }
+  let newSup = null;
   if (inv.supplierId === "__new"){
     const nums = S.suppliers.map(x => +(/SUP-(\d+)/.exec(x.id)||[])[1]||0); const sid = "SUP-" + String(Math.max(0,...nums)+1).padStart(3,"0");
-    try { await write("suppliers/" + sid, {id:sid, name:inv.newSupplierName, nameAr:inv.newSupplierAr||"", creditDays:null, returnDays:null, openingBalance:null, openingVerified:false, discountTiers:[], notes:"Added from an invoice"}); }
-    catch(x){ S.saving = false; err.textContent = x.message; return; }
-    inv.supplierId = sid; S.suppliers.push({id:sid, name:inv.newSupplierName});
+    newSup = {id:sid, name:inv.newSupplierName, nameAr:inv.newSupplierAr||"", creditDays:null, returnDays:null, openingBalance:null, openingVerified:false, discountTiers:[], notes:"Added from an invoice"};
+    inv.supplierId = sid; // saved together with the invoice below, so a failed save never leaves a supplier with no invoice
   }
   delete inv.newSupplierName; delete inv.newSupplierAr;
   const old = inv.id ? S.invoices.find(x => x.id === inv.id) : null;
@@ -1300,7 +1405,7 @@ async function saveInvoice(e){
   } else
   inv.status = c.okTol ? (inv.status === "On Hold" ? "On Hold" : "Awaiting Approval") : "Validation Required";
   inv.updatedAt = new Date().toISOString();
-  try { await write("invoices/" + inv.id, inv); S.saving = false; closeSheet(); toast(`Saved ${inv.pid}.`); }
+  try { await writeMany([...(newSup ? [{path:"suppliers/" + newSup.id, data:newSup}] : []), {path:"invoices/" + inv.id, data:inv}]); S.saving = false; closeSheet(); toast(`Saved ${inv.pid}.`); }
   catch(x){ S.saving = false; err.textContent = x.message; }
 }
 async function savePayment(e){
@@ -2100,7 +2205,8 @@ const saveCart = () => { lsSet("erp.tabs", S.tabs); lsSet("erp.tabAt", S.tabAt);
 
 /* ---- catalogue: one product per name + dose + form + pack, built from every invoice line, plus your own settings ---- */
 /* catalog and stock use are worked out once per screen draw and reused (cleared on every draw, data change and save) */
-const MEMO = {}; const clearMemo = () => { MEMO.cat = MEMO.used = MEMO.use = null; };
+// worked-out values kept for one screen drawing; cleared whenever data changes or the screen is drawn again
+const MEMO = {}; const clearMemo = () => { MEMO.cat = MEMO.used = MEMO.use = MEMO.disc = null; };
 function catalog(){ return MEMO.cat || (MEMO.cat = buildCatalog()); }
 function buildCatalog(){
   const map = new Map();
@@ -2172,7 +2278,8 @@ function buildUsed(){
 }
 const usedBoxes = (used, key, p) => { const x = used[key]; return x ? x.b + x.raw / p.legacyPer : 0; };
 // cost of one sellable unit from this invoice line: net cost after every discount, spread over paid + bonus
-function subCost(inv, k, p){ const r = itemDiscounts(inv).rows[k]; return r && isNum(r.perUnit) ? r.perUnit / p.sub : null; }
+// (each invoice's discounts are worked out once, not once for every batch line and every screen part that asks)
+function subCost(inv, k, p){ const m = MEMO.disc || (MEMO.disc = new Map()); let d = m.get(inv); if (!d) m.set(inv, d = itemDiscounts(inv)); const r = d.rows[k]; return r && isNum(r.perUnit) ? r.perUnit / p.sub : null; }
 // a batch is one invoice line, named by its permanent line id (old lines: their position)
 const lineKey = (inv, k) => inv.id + ":" + (inv.lines?.[k]?.lid ?? k);
 function lineInUse(invId, lid){
@@ -2797,18 +2904,21 @@ async function ctSave(btn){
   btn.disabled = true;
   try {
     const by = await ownerOK([`Save stocktaking and correct stock (${entries.length} items counted)`]); if (!by){ $("#ctErr").textContent = NEED_OWNER; return; }
-    const cat = catalog(), used = usedMap(true), lines = []; let valueDiff = 0;
+    const cat = catalog(), used = usedMap(true), lines = [], ops = []; let valueDiff = 0;
+    const mv = m => { const mid = newId("MV") + ops.length; ops.push({path:"moves/" + mid, data:{id:mid, ...m, note:"Stocktaking", date:today(), at:nowIso()}}); };
     for (const [pid, counted] of entries){ const p = cat.find(x => x.id === pid); if (!p) continue;
       const st = stockOf(p, used), sys = st.good, diff = counted - sys; lines.push({pid, name:pname(p), system:sys, counted, diff});
       if (!diff) continue;
       if (diff < 0){ let need = -diff; // less found: take it from the nearest-expiry batches first
-        for (const b of st.bs){ if (need <= 0) break; if (b.expired || b.left <= 0) continue; const q = r6(Math.min(b.left, need)), mid = newId("MV");
-          await write("moves/" + mid, {id:mid, pid, key:b.key, q, per:p.sub, reason:"Count correction (less found)", note:"Stocktaking", date:today(), at:nowIso(), cost: isNum(b.cost) ? b.cost : null}); valueDiff -= q * n0(b.cost); need -= q; }
-        if (need > 0){ const mid = newId("MV"), c0 = subCostNow(p); await write("moves/" + mid, {id:mid, pid, key:"adj:" + pid, q:need, per:p.sub, reason:"Count correction (less found)", note:"Stocktaking", date:today(), at:nowIso(), cost:c0}); valueDiff -= need * n0(c0); }
-      } else { const mid = newId("MV"), cost = st.next?.cost ?? st.bs[st.bs.length - 1]?.cost ?? null;
-        await write("moves/" + mid, {id:mid, pid, key:"adj:" + pid, q:-diff, per:p.sub, reason:"Count correction (more found)", note:"Stocktaking", date:today(), at:nowIso(), cost: isNum(cost) ? cost : null}); valueDiff += diff * n0(cost); }
+        for (const b of st.bs){ if (need <= 0) break; if (b.expired || b.left <= 0) continue; const q = r6(Math.min(b.left, need));
+          mv({pid, key:b.key, q, per:p.sub, reason:"Count correction (less found)", cost: isNum(b.cost) ? b.cost : null}); valueDiff -= q * n0(b.cost); need -= q; }
+        if (need > 0){ const c0 = subCostNow(p); mv({pid, key:"adj:" + pid, q:need, per:p.sub, reason:"Count correction (less found)", cost:c0}); valueDiff -= need * n0(c0); }
+      } else { const cost = st.next?.cost ?? st.bs[st.bs.length - 1]?.cost ?? null;
+        mv({pid, key:"adj:" + pid, q:-diff, per:p.sub, reason:"Count correction (more found)", cost: isNum(cost) ? cost : null}); valueDiff += diff * n0(cost); }
     }
-    const cid = newId("ST"); await write("counts/" + cid, {id:cid, date:today(), at:nowIso(), started:S.count.started, lines, valueDiff:Math.round(valueDiff), approvedBy:by});
+    // every correction and the stocktake record are saved together: a failed save corrects nothing, so trying again never corrects twice
+    const cid = newId("ST"); ops.push({path:"counts/" + cid, data:{id:cid, date:today(), at:nowIso(), started:S.count.started, lines, valueDiff:Math.round(valueDiff), approvedBy:by}});
+    await writeMany(ops);
     S.count = null; lsSet("erp.count", null); closeSheet(); toast(`Stocktaking saved. ${lines.filter(l => l.diff).length} items corrected.`);
   } catch(x){ $("#ctErr").textContent = x.message; } finally { btn.disabled = false; }
 }
@@ -2874,14 +2984,15 @@ function prSet(pid, k, v){
 async function prSaveAll(btn, edits, source){
   if (!canUse("pricing")) throw new Error("The owner has not given you this screen.");
   const cat = catalog(), ids = Object.keys(edits); if (!ids.length) return 0; btn && (btn.disabled = true);
-  let n = 0;
+  const ops = [];
   try {
     for (const pid of ids){ const p = cat.find(x => x.id === pid); if (!p) continue; const e = edits[pid], m = p.m || {};
       const box = "box" in e ? e.box : m.sellBox ?? null, sub = "sub" in e ? e.sub : m.sellSub ?? null, mid = "mid" in e ? e.mid : m.sellMid ?? null;
       const cost = lastCostBox(p), hist = [...(m.priceHistory || []), {at:nowIso(), by:S.meId, box, mid, sub, oldBox:m.sellBox ?? null, oldMid:m.sellMid ?? null, oldSub:m.sellSub ?? null, cost, markupPct:PRICING.markupPct(box, cost), marginPct:PRICING.marginPct(box, cost), mode:S.pr.mode, source}].slice(-30);
-      await write("products/" + pid, {...m, id:pid, sellBox:box, sellMid:mid, sellSub:sub, priceHistory:hist, ...(e.barcode && !m.barcode ? {barcode:e.barcode} : {})}); n++; }
+      ops.push({path:"products/" + pid, data:{...m, id:pid, sellBox:box, sellMid:mid, sellSub:sub, priceHistory:hist, ...(e.barcode && !m.barcode ? {barcode:e.barcode} : {})}}); }
+    await writeMany(ops); // all the new prices, or none: an import that fails half-way leaves the old prices as they were
   } finally { btn && (btn.disabled = false); }
-  return n;
+  return ops.length;
 }
 /* reading Excel or CSV files: shared by the price import, the invoice upload and the stocktaking upload */
 const normName = v => String(v ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -3194,7 +3305,7 @@ async function endShift(lockOnly, at){
   if (!S.staff) return; const nm = S.staff.name;
   if (!lockOnly) try { pushNoteSave(true); } catch(e){ /* the morning list never stops a shift ending */ }
   if (!lockOnly){ const end = at || nowIso(), ids = new Set(E.shifts.filter(x => x.staffId === S.staff.id && !x.end && !x.voided).map(x => x.id)); if (S.session?.shiftId) ids.add(S.session.shiftId);
-    for (const id of ids){ try { await write("shifts/" + id, {end}, true); } catch(e){ toast(e.message); return; } } } // closes every open shift of this person, so none is left running
+    try { await writeMany([...ids].map(id => ({path:"shifts/" + id, data:{end}, merge:true}))); } catch(e){ toast(e.message); return; } } // closes every open shift of this person, so none is left running
   S.session = lockOnly ? S.session : null; lsSet("erp.session", S.session); S.staff = null; S.lockSel = null;
   if (lockOnly){ S.lockSel = null; } render(); drawLock(); toast(lockOnly ? "Screen locked." : `Shift ended for ${nm}.`);
 }
@@ -3399,9 +3510,16 @@ function addToCart(pid, keep){
   if (ex) ex.qty = n0(ex.qty) + 1; else S.cart.push({pid, mode:"box", qty:1, price:p.sellBox});
   S.sellQ = ""; saveCart(); render(); setTimeout(() => $("#sellQ")?.focus(), 0);
 }
+// one receipt number per bill: it is given the first time Save is pressed and kept with the bill until the sale is saved.
+// A second tap, a retry after an error, or a bill reopened after the app closed saves the same receipt again, never a second sale.
 async function saveSale(e){
   e.preventDefault(); if (S.saving) return; S.saving = true;
-  try { await saveSaleNow(); } finally { S.saving = false; }
+  try {
+    const done = S.cartMeta.saleId && E.sales.find(s => s.id === S.cartMeta.saleId);
+    if (done){ closeTab(S.tabAt); render(); toast("This sale was already saved."); receiptSheet(done.id); return; }
+    if (!S.cartMeta.saleId){ S.cartMeta.saleId = newId("SL"); saveCart(); }
+    await saveSaleNow();
+  } finally { S.saving = false; }
 }
 async function saveSaleNow(){
   const force = S.oversell === true; S.oversell = false; // set only by the "Owner: sell anyway" button
@@ -3440,14 +3558,16 @@ async function saveSaleNow(){
   if (isNum(given) && wIQD(given) < pay.cash){ err.textContent = method === "split" ? `Cash received (${f0(given)} IQD) is less than the cash part (${f0(pay.cash)} IQD).` : `Cash received (${f0(given)} IQD) is less than the total (${f0(sub - disc)} IQD). Take the rest${debtOn() ? `, or choose "On debt"` : ", or put part on the card"}.`; return; }
   const discMax = Math.floor(sub * n0(E.cfg.staffDiscPct) / 100); if (disc > discMax) why.push(`Discount ${f0(disc)} IQD (staff may give up to ${f0(discMax)})`);
   let approvedBy = null; if (why.length && (!isOwner() || overs)){ approvedBy = await ownerOK(why, {always:overs}); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
-  if (customerId === "__new"){ customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
-  const id = newId("SL"), d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
+  const ops = []; // the sale, a new customer and the chronic card's month are saved together, all or none
+  if (customerId === "__new"){ customerId = newId("CU"); ops.push({path:"customers/" + customerId, data:{id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}}); }
+  const id = S.cartMeta.saleId, d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
   const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, ...(disc && S.cartMeta.discMode === "pct" ? {discPct:n0(S.cartMeta.discPct)} : {}), total:sub - disc, method, ...(method === "split" ? {card:pay.card, cash:pay.cash} : {}), customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - pay.cash} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
   try {
-    await write("sales/" + id, sale);
-    if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) await write("chronic/" + ch.id, {given:{...(ch.given || {}), [ym(d)]:id}}, true); }
+    ops.push({path:"sales/" + id, data:sale});
+    if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) ops.push({path:"chronic/" + ch.id, data:{given:{...(ch.given || {}), [ym(d)]:id}}, merge:true}); }
+    await writeMany(ops);
     closeTab(S.tabAt); render(); toast(sale.change > 0 ? `Sale saved. Give back ${f0(sale.change)} IQD.` : "Sale saved."); receiptSheet(id, sale);
-  } catch(x){ err.textContent = x.message; }
+  } catch(x){ err.textContent = x.message; S.sellErr = {cart:JSON.stringify(S.cart), html:esc(x.message)}; } // kept when the screen redraws
 }
 function receiptHtml(s){
   const cu = E.customers.find(c => c.id === s.customerId);
@@ -3508,7 +3628,7 @@ async function saveReturn(f){
       const back = [...saleReturns(s.id), ...recs].filter(m => m.key === a.key && m.saleLine === x.i).reduce((t, m) => t - n0(m.q), 0), q = r6(Math.min(units, n0(a.q) - back)); if (q <= 0) continue;
       recs.push({...base, key:a.key, q:-q, per:a.per, cost:a.cost, reason:"Customer return", rq: first ? x.q : 0, refund: first ? refund : 0}); first = false; units = r6(units - q); }
   }
-  try { for (const r of recs){ const mid = newId("MV"); await write("moves/" + mid, {id:mid, ...r}); } }
+  try { await writeMany(recs.map((r, i) => { const mid = newId("MV") + i; return {path:"moves/" + mid, data:{id:mid, ...r}}; })); } // all lines of the return, or none
   catch(e){ err.textContent = e.message; return; }
   closeSheet(); toast(`Return saved. Refund ${iqd(total)}.`); receiptSheet(s.id);
 }
@@ -3518,9 +3638,10 @@ async function cancelSale(id){
   if (!reason){ toast("Write the reason for cancelling."); $("#voidReason")?.focus(); return; }
   const by = await ownerOK([`Cancel receipt ${s.no} (${iqd(s.total)})`]); if (!by){ toast(NEED_OWNER); return; }
   try {
-    await write("sales/" + id, {voided:true, voidedAt:nowIso(), voidReason:reason, voidedBy:S.staff?.id || null, approvedBy:by}, true);
+    const ops = [{path:"sales/" + id, data:{voided:true, voidedAt:nowIso(), voidReason:reason, voidedBy:S.staff?.id || null, approvedBy:by}, merge:true}];
     const ch = s.chronicId && E.chronic.find(c => c.id === s.chronicId), m = ch && Object.keys(ch.given || {}).find(k => ch.given[k] === id);
-    if (m){ const g = {...ch.given}; delete g[m]; await write("chronic/" + ch.id, {given:g}, true); }
+    if (m){ const g = {...ch.given}; delete g[m]; ops.push({path:"chronic/" + ch.id, data:{given:g}, merge:true}); }
+    await writeMany(ops);
     closeSheet(); toast("Sale cancelled. Stock is back.");
   } catch(e){ toast(e.message); }
 }
@@ -3884,6 +4005,9 @@ Object.assign(AR, {
 });
 // these run before the first app's own patterns, which leave part of these lines in English
 const arUnit = (n, w) => unitW(w.replace(/s$/, "") + (+n === 1 ? "" : "s"));
+Object.assign(AR, {"Saving…":"جارٍ الحفظ…", "Saved":"تم الحفظ", "Saved on this device":"محفوظ على هذا الجهاز", "Not saved · tap to see why":"لم يُحفظ · اضغط لمعرفة السبب", "This sale was already saved.":"هذه البيعة محفوظة من قبل.",
+  "The cloud did not answer in time. It will try again by itself.":"السحابة لم تردّ في الوقت المناسب. سيحاول مرة أخرى تلقائياً."});
+AR_RX.push([/^(\d+) not uploaded yet$/, "$1 لم تُرفع بعد"]);
 AR_RX.unshift([/^Last backup: today by (.+)\.$/, "آخر نسخة احتياطية: اليوم بواسطة $1."], [/^Last backup: (\S+) by (.+)\.$/, "آخر نسخة احتياطية: $1 بواسطة $2."]);
 AR_RX.push([/^(.+): receiving not confirmed\.$/, "$1: الاستلام غير مؤكد."], [/^includes (.+) not approved yet$/, "يشمل $1 غير معتمدة بعد"],
   [/^1 box = (\d+) (\w+) × (\d+) (\w+)$/, (m, a, w1, b, w2) => `علبة = ${a} ${arUnit(a, w1)} × ${b} ${arUnit(b, w2)}`], [/^1 box = (\d+) (\w+)$/, (m, a, w) => `علبة = ${a} ${arUnit(a, w)}`],
@@ -3944,7 +4068,10 @@ AR_RX.unshift([/^(.+): OUT OF STOCK — Available quantity: 0\. This sale cannot
 window.addEventListener("online", () => $("#netDot")?.classList.remove("off")); window.addEventListener("offline", () => $("#netDot")?.classList.add("off"));
 // every record written while someone is signed in carries their name and the time
 const baseWrite = write;
-write = async function(path, data, merge){ clearMemo(); if (data && typeof data === "object" && S.staff) data = {...data, staffBy:S.staff.id, staffByName:S.staff.name, staffAt:nowIso()}; try { return await baseWrite(path, data, merge); } finally { clearMemo(); } };
+const staffStamp = data => data && typeof data === "object" && S.staff ? {...data, staffBy:S.staff.id, staffByName:S.staff.name, staffAt:nowIso()} : data;
+write = async function(path, data, merge){ clearMemo(); try { return await baseWrite(path, staffStamp(data), merge); } finally { clearMemo(); } };
+const baseWriteMany = writeMany;
+writeMany = async function(ops){ clearMemo(); try { return await baseWriteMany(ops.map(o => ({...o, data:staffStamp(o.data)}))); } finally { clearMemo(); } };
 // pages scroll inside the middle area now, so "go to top" scrolls that area
 window.scrollTo = function(){ const v = document.getElementById("view"); if (v) v.scrollTop = 0; };
 /* ---- grouped menu: group headings with an alert count, a "Screen > group" crumb in the top bar and a screen finder (Ctrl+K, or the search button) ---- */
@@ -4171,6 +4298,7 @@ render = window.render = function(){
     if (!lsGet("erp.tourDone", false) && (S.staff || !E.staff.length) && $("#sheet").hidden){ lsSet("erp.tourDone", true); setTimeout(() => { if ($("#sheet").hidden) tourSheet(0); }, 400); }
     else startCheck();
   }
+  SAVE.show();
   return r;
 };
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;

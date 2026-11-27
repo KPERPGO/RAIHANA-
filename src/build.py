@@ -289,6 +289,7 @@ header.top .in{display:flex;align-items:center;justify-content:space-between;gap
 .bt{display:grid;gap:1px;min-width:0}
 .bn{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bn .ar{color:var(--accent2)}
 .scr{display:flex;align-items:center;gap:7px;font-size:18px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#saveDot{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 56px);z-index:40;font-size:12.5px;font-weight:600;padding:4px 12px;border-radius:999px;background:var(--surface);color:var(--muted);border:1px solid var(--line);box-shadow:0 4px 14px rgba(16,36,61,.14);white-space:nowrap;max-width:calc(100vw - 32px);overflow:hidden;text-overflow:ellipsis;pointer-events:none}#saveDot.good{background:var(--good-bg);color:var(--good)}#saveDot.bad{background:var(--bad-bg);color:var(--bad);cursor:pointer;pointer-events:auto}#saveDot.wait{background:var(--warn-bg);color:var(--warn)}
 .netdot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 3px var(--good-bg)}.netdot.off{background:var(--muted);box-shadow:0 0 0 3px var(--sunk)}
 header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 .hbtn{min-height:40px!important;height:40px;padding:0 12px;border-radius:10px;font-size:14px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line)}
@@ -341,7 +342,8 @@ window.BOOT = (function(){
     <button id="langBtn" class="hbtn" type="button" aria-label="Switch language">عربي</button>
   </div>
   <input type="file" id="photoIn" accept="image/jpeg,image/png,image/webp" hidden>
-</div></header>"""
+</div></header>
+<div id="saveDot" role="status" aria-live="polite" hidden></div>"""
 for _id in ('scanBtn','addBtn','langBtn','photoIn','sub'):
     if f'id="{_id}"' not in HEAD_OLD: sys.exit("header id missing in base: " + _id)
 rep(HEAD_OLD, ERP_CSS + "\n" + HEAD_NEW + "\n" + nav)

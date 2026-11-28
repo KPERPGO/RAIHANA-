@@ -33,7 +33,8 @@ const saveCart = () => { lsSet("erp.tabs", S.tabs); lsSet("erp.tabAt", S.tabAt);
 
 /* ---- catalogue: one product per name + dose + form + pack, built from every invoice line, plus your own settings ---- */
 /* catalog and stock use are worked out once per screen draw and reused (cleared on every draw, data change and save) */
-const MEMO = {}; const clearMemo = () => { MEMO.cat = MEMO.used = MEMO.use = null; };
+// worked-out values kept for one screen drawing; cleared whenever data changes or the screen is drawn again
+const MEMO = {}; const clearMemo = () => { MEMO.cat = MEMO.used = MEMO.use = MEMO.disc = null; };
 function catalog(){ return MEMO.cat || (MEMO.cat = buildCatalog()); }
 function buildCatalog(){
   const map = new Map();
@@ -105,7 +106,8 @@ function buildUsed(){
 }
 const usedBoxes = (used, key, p) => { const x = used[key]; return x ? x.b + x.raw / p.legacyPer : 0; };
 // cost of one sellable unit from this invoice line: net cost after every discount, spread over paid + bonus
-function subCost(inv, k, p){ const r = itemDiscounts(inv).rows[k]; return r && isNum(r.perUnit) ? r.perUnit / p.sub : null; }
+// (each invoice's discounts are worked out once, not once for every batch line and every screen part that asks)
+function subCost(inv, k, p){ const m = MEMO.disc || (MEMO.disc = new Map()); let d = m.get(inv); if (!d) m.set(inv, d = itemDiscounts(inv)); const r = d.rows[k]; return r && isNum(r.perUnit) ? r.perUnit / p.sub : null; }
 // a batch is one invoice line, named by its permanent line id (old lines: their position)
 const lineKey = (inv, k) => inv.id + ":" + (inv.lines?.[k]?.lid ?? k);
 function lineInUse(invId, lid){
@@ -741,18 +743,21 @@ async function ctSave(btn){
   btn.disabled = true;
   try {
     const by = await ownerOK([`Save stocktaking and correct stock (${entries.length} items counted)`]); if (!by){ $("#ctErr").textContent = NEED_OWNER; return; }
-    const cat = catalog(), used = usedMap(true), lines = []; let valueDiff = 0;
+    const cat = catalog(), used = usedMap(true), lines = [], ops = []; let valueDiff = 0;
+    const mv = m => { const mid = newId("MV") + ops.length; ops.push({path:"moves/" + mid, data:{id:mid, ...m, note:"Stocktaking", date:today(), at:nowIso()}}); };
     for (const [pid, counted] of entries){ const p = cat.find(x => x.id === pid); if (!p) continue;
       const st = stockOf(p, used), sys = st.good, diff = counted - sys; lines.push({pid, name:pname(p), system:sys, counted, diff});
       if (!diff) continue;
       if (diff < 0){ let need = -diff; // less found: take it from the nearest-expiry batches first
-        for (const b of st.bs){ if (need <= 0) break; if (b.expired || b.left <= 0) continue; const q = r6(Math.min(b.left, need)), mid = newId("MV");
-          await write("moves/" + mid, {id:mid, pid, key:b.key, q, per:p.sub, reason:"Count correction (less found)", note:"Stocktaking", date:today(), at:nowIso(), cost: isNum(b.cost) ? b.cost : null}); valueDiff -= q * n0(b.cost); need -= q; }
-        if (need > 0){ const mid = newId("MV"), c0 = subCostNow(p); await write("moves/" + mid, {id:mid, pid, key:"adj:" + pid, q:need, per:p.sub, reason:"Count correction (less found)", note:"Stocktaking", date:today(), at:nowIso(), cost:c0}); valueDiff -= need * n0(c0); }
-      } else { const mid = newId("MV"), cost = st.next?.cost ?? st.bs[st.bs.length - 1]?.cost ?? null;
-        await write("moves/" + mid, {id:mid, pid, key:"adj:" + pid, q:-diff, per:p.sub, reason:"Count correction (more found)", note:"Stocktaking", date:today(), at:nowIso(), cost: isNum(cost) ? cost : null}); valueDiff += diff * n0(cost); }
+        for (const b of st.bs){ if (need <= 0) break; if (b.expired || b.left <= 0) continue; const q = r6(Math.min(b.left, need));
+          mv({pid, key:b.key, q, per:p.sub, reason:"Count correction (less found)", cost: isNum(b.cost) ? b.cost : null}); valueDiff -= q * n0(b.cost); need -= q; }
+        if (need > 0){ const c0 = subCostNow(p); mv({pid, key:"adj:" + pid, q:need, per:p.sub, reason:"Count correction (less found)", cost:c0}); valueDiff -= need * n0(c0); }
+      } else { const cost = st.next?.cost ?? st.bs[st.bs.length - 1]?.cost ?? null;
+        mv({pid, key:"adj:" + pid, q:-diff, per:p.sub, reason:"Count correction (more found)", cost: isNum(cost) ? cost : null}); valueDiff += diff * n0(cost); }
     }
-    const cid = newId("ST"); await write("counts/" + cid, {id:cid, date:today(), at:nowIso(), started:S.count.started, lines, valueDiff:Math.round(valueDiff), approvedBy:by});
+    // every correction and the stocktake record are saved together: a failed save corrects nothing, so trying again never corrects twice
+    const cid = newId("ST"); ops.push({path:"counts/" + cid, data:{id:cid, date:today(), at:nowIso(), started:S.count.started, lines, valueDiff:Math.round(valueDiff), approvedBy:by}});
+    await writeMany(ops);
     S.count = null; lsSet("erp.count", null); closeSheet(); toast(`Stocktaking saved. ${lines.filter(l => l.diff).length} items corrected.`);
   } catch(x){ $("#ctErr").textContent = x.message; } finally { btn.disabled = false; }
 }
@@ -818,14 +823,15 @@ function prSet(pid, k, v){
 async function prSaveAll(btn, edits, source){
   if (!canUse("pricing")) throw new Error("The owner has not given you this screen.");
   const cat = catalog(), ids = Object.keys(edits); if (!ids.length) return 0; btn && (btn.disabled = true);
-  let n = 0;
+  const ops = [];
   try {
     for (const pid of ids){ const p = cat.find(x => x.id === pid); if (!p) continue; const e = edits[pid], m = p.m || {};
       const box = "box" in e ? e.box : m.sellBox ?? null, sub = "sub" in e ? e.sub : m.sellSub ?? null, mid = "mid" in e ? e.mid : m.sellMid ?? null;
       const cost = lastCostBox(p), hist = [...(m.priceHistory || []), {at:nowIso(), by:S.meId, box, mid, sub, oldBox:m.sellBox ?? null, oldMid:m.sellMid ?? null, oldSub:m.sellSub ?? null, cost, markupPct:PRICING.markupPct(box, cost), marginPct:PRICING.marginPct(box, cost), mode:S.pr.mode, source}].slice(-30);
-      await write("products/" + pid, {...m, id:pid, sellBox:box, sellMid:mid, sellSub:sub, priceHistory:hist, ...(e.barcode && !m.barcode ? {barcode:e.barcode} : {})}); n++; }
+      ops.push({path:"products/" + pid, data:{...m, id:pid, sellBox:box, sellMid:mid, sellSub:sub, priceHistory:hist, ...(e.barcode && !m.barcode ? {barcode:e.barcode} : {})}}); }
+    await writeMany(ops); // all the new prices, or none: an import that fails half-way leaves the old prices as they were
   } finally { btn && (btn.disabled = false); }
-  return n;
+  return ops.length;
 }
 /* reading Excel or CSV files: shared by the price import, the invoice upload and the stocktaking upload */
 const normName = v => String(v ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -1138,7 +1144,7 @@ async function endShift(lockOnly, at){
   if (!S.staff) return; const nm = S.staff.name;
   if (!lockOnly) try { pushNoteSave(true); } catch(e){ /* the morning list never stops a shift ending */ }
   if (!lockOnly){ const end = at || nowIso(), ids = new Set(E.shifts.filter(x => x.staffId === S.staff.id && !x.end && !x.voided).map(x => x.id)); if (S.session?.shiftId) ids.add(S.session.shiftId);
-    for (const id of ids){ try { await write("shifts/" + id, {end}, true); } catch(e){ toast(e.message); return; } } } // closes every open shift of this person, so none is left running
+    try { await writeMany([...ids].map(id => ({path:"shifts/" + id, data:{end}, merge:true}))); } catch(e){ toast(e.message); return; } } // closes every open shift of this person, so none is left running
   S.session = lockOnly ? S.session : null; lsSet("erp.session", S.session); S.staff = null; S.lockSel = null;
   if (lockOnly){ S.lockSel = null; } render(); drawLock(); toast(lockOnly ? "Screen locked." : `Shift ended for ${nm}.`);
 }
@@ -1343,9 +1349,16 @@ function addToCart(pid, keep){
   if (ex) ex.qty = n0(ex.qty) + 1; else S.cart.push({pid, mode:"box", qty:1, price:p.sellBox});
   S.sellQ = ""; saveCart(); render(); setTimeout(() => $("#sellQ")?.focus(), 0);
 }
+// one receipt number per bill: it is given the first time Save is pressed and kept with the bill until the sale is saved.
+// A second tap, a retry after an error, or a bill reopened after the app closed saves the same receipt again, never a second sale.
 async function saveSale(e){
   e.preventDefault(); if (S.saving) return; S.saving = true;
-  try { await saveSaleNow(); } finally { S.saving = false; }
+  try {
+    const done = S.cartMeta.saleId && E.sales.find(s => s.id === S.cartMeta.saleId);
+    if (done){ closeTab(S.tabAt); render(); toast("This sale was already saved."); receiptSheet(done.id); return; }
+    if (!S.cartMeta.saleId){ S.cartMeta.saleId = newId("SL"); saveCart(); }
+    await saveSaleNow();
+  } finally { S.saving = false; }
 }
 async function saveSaleNow(){
   const force = S.oversell === true; S.oversell = false; // set only by the "Owner: sell anyway" button
@@ -1384,14 +1397,16 @@ async function saveSaleNow(){
   if (isNum(given) && wIQD(given) < pay.cash){ err.textContent = method === "split" ? `Cash received (${f0(given)} IQD) is less than the cash part (${f0(pay.cash)} IQD).` : `Cash received (${f0(given)} IQD) is less than the total (${f0(sub - disc)} IQD). Take the rest${debtOn() ? `, or choose "On debt"` : ", or put part on the card"}.`; return; }
   const discMax = Math.floor(sub * n0(E.cfg.staffDiscPct) / 100); if (disc > discMax) why.push(`Discount ${f0(disc)} IQD (staff may give up to ${f0(discMax)})`);
   let approvedBy = null; if (why.length && (!isOwner() || overs)){ approvedBy = await ownerOK(why, {always:overs}); if (!approvedBy){ err.textContent = NEED_OWNER; return; } }
-  if (customerId === "__new"){ customerId = newId("CU"); try { await write("customers/" + customerId, {id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}); } catch(x){ err.textContent = x.message; return; } }
-  const id = newId("SL"), d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
+  const ops = []; // the sale, a new customer and the chronic card's month are saved together, all or none
+  if (customerId === "__new"){ customerId = newId("CU"); ops.push({path:"customers/" + customerId, data:{id:customerId, name:newName, phone:($("#xCPhone")?.value || "").trim(), createdAt:nowIso()}}); }
+  const id = S.cartMeta.saleId, d = today(), pre = d.replace(/-/g,"").slice(2) + "-" + DEVICE_ID.slice(1, 4).toUpperCase() + "-", no = pre + String(E.sales.filter(s => s.date === d && String(s.no || "").startsWith(pre)).length + 1).padStart(3,"0");
   const sale = {id, no, date:d, at:nowIso(), staffId:S.staff?.id || null, staffName:S.staff?.name || "", shiftId:S.session?.shiftId || null, lines:out, subtotal:sub, discount:disc, ...(disc && S.cartMeta.discMode === "pct" ? {discPct:n0(S.cartMeta.discPct)} : {}), total:sub - disc, method, ...(method === "split" ? {card:pay.card, cash:pay.cash} : {}), ...((method === "card" || method === "split") && pay.via !== "card" ? {via:pay.via} : {}), customerId, chronicId:S.cartMeta.chronicId || null, createdBy:S.meId, ...(isNum(given) ? {given:wIQD(given), change:wIQD(given) - pay.cash} : {}), ...(approvedBy ? {approvedBy, approvedFor:why} : {})};
   try {
-    await write("sales/" + id, sale);
-    if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) await write("chronic/" + ch.id, {given:{...(ch.given || {}), [ym(d)]:id}}, true); }
+    ops.push({path:"sales/" + id, data:sale});
+    if (sale.chronicId){ const ch = E.chronic.find(x => x.id === sale.chronicId); if (ch) ops.push({path:"chronic/" + ch.id, data:{given:{...(ch.given || {}), [ym(d)]:id}}, merge:true}); }
+    await writeMany(ops);
     closeTab(S.tabAt); render(); toast(sale.change > 0 ? `Sale saved. Give back ${f0(sale.change)} IQD.` : "Sale saved."); receiptSheet(id, sale);
-  } catch(x){ err.textContent = x.message; }
+  } catch(x){ err.textContent = x.message; S.sellErr = {cart:JSON.stringify(S.cart), html:esc(x.message)}; } // kept when the screen redraws
 }
 const viaPaid = (s, split) => ({card:["Paid by card", "Paid by cash and card"], zain:["Paid by Zain Cash", "Paid by cash and Zain Cash"], qi:["Paid by Qi card", "Paid by cash and Qi card"]})[viaOf(s)][split ? 1 : 0];
 const PAPER = () => E.cfg.paper === "58" ? "58" : "80"; // receipt printer roll width; 80 mm prints 72 mm wide, 58 mm prints 48 mm
@@ -1454,7 +1469,7 @@ async function saveReturn(f){
       const back = [...saleReturns(s.id), ...recs].filter(m => m.key === a.key && m.saleLine === x.i).reduce((t, m) => t - n0(m.q), 0), q = r6(Math.min(units, n0(a.q) - back)); if (q <= 0) continue;
       recs.push({...base, key:a.key, q:-q, per:a.per, cost:a.cost, reason:"Customer return", rq: first ? x.q : 0, refund: first ? refund : 0}); first = false; units = r6(units - q); }
   }
-  try { for (const r of recs){ const mid = newId("MV"); await write("moves/" + mid, {id:mid, ...r}); } }
+  try { await writeMany(recs.map((r, i) => { const mid = newId("MV") + i; return {path:"moves/" + mid, data:{id:mid, ...r}}; })); } // all lines of the return, or none
   catch(e){ err.textContent = e.message; return; }
   closeSheet(); toast(`Return saved. Refund ${iqd(total)}.`); receiptSheet(s.id);
 }
@@ -1464,9 +1479,10 @@ async function cancelSale(id){
   if (!reason){ toast("Write the reason for cancelling."); $("#voidReason")?.focus(); return; }
   const by = await ownerOK([`Cancel receipt ${s.no} (${iqd(s.total)})`]); if (!by){ toast(NEED_OWNER); return; }
   try {
-    await write("sales/" + id, {voided:true, voidedAt:nowIso(), voidReason:reason, voidedBy:S.staff?.id || null, approvedBy:by}, true);
+    const ops = [{path:"sales/" + id, data:{voided:true, voidedAt:nowIso(), voidReason:reason, voidedBy:S.staff?.id || null, approvedBy:by}, merge:true}];
     const ch = s.chronicId && E.chronic.find(c => c.id === s.chronicId), m = ch && Object.keys(ch.given || {}).find(k => ch.given[k] === id);
-    if (m){ const g = {...ch.given}; delete g[m]; await write("chronic/" + ch.id, {given:g}, true); }
+    if (m){ const g = {...ch.given}; delete g[m]; ops.push({path:"chronic/" + ch.id, data:{given:g}, merge:true}); }
+    await writeMany(ops);
     closeSheet(); toast("Sale cancelled. Stock is back.");
   } catch(e){ toast(e.message); }
 }
@@ -1831,6 +1847,9 @@ Object.assign(AR, {
 });
 // these run before the first app's own patterns, which leave part of these lines in English
 const arUnit = (n, w) => unitW(w.replace(/s$/, "") + (+n === 1 ? "" : "s"));
+Object.assign(AR, {"Saving…":"جارٍ الحفظ…", "Saved":"تم الحفظ", "Saved on this device":"محفوظ على هذا الجهاز", "Not saved · tap to see why":"لم يُحفظ · اضغط لمعرفة السبب", "This sale was already saved.":"هذه البيعة محفوظة من قبل.",
+  "The cloud did not answer in time. It will try again by itself.":"السحابة لم تردّ في الوقت المناسب. سيحاول مرة أخرى تلقائياً."});
+AR_RX.push([/^(\d+) not uploaded yet$/, "$1 لم تُرفع بعد"]);
 AR_RX.unshift([/^Last backup: today by (.+)\.$/, "آخر نسخة احتياطية: اليوم بواسطة $1."], [/^Last backup: (\S+) by (.+)\.$/, "آخر نسخة احتياطية: $1 بواسطة $2."]);
 AR_RX.push([/^(.+): receiving not confirmed\.$/, "$1: الاستلام غير مؤكد."], [/^includes (.+) not approved yet$/, "يشمل $1 غير معتمدة بعد"],
   [/^1 box = (\d+) (\w+) × (\d+) (\w+)$/, (m, a, w1, b, w2) => `علبة = ${a} ${arUnit(a, w1)} × ${b} ${arUnit(b, w2)}`], [/^1 box = (\d+) (\w+)$/, (m, a, w) => `علبة = ${a} ${arUnit(a, w)}`],
@@ -1891,7 +1910,10 @@ AR_RX.unshift([/^(.+): OUT OF STOCK — Available quantity: 0\. This sale cannot
 window.addEventListener("online", () => $("#netDot")?.classList.remove("off")); window.addEventListener("offline", () => $("#netDot")?.classList.add("off"));
 // every record written while someone is signed in carries their name and the time
 const baseWrite = write;
-write = async function(path, data, merge){ clearMemo(); if (data && typeof data === "object" && S.staff) data = {...data, staffBy:S.staff.id, staffByName:S.staff.name, staffAt:nowIso()}; try { return await baseWrite(path, data, merge); } finally { clearMemo(); } };
+const staffStamp = data => data && typeof data === "object" && S.staff ? {...data, staffBy:S.staff.id, staffByName:S.staff.name, staffAt:nowIso()} : data;
+write = async function(path, data, merge){ clearMemo(); try { return await baseWrite(path, staffStamp(data), merge); } finally { clearMemo(); } };
+const baseWriteMany = writeMany;
+writeMany = async function(ops){ clearMemo(); try { return await baseWriteMany(ops.map(o => ({...o, data:staffStamp(o.data)}))); } finally { clearMemo(); } };
 // pages scroll inside the middle area now, so "go to top" scrolls that area
 window.scrollTo = function(){ const v = document.getElementById("view"); if (v) v.scrollTop = 0; };
 /* ---- grouped menu: group headings with an alert count, a "Screen > group" crumb in the top bar and a screen finder (Ctrl+K, or the search button) ---- */
@@ -2118,6 +2140,7 @@ render = window.render = function(){
     if (!lsGet("erp.tourDone", false) && (S.staff || !E.staff.length) && $("#sheet").hidden){ lsSet("erp.tourDone", true); setTimeout(() => { if ($("#sheet").hidden) tourSheet(0); }, 400); }
     else startCheck();
   }
+  SAVE.show();
   return r;
 };
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;

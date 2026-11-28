@@ -235,7 +235,8 @@ function stockAlerts(){
   if (!off.has("dup")){ const groups = {}; for (const p of cat){ const k = normName(`${p.name} ${p.strength || ""}`); (groups[k] = groups[k] || []).push(p); }
     for (const g of Object.values(groups)) if (g.length > 1) add("dup", 1, g[0], "Possible duplicate items", `${g.length} items`, g.map(pname).join(" / "), "Open each item and check the pack size; if they are the same, use one name on new invoices."); }
   for (const m of E.moves) if (!m.voided && !m.approvedBy && m.note !== "Stocktaking" && m.date >= addDays(today(), -30)){ const p = byId[m.pid]; add("unapproved", 2, p || {id:m.pid, name:m.pid}, "Stock change without approval", p ? qtyText(p, Math.abs(m.q)) : "", `${m.date} · ${m.reason}${m.staffByName ? " · " + m.staffByName : ""}`, "Check this change with the person who made it."); }
-  if (window.ERP_SYNC?.cfg?.() && ERP_SYNC.status?.state === "error") add("sync", 3, null, "Cloud sync failed", "", ERP_SYNC.status.msg || "", "Open Settings and tap Sync now.");
+  if (window.ERP_SYNC?.cfg?.() && ERP_SYNC.signedOut?.()) add("sync", 3, null, "Cloud sync stopped: signed out", `${ERP_SYNC.pending()} waiting`, "", "Open Settings and type the cloud password again.");
+  else if (window.ERP_SYNC?.cfg?.() && ERP_SYNC.status?.state === "error") add("sync", 3, null, "Cloud sync failed", "", ERP_SYNC.status.msg || "", "Open Settings and tap Sync now.");
   const st = window.ERP_STORE?.info; if (st && st.pct >= 0.8) add("storage", 3, null, "Phone storage almost full", `${Math.round(st.pct * 100)}%`, `${mbText(st.usage)} / ${mbText(st.quota)}`, "Download a full backup in Settings, then free space on the phone (old photos, videos, apps). Don't delete this app or its website data.");
   return out.sort((a, b) => b.sev - a.sev);
 }
@@ -691,11 +692,13 @@ function settingsView(){
   <section class="sec"><h2>Where your data is</h2><div class="sum">
     ${window.ERP_MODE === "claude" ? `<p>You are using the claude.ai version. Data is saved online in your Claude account and shared on every device where you open this link. It needs internet. Photo scan works here.</p>` :
     `<p>Installed app. Data is saved on this device first, so it works with no internet.</p>
-     <div class="r"><span>Cloud sync</span><span>${!c ? "Not connected" : sy.status.state === "ok" ? "✓ Up to date" : sy.status.state === "offline" ? "Offline, will sync later" : sy.status.state === "error" ? esc(sy.status.msg || "Error") : "Connecting…"}</span></div>
+     <div class="r"><span>Cloud sync</span><span>${!c ? "Not connected" : sy.status.state === "ok" ? "✓ Up to date" : sy.status.state === "offline" ? "Offline, will sync later" : sy.signedOut?.() ? "Signed out: type the password again below" : sy.status.state === "error" ? esc(sy.status.msg || "Error") : "Connecting…"}</span></div>
+     ${c && sy.lastOk?.() ? `<div class="r"><span>Last good sync</span><span class="num">${esc(localDT(sy.lastOk()).replace("T", " "))}</span></div>` : ""}
      <div class="r"><span>Changes waiting to upload</span><span class="num">${sy.pending()}</span></div>
      ${(st => st ? `<div class="r"><span>Space used on this device</span><span class="num ${st.pct >= 0.8 ? "err" : ""}">${mbText(st.usage)} / ${mbText(st.quota)} (${Math.round(st.pct * 100)}%)</span></div>${st.persisted === false ? `<p class="note">The phone may clear this app's data if it runs out of space. Keep cloud sync on and download a backup now and then.</p>` : ""}` : "")(window.ERP_STORE?.info)}
      ${c && sy.status.conflicts ? `<p class="err">${sy.status.conflicts} change(s) were not applied because another device saved the same record first. This device now shows the other version; yours is kept in the cloud (table erp_conflicts). <button type="button" data-xclearconf="1">OK, I saw it</button></p>` : ""}
-     ${c ? `<p class="note">Signed in as ${esc(c.email)}.</p><div class="actions"><button type="button" data-xsync="1">Sync now</button><button type="button" class="danger" data-xlogout="1">Sign out of sync</button></div>` :
+     ${c && sy.signedOut?.() ? `<form id="reloginForm" style="display:grid;gap:10px"><p class="note" style="color:var(--bad)">The cloud signed this device out, usually because the sync password was changed. Nothing is lost: the ${sy.pending()} change(s) above stay on this device and upload as soon as you sign in again.</p><p class="note">Email: <b>${esc(c.email)}</b></p><label>Password<input id="zPass" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off"></label><label class="check"><input type="checkbox" id="zShow"> Show the password</label><p class="err" id="zErr"></p><button type="submit" class="primary">Sign in again</button></form>` : ""}
+     ${c ? `<p class="note">${sy.signedOut?.() ? "Cloud account" : "Signed in as"} ${esc(c.email)}.</p><div class="actions"><button type="button" data-xsync="1">Sync now</button><button type="button" class="danger" data-xlogout="1">Sign out of sync</button></div>` :
      `<form id="syncForm" style="display:grid;gap:10px"><p class="note">Connect your pharmacy's cloud so every device shows the same data. You need the four things from Supabase. Type the password yourself; it is never saved in a file.</p><label>Project URL<input id="yUrl" placeholder="https://xxxx.supabase.co" autocapitalize="none" autocorrect="off" spellcheck="false"></label><label>Public key (Publishable key)<input id="yKey" autocapitalize="none" autocorrect="off" spellcheck="false"></label><div class="grid2 stack"><label>Email<input id="yEmail" type="email" autocapitalize="none" autocorrect="off"></label><label>Password<input id="yPass" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off"></label></div><label class="check"><input type="checkbox" id="yShow"> Show the password</label><p class="err" id="yErr"></p><button type="submit" class="primary">Connect</button></form>`}`}
   </div></section>
   ${pushSettings()}
@@ -1615,6 +1618,7 @@ document.addEventListener("input", ev => {
 document.addEventListener("change", ev => {
   const t = ev.target, d = t.dataset;
   if (t.id === "yShow"){ $("#yPass").type = t.checked ? "text" : "password"; return; }
+  if (t.id === "zShow"){ $("#zPass").type = t.checked ? "text" : "password"; return; }
   if (d.xq !== undefined || d.xp !== undefined || t.id === "xDisc"){ render(); return; }
   if (d.xmode !== undefined){ const c = S.cart[+d.xmode], p = catalog().find(x => x.id === c.pid); c.mode = t.value; c.price = p ? lvlPrice(p, c.mode) ?? null : null; saveCart(); render(); return; }
   if (t.id === "xCust"){ S.cartMeta.customerId = t.value; saveCart(); render(); return; }
@@ -1667,7 +1671,7 @@ document.addEventListener("keydown", ev => {
 });
 document.addEventListener("submit", async ev => {
   const f = ev.target, id = f.id;
-  if (!["sellForm","prodForm","adjForm","chrForm","custForm","cpForm","expForm","closeForm","cfgForm","syncForm","retForm"].includes(id)) return;
+  if (!["sellForm","prodForm","adjForm","chrForm","custForm","cpForm","expForm","closeForm","cfgForm","syncForm","reloginForm","retForm"].includes(id)) return;
   ev.preventDefault();
   const num = sel => { const v = parseNum($(sel)?.value); return isNum(v) ? v : null; };
   const fail = (sel, x) => { const e = $(sel); if (e) e.textContent = x.message || x; };
@@ -1737,6 +1741,10 @@ document.addEventListener("submit", async ev => {
     if (id === "cfgForm"){
       if (!isOwner()){ toast("Only the owner can do this."); return; }
       await write("meta/erp", {...E.cfg, name:$("#cfgName").value.trim(), phone:$("#cfgPhone").value.trim(), paper:$("#sPaper").value, alertDays: Math.max(1, Math.min(31, num("#sDays") || 7)), alertsOff: [...document.querySelectorAll("[data-xalert]")].filter(x => !x.checked).map(x => x.dataset.xalert), staffDiscPct: Math.max(0, Math.min(100, num("#sDisc") || 0)), debtOn: $("#sDebt").checked, pinOff: !$("#sPinOn").checked, quickN: +$("#sQuickN").value, quickEvery: $("#sQuickEvery").value, searchSort: $("#sSearchSort").value, ...fcSaved(), botbar: [0, 1, 2].map(i => $("#sBot" + i).value)}); toast("Settings saved."); botBar(); return;
+    }
+    if (id === "reloginForm"){
+      $("#zErr").textContent = "Connecting…";
+      await window.ERP_SYNC.relogin($("#zPass").value); toast("Signed in. Uploading your changes…"); render(); return;
     }
     if (id === "syncForm"){
       $("#yErr").textContent = "Connecting…";
@@ -2092,12 +2100,21 @@ function tourSheet(i){
     <button type="button" class="primary" data-xtour="${last ? "done" : i + 1}">${last ? "Start working" : "Next"}</button></div>`);
   if (S.lang === "ar") translate($("#sheet"));
 }
+// on every screen (also Sell): a device that stopped syncing says so, so changes don't sit unsent for days and the cloud
+// project (free plan) isn't paused for no traffic. Signed out: always. Other errors: only after 6 hours without a good sync.
+function syncCard(){
+  const sy = window.ERP_SYNC; if (window.ERP_MODE === "claude" || !sy?.cfg?.() || S.tab === "settings") return "";
+  const out = sy.signedOut(), ok = sy.lastOk?.(), stale = !ok || Date.now() - Date.parse(ok) > 6 * 3600e3;
+  if (!out && !(sy.status.state === "error" && stale)) return "";
+  const msg = out ? "Cloud sync stopped: this device was signed out." : "Cloud sync is not working.";
+  return `<div class="banner bad" id="syncCard" style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap"><span><b>${msg}</b> <span>${sy.pending()} change(s) waiting to upload.</span>${ok ? ` <span>Last good sync: <span class="num">${esc(localDT(ok).replace("T", " "))}</span>.</span>` : ""}</span>${canUse("settings") ? `<button type="button" class="primary" data-tab="settings">${out ? "Sign in again" : "Open Settings"}</button>` : `<span>Ask the owner to open Settings.</span>`}</div>`;
+}
 const baseRenderGuide = render;
 render = window.render = function(){
   const r = baseRenderGuide.apply(this, arguments), v = $("#view");
   if (v && !$("#lockScreen:not([hidden])") && S.ready){
-    const html = dayCard() + tipCard();
-    if (html){ v.insertAdjacentHTML("afterbegin", html); if (S.lang === "ar") [$("#dayCard"), $("#tipCard")].forEach(e => e && translate(e)); }
+    const html = syncCard() + dayCard() + tipCard();
+    if (html){ v.insertAdjacentHTML("afterbegin", html); if (S.lang === "ar") [$("#syncCard"), $("#dayCard"), $("#tipCard")].forEach(e => e && translate(e)); }
     if (!lsGet("erp.tourDone", false) && (S.staff || !E.staff.length) && $("#sheet").hidden){ lsSet("erp.tourDone", true); setTimeout(() => { if ($("#sheet").hidden) tourSheet(0); }, 400); }
     else startCheck();
   }
@@ -2646,3 +2663,6 @@ document.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && e
 document.head.insertAdjacentHTML("beforeend", `<style>.linkbtn{border:0;background:none;color:var(--accent);padding:0;min-height:0;text-decoration:underline;font:inherit}</style>`);
 Object.assign(AR, {"All keys":"كل الاختصارات","Keyboard keys":"اختصارات لوحة المفاتيح","Activity log":"سجل النشاط","The newest 100 actions, who did them and when.":"أحدث 100 عملية، ومن قام بها ومتى.","Copy the list":"انسخ القائمة","List copied.":"تم نسخ القائمة.","Nothing needs ordering.":"لا شيء يحتاج إلى طلب.","Nothing yet.":"لا شيء بعد.","Search or scan":"بحث أو مسح","Move through results":"التنقل بين النتائج","Add the result":"إضافة النتيجة","Change box, strip or tablet":"تغيير علبة/شريط/حبة","More or fewer of the last item":"زيادة أو إنقاص آخر مادة","Switch to debt (if allowed)":"التحويل إلى دين (إن كان مسموحاً)","Save the sale":"حفظ البيع","Print the receipt":"طباعة الوصل","Find any screen":"ابحث عن أي شاشة","Show this list":"إظهار هذه القائمة","Shift started":"بدء دوام","Cancelled sale":"بيع ملغى","Customer payment":"دفعة زبون","Manual accounting entry":"قيد محاسبي يدوي","Sale blocked":"بيع محظور","Return":"إرجاع","Stock":"المخزون","Shift ended":"انتهاء دوام","Shift closed by the owner":"أغلقه المالك"});
 AR_RX.push([/^Have (.+) · sold in 30 days (.+)$/, "المتوفر $1 · المباع خلال 30 يوماً $2"], [/^Stock: (.+)$/, "المخزون: $1"], [/^Sale #(.+) · (.+)$/, "بيع #$1 · $2"], [/^Expense (.*) · (.+)$/, "مصروف $1 · $2"]);
+Object.assign(AR, {"Cloud sync stopped: this device was signed out.":"توقفت المزامنة السحابية: تم تسجيل خروج هذا الجهاز.","Cloud sync is not working.":"المزامنة السحابية لا تعمل.","Sign in again":"سجّل الدخول مرة أخرى","Open Settings":"افتح الإعدادات","Ask the owner to open Settings.":"اطلب من المالك فتح الإعدادات.","Cloud sync stopped: signed out":"توقفت المزامنة: تم تسجيل الخروج","Open Settings and type the cloud password again.":"افتح الإعدادات واكتب كلمة مرور السحابة مرة أخرى.","Signed out: type the password again below":"تم تسجيل الخروج: اكتب كلمة المرور مرة أخرى في الأسفل","Last good sync":"آخر مزامنة ناجحة","Cloud account":"حساب السحابة","Signed out of the cloud. Type the password again in Settings.":"تم تسجيل الخروج من السحابة. اكتب كلمة المرور مرة أخرى في الإعدادات.","Signed in. Uploading your changes…":"تم تسجيل الدخول. جارٍ رفع تغييراتك…","Type the password.":"اكتب كلمة المرور.","Can't reach the cloud. It will try again by itself.":"لا يمكن الوصول إلى السحابة. سيحاول مرة أخرى تلقائياً."});
+AR_RX.push([/^(\d+) change\(s\) waiting to upload\.$/, "$1 تغيير بانتظار الرفع."], [/^(\d+) waiting$/, "$1 بانتظار الرفع"], [/^Last good sync: (.+)\.$/, "آخر مزامنة ناجحة: $1."], [/^The cloud is not answering \((\d+)\)\. It will try again by itself\.$/, "السحابة لا تستجيب ($1). سيحاول مرة أخرى تلقائياً."],
+  [/^The cloud signed this device out, usually because the sync password was changed\. Nothing is lost: the (\d+) change\(s\) above stay on this device and upload as soon as you sign in again\.$/, "أخرجت السحابة هذا الجهاز، غالباً لأن كلمة مرور المزامنة تغيّرت. لم يضع شيء: الـ $1 تغيير في الأعلى باقية على هذا الجهاز وتُرفع حالما تسجل الدخول مرة أخرى."]);

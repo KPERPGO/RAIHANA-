@@ -1,118 +1,96 @@
-const ROOT = require('path').resolve(__dirname, '..'); // repo folder: src, dist, tests
-// Receipt paper and Zain Cash / Qi card, 20 Nov 2026 (LTH: "Make them both"): Settings picks 58 mm or 80 mm receipt paper;
-// Sell takes Zain Cash and Qi card next to cash and card (all of it, or the non-cash part of a split). They stay out of
-// the cash box like card, and are shown apart on the receipt, Sell totals, the Cash box, Reports, export and accounts.
-const { chromium, XLSX_FILE } = require('./pw');
-let fails = 0; const ok = (m, c, x) => { console.log(c ? 'ok  ' : 'FAIL', m, x === undefined ? '' : JSON.stringify(x)); if (!c) fails++; };
+// Cloud sign-in that stays signed in, and a loud, easy way back when the cloud signs a device out.
+// The fake Supabase rotates refresh tokens like the real one: each refresh token works once, and using an old one again
+// ends the session (as Supabase's reuse detection does). Changing the password ends every session.
+const http = require('http');
+const { chromium } = require('./pw');
+let fails = 0; const ok = (c, m, x) => { console.log(c ? 'ok  ' : 'FAIL', m, x === undefined ? '' : JSON.stringify(x)); if (!c) fails++; };
+const docs = new Map(); let ver = 0, password = 'pw1', n = 0, refreshCalls = 0, revoked = false;
+const live = new Set(), used = new Set(), access = new Set();
+const server = http.createServer((req, res) => {
+  const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': '*', 'Content-Type': 'application/json' };
+  if (req.method === 'OPTIONS'){ res.writeHead(204, cors); return res.end(); }
+  let body = ''; req.on('data', d => body += d); req.on('end', () => {
+    const url = new URL(req.url, 'http://x'), send = (code, o) => { res.writeHead(code, cors); res.end(JSON.stringify(o)); };
+    const session = () => { const a = 'a' + (++n), r = 'r' + n; access.add(a); live.add(r); return { access_token: a, refresh_token: r, expires_in: 3600, user: { id: 'u1', user_metadata: {} } }; };
+    if (url.pathname === '/auth/v1/token'){
+      const j = JSON.parse(body || '{}');
+      if (url.searchParams.get('grant_type') === 'password') return j.password === password ? send(200, session()) : send(400, { error_description: 'Invalid login credentials' });
+      refreshCalls++;
+      if (live.has(j.refresh_token)){ live.delete(j.refresh_token); used.add(j.refresh_token); return send(200, session()); }
+      if (used.has(j.refresh_token)){ revoked = true; live.clear(); access.clear(); } // reuse of a spent token: the whole session ends
+      return send(400, { error: 'invalid_grant', error_description: 'Invalid Refresh Token' });
+    }
+    const tok = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!access.has(tok)) return send(401, { message: 'JWT expired' });
+    if (url.pathname === '/rest/v1/rpc/erp_push'){
+      const out = []; for (const r of JSON.parse(body).rows){ const v = ++ver; docs.set(r.path, { data: r.data, ver: v }); out.push({ path: r.path, ok: true, ver: v }); }
+      return send(200, out);
+    }
+    if (url.pathname === '/rest/v1/erp_docs'){ const gt = +(url.searchParams.get('ver') || 'gt.0').replace('gt.', ''); return send(200, [...docs].map(([path, d]) => ({ path, data: d.data, ver: d.ver })).filter(x => x.ver > gt).sort((a, b) => a.ver - b.ver)); }
+    send(404, {});
+  });
+}).listen(8767);
 (async () => {
   const b = await chromium.launch();
-  const fresh = async (vp = { width: 1280, height: 900 }, ar = false) => {
-    const p = await b.newPage({ viewport: vp }); const errs = []; p.on('pageerror', e => errs.push(e.message)); p.errs = errs;
-    await p.addInitScript({ path: ROOT + '/tests/fake.js' });
-    await p.route('**/xlsx.full.min.js', r => r.fulfill({ path: XLSX_FILE, contentType: 'text/javascript' }));
-    await p.route('https://fonts.googleapis.com/**', r => r.fulfill({ body: '', contentType: 'text/css' }));
-    await p.goto('file://' + ROOT + '/tests/erp-artifact-test.html'); await p.waitForTimeout(800);
-    await p.evaluate(async () => {
-      Object.assign(__store, {products:{}, sales:{}, moves:{}, customers:{}, custpays:{}, chronic:{}, expenses:{}, closes:{}, counts:{}, staff:{}, shifts:{}, events:{}});
-      __seed('suppliers', [{id:'SUP-T', name:'Test supplier', creditDays:30}]);
-      __seed('invoices', [{id:'INV-T', supplierId:'SUP-T', invoiceNo:'T1', date:today(), type:'credit', status:'Approved for Posting', printedTotal:20000, lidSeq:2,
-        lines:['Beta', 'Gamma'].map((n, i) => ({lid:String(i), desc:n + ' Syrup', name:n, form:'Syrup', qty:20, price:500, value:10000, batch:'B' + i, expiry:'2028-01'}))}]);
-      __seed('staff', [{id:'ST-O', name:'Owner', role:'owner', active:true, pinHash: await pinHash('ST-O', '1234')}]);
-    });
-    await p.waitForTimeout(300);
-    await p.evaluate(async () => { for (const p of catalog()) await write('products/' + p.id, {id:p.id, sellBox:5000}); S.staff = E.staff.find(x => x.id === 'ST-O'); S.tab = 'sell'; render(); });
-    await p.waitForTimeout(200);
-    if (ar) { await p.click('#langBtn'); await p.waitForTimeout(300); }
-    return p;
-  };
-  const fill = (p, n) => p.evaluate(n => { closeSheet(); const x = catalog().find(q => q.name === 'Beta'); S.cart = [{pid:x.id, mode:'box', qty:n, price:5000}]; S.cartMeta = {}; saveCart(); render(); }, n);
-  const type = (p, sel, v) => p.evaluate(([sel, v]) => { const el = document.querySelector(sel); el.focus(); el.value = v; el.dispatchEvent(new Event('input', {bubbles:true})); }, [sel, String(v)]);
-  const pick = (p, sel, v) => p.evaluate(([sel, v]) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('change', {bubbles:true})); }, [sel, v]);
-  const save = async p => { await p.evaluate(() => { window.__n = E.sales.length; document.getElementById('sellForm').requestSubmit(); }); await p.waitForTimeout(300);
-    return p.evaluate(() => ({saved: E.sales.length - window.__n, err: document.getElementById('xErr')?.textContent || '', rc: document.getElementById('receipt')?.innerText.replace(/\s+/g, ' '), last: [...E.sales].sort((a, b) => a.at.localeCompare(b.at)).pop()})); };
+  const ctx = await b.newContext({ viewport: { width: 390, height: 800 } });
+  const tab = async () => { const p = await ctx.newPage(); p.errs = []; p.on('pageerror', e => p.errs.push(e.message)); await p.goto('http://localhost:8765/index.html'); await p.waitForTimeout(800); return p; };
+  const run = p => p.evaluate(async () => { while (ERP_SYNC.busy) await new Promise(r => setTimeout(r, 50)); await ERP_SYNC.run(); });
+  const expire = p => p.evaluate(() => { const c = JSON.parse(localStorage.getItem('erp.sync')); c.exp = Date.now() - 1000; localStorage.setItem('erp.sync', JSON.stringify(c)); });
+  const put = (p, path, v) => p.evaluate(([a, c]) => ERP_LOCAL.put(a, c), [path, v]);
+  const A = await tab();
+  await put(A, 'customers/C1', { name: 'one' });
+  await A.evaluate(() => ERP_SYNC.login('http://localhost:8767', 'anon', 'boss@x.com', 'pw1')); await A.waitForTimeout(300); await run(A);
+  ok(docs.has('customers/C1') && (await A.evaluate(() => ERP_SYNC.status.state)) === 'ok', 'connected and uploaded');
+  ok(!!(await A.evaluate(() => ERP_SYNC.lastOk())), 'the last good sync time is kept');
 
-  // ---- paying by Zain Cash and Qi card
-  { const p = await fresh();
-    await fill(p, 2); // 10,000
-    const chips = await p.evaluate(() => [...document.querySelectorAll('.paykind button')].map(x => x.textContent));
-    ok('Payment buttons: All cash, All card, All Zain Cash, All Qi card', ['All cash', 'All card', 'All Zain Cash', 'All Qi card'].every(t => chips.includes(t)), chips);
-    await p.click('[data-xpay="zain"]'); await p.waitForTimeout(100);
-    let v = await p.evaluate(() => ({via: $('#xVia').value, amt: $('#xCard').value, lab: $('#xCard').parentElement.firstChild.textContent, cashRow: $('#xCashRow').hidden, bill: document.getElementById('billCardRow').innerText, pressed: document.querySelector('[data-xpay="zain"]').getAttribute('aria-pressed')}));
-    ok('All Zain Cash: whole total on Zain Cash, no cash box, invoice says Zain Cash', v.via === 'zain' && v.amt === '10000' && v.cashRow && /Zain Cash/.test(v.lab) && /Zain Cash/.test(v.bill) && v.pressed === 'true', v);
-    let r = await save(p); const zainId = r.last.id;
-    ok('Saved as a Zain Cash sale', r.saved === 1 && r.last.method === 'card' && r.last.via === 'zain', r.last);
-    ok('Receipt says Paid by Zain Cash', /Paid by Zain Cash/.test(r.rc), r.rc);
+  // an hour later: the token refreshes and the new one is saved
+  await expire(A); await run(A);
+  ok(refreshCalls === 1 && (await A.evaluate(() => JSON.parse(localStorage.getItem('erp.sync')).refresh)) !== 'r1' && !revoked, 'the sign-in refreshes and the new token is saved', refreshCalls);
 
-    await fill(p, 3); // 15,000: 5,000 Qi card + 10,000 cash
-    await pick(p, '#xVia', 'qi'); await p.waitForTimeout(100); await type(p, '#xCard', 5000); await type(p, '#xGiven', 10000);
-    v = await p.evaluate(() => ({lab: $('#xCard').parentElement.firstChild.textContent, cash: $('#xCashPart').value, bill: document.getElementById('billCardRow').innerText}));
-    ok('Split with Qi card: label and invoice say Qi card, cash part 10,000', /Qi card amount/.test(v.lab) && v.cash === '10,000' && /Qi card/.test(v.bill), v);
-    r = await save(p);
-    ok('Saved as split: Qi card 5,000 + cash 10,000', r.saved === 1 && r.last.method === 'split' && r.last.via === 'qi' && r.last.card === 5000 && r.last.cash === 10000, r.last);
-    ok('Receipt shows the Qi card part and "cash and Qi card"', /Qi card 5,000/.test(r.rc) && /Paid by cash and Qi card/.test(r.rc), r.rc);
+  // two open tabs of the app reach the refresh time together: only one refresh, nobody reuses a spent token
+  const B = await tab(); await run(B); await expire(A); refreshCalls = 0;
+  await Promise.all([A.evaluate(() => ERP_SYNC.run()), B.evaluate(() => ERP_SYNC.run())]);
+  await run(A); await run(B);
+  ok(refreshCalls === 1 && !revoked, 'two tabs: one refresh, the session stays alive', { refreshCalls, revoked });
+  await expire(A); await run(B); await run(A);
+  ok(!revoked && (await A.evaluate(() => ERP_SYNC.status.state)) === 'ok' && (await B.evaluate(() => ERP_SYNC.status.state)) === 'ok', 'later refreshes from either tab still work', { revoked });
 
-    await fill(p, 2); await p.click('[data-xpay="card"]'); await p.waitForTimeout(100);
-    r = await save(p); ok('All card still saves as a plain card sale (no via)', r.saved === 1 && r.last.method === 'card' && r.last.via === undefined && /Paid by card/.test(r.rc), r.last);
+  // a sync that started before another tab refreshed must not write the old token back
+  await expire(A); const slowB = B.evaluate(() => ERP_SYNC.run()); await A.evaluate(() => ERP_SYNC.run()); await slowB; await expire(A); await run(A);
+  ok(!revoked, 'a slower tab does not put the spent token back');
+  await B.close();
 
-    const m = await p.evaluate(() => { const c = cashParts(today(), () => true), st = salesStats('today');
-      const je = bkEntries().filter(e => e.src === 'Sale').map(e => e.desc + ' ' + e.lines.map(l => l.acct + ':' + (l.dr || -l.cr)).join(' '));
-      return {cash:c.sales, card:c.cardSales, via:c.via, stVia:st.via, stCard:st.card, je}; });
-    ok('Cash box counts only real cash (10,000); non-cash 25,000', m.cash === 10000 && m.card === 25000 && m.stCard === 25000, m);
-    ok('Totals by kind: card 10,000, Zain Cash 10,000, Qi card 5,000', m.via.card === 10000 && m.via.zain === 10000 && m.via.qi === 5000 && JSON.stringify(m.stVia) === JSON.stringify(m.via), m.via);
-    ok('Accounts: Zain Cash and Qi card sales named, debited to 1010 like card', m.je.some(x => /Sale paid by Zain Cash .*1010:10000/.test(x)) && m.je.some(x => /Sale paid by cash and Qi card .*1000:10000.*1010:5000/.test(x)), m.je);
-    await p.evaluate(() => { closeSheet(); render(); }); await p.waitForTimeout(100);
-    const list = await p.evaluate(() => document.getElementById('view').innerText);
-    await p.evaluate(() => { S.tab = 'home'; render(); }); await p.waitForTimeout(100);
-    const sell = {list, k: await p.evaluate(() => [...document.querySelectorAll('.kpis .kpi .l')].map(x => x.textContent))};
-    ok('Sell totals show Card, Zain Cash and Qi card tiles', ['Card', 'Zain Cash', 'Qi card'].every(t => sell.k.includes(t)), sell.k);
-    ok('Receipts list: "Zain Cash" and "Cash 10,000 + Qi card 5,000"', /Zain Cash/.test(sell.list) && /Cash 10,000 \+ Qi card 5,000/.test(sell.list));
-    await p.evaluate(() => { S.tab = 'money'; render(); }); await p.waitForTimeout(150);
-    const money = await p.evaluate(() => document.getElementById('view').innerText);
-    ok('Cash box shows Paid by Zain Cash and by Qi card today (not in the box)', /Paid by Zain Cash today \(not in the box\)\s*10,000/.test(money) && /Paid by Qi card today \(not in the box\)\s*5,000/.test(money) && /Paid by card today/.test(money));
-    await p.evaluate(() => { S.tab = 'reports'; S.repM = null; render(); }); await p.waitForTimeout(150);
-    const rep = await p.evaluate(() => [...document.querySelectorAll('.repch figure')].find(f => /Sales by payment/.test(f.innerText))?.innerText);
-    ok('Reports: Sales by payment has Card, Zain Cash and Qi card', /Card/.test(rep) && /Zain Cash/.test(rep) && /Qi card/.test(rep), rep);
-    const xl = await p.evaluate(() => { const s = E.sales.find(x => x.via === 'qi'); return payText(s) + ' | ' + viaName(s); });
-    ok('Payment text for split Qi card', xl === 'Cash 10,000 + Qi card 5,000 | Qi card', xl);
+  // the password is changed in Supabase: every session ends
+  password = 'pw2'; live.clear(); access.clear();
+  await put(A, 'customers/C2', { name: 'made while signed out' }); await A.waitForTimeout(200); await expire(A); await run(A);
+  ok(await A.evaluate(() => ERP_SYNC.signedOut() && ERP_SYNC.status.state === 'signedout'), 'the device knows it was signed out', await A.evaluate(() => ERP_SYNC.status));
+  ok((await A.evaluate(() => ERP_SYNC.pending())) >= 1 && !docs.has('customers/C2'), 'the change made meanwhile waits on the device');
+  const callsBefore = refreshCalls; await run(A); await run(A);
+  ok(refreshCalls === callsBefore, 'it stops asking the cloud with a dead sign-in');
+  // the warning shows on Sell, the cashier's screen, not only in Settings
+  await A.evaluate(() => { S.tab = 'sell'; render(); }); await A.waitForTimeout(200);
+  ok(await A.evaluate(() => /Cloud sync stopped/.test(document.querySelector('#syncCard')?.innerText || '')), 'Sell shows the signed-out warning');
+  await A.click('#syncCard [data-tab="settings"]'); await A.waitForTimeout(300);
+  ok(await A.evaluate(() => S.tab === 'settings' && !!document.querySelector('#reloginForm') && !document.querySelector('#syncForm')), 'the button opens Settings with a password-only sign-in');
+  ok(await A.evaluate(() => /boss@x\.com/.test(document.querySelector('#reloginForm').innerText)), 'the email is already filled in');
+  await A.fill('#zPass', 'pw1'); await A.click('#reloginForm button[type=submit]'); await A.waitForTimeout(400);
+  const zerr = await A.textContent('#zErr').catch(() => 'no field'); ok(/Wrong email or password/.test(zerr) && await A.evaluate(() => ERP_SYNC.signedOut()), 'a wrong password says so and stays signed out', zerr);
+  await A.fill('#zPass', 'pw2'); await A.click('#reloginForm button[type=submit]'); await A.waitForTimeout(400); await run(A);
+  ok(docs.get('customers/C2')?.data?.name === 'made while signed out' && !(await A.evaluate(() => ERP_SYNC.pending())), 'after signing in again the waiting change uploads');
+  ok(await A.evaluate(() => !ERP_SYNC.signedOut() && ERP_SYNC.status.state === 'ok' && !document.querySelector('#reloginForm')), 'back to normal: no warning, no password form');
+  ok(await A.evaluate(() => JSON.parse(localStorage.getItem('erp.sync')).url === 'http://localhost:8767'), 'the Project URL and key were kept, nothing to retype');
+  await A.evaluate(() => { S.tab = 'sell'; render(); }); await A.waitForTimeout(200);
+  ok(await A.evaluate(() => !document.querySelector('#syncCard')), 'Sell has no warning once syncing works');
 
-    // a return from the Zain Cash sale goes back to Zain Cash
-    await p.evaluate(id => { S.tab = 'sell'; render(); returnSheet(id); }, zainId); await p.waitForTimeout(150);
-    ok('Return note: refund goes back to the Zain Cash', /back to the customer's Zain Cash/.test(await p.evaluate(() => document.getElementById('sheet').innerText)));
-    await p.evaluate(() => { document.querySelector('[data-xrq="0"]').value = 1; document.getElementById('rReason').value = 'test'; document.getElementById('retForm').requestSubmit(); });
-    await p.waitForTimeout(250); await p.evaluate(() => { const el = document.getElementById('ownerPin'); if (el){ for (const ch of '1234') el.querySelector(`[data-opin="${ch}"]`).click(); el.querySelector('[data-opinok]')?.click(); } }); await p.waitForTimeout(300);
-    const rt = await p.evaluate(() => ({st: salesStats('today').via, cash: cashParts(today(), () => true).sales}));
-    ok('After the return: Zain Cash total 5,000, cash box unchanged', rt.st.zain === 5000 && rt.cash === 10000, rt);
-    ok('No page errors (payments)', !p.errs.length, p.errs);
-    await p.close(); }
-
-  // ---- receipt paper 80 mm / 58 mm
-  { const p = await fresh();
-    await p.evaluate(() => { S.tab = 'settings'; render(); }); await p.waitForTimeout(150);
-    ok('Settings: receipt paper choice, 80 mm by default', await p.evaluate(() => $('#sPaper')?.value === '80' && [...$('#sPaper').options].map(o => o.value).join() === '80,58'));
-    const width = async () => { await p.evaluate(() => { window.print = () => {}; const s = E.sales[0]; receiptSheet(s.id); document.querySelector('#sheet [data-xprint]').click(); }); await p.waitForTimeout(100);
-      await p.emulateMedia({ media: 'print' }); const w = await p.evaluate(() => ({paper: $('#printArea').dataset.paper, w: $('#printArea #receipt').getBoundingClientRect().width}));
-      await p.emulateMedia({ media: 'screen' }); await p.evaluate(() => closeSheet()); return w; };
-    await p.evaluate(() => { S.tab = 'sell'; render(); }); await fill(p, 1); await save(p);
-    let w = await width(); ok('80 mm paper prints 72 mm wide (~272px)', w.paper === '80' && Math.abs(w.w - 272) < 4, w);
-    await p.evaluate(() => { S.tab = 'settings'; render(); }); await p.waitForTimeout(100);
-    await p.selectOption('#sPaper', '58'); await p.evaluate(() => document.getElementById('cfgForm').requestSubmit()); await p.waitForTimeout(300);
-    ok('Setting saved as 58', await p.evaluate(() => E.cfg.paper === '58'));
-    w = await width(); ok('58 mm paper prints 48 mm wide (~181px)', w.paper === '58' && Math.abs(w.w - 181) < 4, w);
-    ok('No page errors (paper)', !p.errs.length, p.errs);
-    await p.close(); }
-
-  // ---- phone and Arabic
-  for (const [vp, ar] of [[{ width: 390, height: 844 }, false], [{ width: 390, height: 844 }, true], [{ width: 1280, height: 900 }, true]]) {
-    const tag = `[${vp.width} ${ar ? 'ar' : 'en'}]`, p = await fresh(vp, ar);
-    await fill(p, 2); await p.waitForTimeout(100);
-    const r = await p.evaluate(() => ({doc: document.documentElement.scrollWidth - document.documentElement.clientWidth, chips: [...document.querySelectorAll('.paykind button')].map(x => x.textContent), via: [...$('#xVia').options].map(o => o.textContent), lab: $('#xVia').parentElement.firstChild.textContent}));
-    ok(tag + ' no sideways scroll on Sell', r.doc <= 1, r.doc);
-    if (ar) ok(tag + ' Arabic: زين كاش and كي كارد', r.chips.includes('زين كاش بالكامل') && r.chips.includes('كي كارد بالكامل') && r.via.includes('زين كاش') && r.via.includes('كي كارد') && /الجزء غير النقدي/.test(r.lab), r);
-    if (ar) { await p.evaluate(() => { S.tab = 'settings'; render(); }); await p.waitForTimeout(150);
-      ok(tag + ' Arabic: receipt paper setting translated', await p.evaluate(() => /ورق طابعة الوصل/.test($('#sPaper').parentElement.textContent) && /80 ملم/.test($('#sPaper').options[0].textContent))); }
-    ok(tag + ' no page errors', !p.errs.length, p.errs);
-    await p.close(); }
-
-  await b.close();
-  console.log(fails ? `FAIL ${fails} checks` : 'PASS all payment kind and receipt paper checks'); process.exit(fails ? 1 : 0);
+  // a short cloud hiccup does not shout; only a long one does
+  await A.evaluate(() => { ERP_SYNC.set({state: 'error', msg: 'Cloud refused the changes (500).'}); render(); });
+  ok(await A.evaluate(() => !document.querySelector('#syncCard')), 'a fresh error does not show the warning');
+  await A.evaluate(() => { ERP_SYNC.status.okAt = new Date(Date.now() - 7 * 3600e3).toISOString(); render(); });
+  ok(await A.evaluate(() => /not working/.test(document.querySelector('#syncCard')?.innerText || '')), 'an error lasting over 6 hours shows the warning');
+  // Arabic
+  await A.evaluate(() => { ERP_SYNC.set({state: 'signedout'}); const c = JSON.parse(localStorage.getItem('erp.sync')); c.signedOut = true; localStorage.setItem('erp.sync', JSON.stringify(c)); S.lang = 'ar'; render(); });
+  ok(await A.evaluate(() => /توقفت المزامنة السحابية/.test(document.querySelector('#syncCard')?.innerText || '') && !/change\(s\)/.test(document.querySelector('#syncCard').innerText)), 'the warning is in Arabic', await A.evaluate(() => document.querySelector('#syncCard')?.innerText));
+  ok(!A.errs.length, 'no page errors', A.errs);
+  await b.close(); server.close();
+  console.log(fails ? `${fails} FAILED` : 'PASS all sign-in checks'); process.exit(fails ? 1 : 0);
 })();

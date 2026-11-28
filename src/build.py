@@ -33,6 +33,7 @@ rep("""    return {no: el.dataset.no || undefined, note:""", """    return {lid:
 rep("""  if (c.dup){ err.textContent = `${supName(inv.supplierId)} invoice ${inv.invoiceNo} is already in the app. Open that one instead of adding a duplicate.`; return; }
 """, """  if (c.dup){ err.textContent = `${supName(inv.supplierId)} invoice ${inv.invoiceNo} is already in the app. Open that one instead of adding a duplicate.`; return; }
   { const stop = window.ERP_INV_GUARD?.(inv); if (stop){ err.innerHTML = stop; return; } }
+  if (window.ERP_INV_REVIEW?.(inv)) return; // check before saving: stock changes only after Confirm
 """)
 rep("""  if (Object.values(rl).some(r => !isNum(r.qty) || r.qty < 0)){ $("#rcErr").textContent = "Use whole numbers for received quantities."; return; }
 """, """  if (Object.values(rl).some(r => !isNum(r.qty) || r.qty < 0)){ $("#rcErr").textContent = "Use whole numbers for received quantities."; return; }
@@ -51,6 +52,12 @@ rep("""  openSheet(id ? "Edit invoice" : pre ? "Check scanned invoice" : "Add in
     ${pre ? `<div class="banner">${fromFile ? `Filled from the file ${esc(ex.file || "")}. Check every line against the paper invoice before saving. Blank prices, batches and expiry dates stay blank until you type them.` : "Read from the photo. Check every line against the paper before saving."} Nothing is saved until you tap Save.</div>` : ""}
     ${id ? "" : `<div class="actions"><button type="button" data-xinvfile="1">Fill lines from Excel or CSV</button></div>`}
     ${ex && ex.uncertain && ex.uncertain.length ? `<div class="sum"><b>${fromFile ? "Please check" : "Couldn't read clearly"}</b>""")
+# stock from a PDF or photo (erp.js INVDOC): the form shows the attached invoice; the invoice page lists every copy
+rep("""    ${i.photo ? `<img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice">` : ""}
+    <form id="invForm\"""", """    ${window.ERP_DOC_PANEL ? ERP_DOC_PANEL(i) : i.photo ? `<img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice">` : ""}
+    <form id="invForm\"""")
+rep("""    ${i.photo ? `<details><summary>Original invoice photo</summary><img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice"></details>` : ""}""",
+    """    ${window.ERP_DOCS_VIEW ? ERP_DOCS_VIEW(i) : i.photo ? `<details><summary>Original invoice photo</summary><img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice"></details>` : ""}""")
 rep("""<b>Flagged when read from the photo</b>""", """<b>${i.extraction.source === "file" ? "Flagged when filled from the file" : "Flagged when read from the photo"}</b>""")
 rep("""  if (!inv.id){ inv.pid = nextPid(); inv.id = inv.pid; inv.createdAt = new Date().toISOString(); inv.createdBy = S.meId; inv.receiving = "pending"; }
 """, """  if (!inv.id){ inv.pid = nextPid(); inv.id = inv.pid; inv.createdAt = new Date().toISOString(); inv.createdBy = S.meId; inv.receiving = "pending"; }
@@ -306,6 +313,21 @@ header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 @media (max-width:560px){header.top .in{gap:8px;padding-block:8px}.logo{width:28px;height:28px}.scr{font-size:16px}.hbtn{padding:0 10px}#addBtn{font-size:0;width:40px;padding:0;justify-content:center}#addBtn::before{content:"+";font-size:22px;font-weight:500}#staffBar .clock{display:none}}
 @media (max-width:360px){.bn{display:none}}
 .paybtn{padding:16px!important;font-size:17px}
+/* stock from a PDF or photo: the supplier's invoice stays in view while the lines are typed (top on a phone, left on a wide screen) */
+.invdoc{position:sticky;z-index:1;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:grid;gap:8px;box-shadow:0 6px 16px rgba(0,0,0,.08)}
+.invdoc.none{position:static;box-shadow:none}.invdoc .dh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}.invdoc .dh .note{flex-basis:100%}
+.invdoc .pages,.invdoc .tools{display:flex;gap:4px;flex-wrap:wrap}.invdoc .tools{margin-inline-start:auto}
+.invdoc .dh button{min-height:32px!important;height:32px;padding:0 10px;font-size:13px;border-radius:8px}.invdoc .pages button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.invdoc .dv{max-height:34vh;overflow:auto;background:#fff;border-radius:8px;border:1px solid var(--line);overscroll-behavior:contain}
+.invdoc .dv img{display:block;width:calc(var(--z,1) * 100%);max-width:none}.invdoc .dv iframe,.invdocs iframe{display:block;width:100%;height:34vh;border:0;background:#fff}
+.invdoc .actions.small button{min-height:32px!important;height:32px;padding:0 10px;font-size:13px;border-radius:8px}
+.invdoc.min .dv,.invdoc.min > .actions{display:none}.pb:has(#invReview) > .invdoc{position:static;box-shadow:none}
+@media (max-width:999px){.invdoc .dv{max-height:24vh}.invdoc .dv iframe{height:24vh}}.invdocs .dv{margin-top:8px}.invdocs img.photo{max-width:100%}
+.rvhide{display:none!important}.rvlist{display:grid;gap:8px}.rvline{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:grid;gap:4px;background:var(--surface)}
+.rvline .r{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.rvline.flag{border-color:var(--warn)}.rvflag{font-size:13px;color:var(--warn);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rvflag button{min-height:30px!important;height:30px;padding:0 10px;font-size:13px}
+@media (min-width:1000px){.sheet .panel.withdoc{max-width:1400px!important}.panel.withdoc .pb{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}.panel.withdoc .pb > *{grid-column:2}
+  .panel.withdoc .pb > .invdoc{grid-column:1;grid-row:1 / span var(--rows,1)}.panel.withdoc .invdoc .dv{max-height:calc(min(88vh,88dvh) - 190px)}.panel.withdoc .invdoc .dv iframe{height:calc(min(88vh,88dvh) - 200px)}}
 @media print{body{padding:0!important;background:#fff}body > *:not(#printArea){display:none!important}#printArea{display:block!important}#printArea #receipt{max-width:72mm!important;margin:0!important;padding:0!important}}
 </style>"""
 HEAD_OLD = re.search(r'<header class="top">.*?</header>', base, re.S).group(0)

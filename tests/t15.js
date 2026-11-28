@@ -46,6 +46,7 @@ const INV_FILE = path.join(TMP, 'invoice.xlsx'); XLSX.writeFile(wb, INV_FILE);
     const asks = await p.evaluate(() => [...document.querySelectorAll('[data-xsame]')].map(x => ({ key: x.dataset.xsame, same: x.options[1]?.value })));
     for (const a of asks) await p.selectOption(`[data-xsame="${a.key}"]`, /clexane/.test(a.key) ? a.same : 'new');
     if (asks.length) { await p.click('#invForm button[type=submit]'); await p.waitForTimeout(700); }
+    if (await p.$('[data-xrvok]')) { await p.click('[data-xrvok]'); await p.waitForTimeout(700); } // the check screen before saving
     const saved = await p.evaluate(() => S.invoices.find(i => i.invoiceNo === 'X-77'));
     ok(saved && saved.lines.length === 3 && saved.lines[1].batch === '' && saved.lines[2].price == null && saved.extraction?.source === 'file', tag + ' invoice saved with the file lines as checked', saved && { lines: saved.lines.length, src: saved.extraction?.source });
     if (await p.evaluate(() => !document.querySelector('#sheet').hidden)) { await p.keyboard.press('Escape'); await p.waitForTimeout(200); }

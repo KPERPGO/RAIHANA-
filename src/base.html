@@ -244,8 +244,10 @@ function parseDesc(desc){
   return {name, strength, form, pack, blisters, perBlister, fridge};
 }
 
+// the same line text always reads the same way: read each text once (screens ask for it thousands of times)
+const PD = new Map(), parseDescOnce = d => { const k = String(d || ""); let r = PD.get(k); if (!r){ if (PD.size > 20000) PD.clear(); PD.set(k, r = parseDesc(k)); } return r; };
 function attrs(l){
-  const p = parseDesc(l.desc);
+  const p = parseDescOnce(l.desc);
   const pick = (k, v) => (l[k] !== undefined && l[k] !== null && l[k] !== "") ? l[k] : v;
   return {name: pick("name", p.name), strength: pick("strength", p.strength), form: pick("form", p.form), pack: pick("pack", p.pack), blisters: pick("blisters", p.blisters), fridge: typeof l.cold === "boolean" ? l.cold : p.fridge};
 }
@@ -794,16 +796,46 @@ function supplierForm(id){
 }
 
 /* ---------- writes ---------- */
+const saveMsg = e => e?.code === "quota_exceeded" ? "This device's storage is full, so nothing was saved. Free space on the phone (old photos, videos, apps), then try again. Don't delete this app or its website data." : e?.code === "local_failed" ? "Couldn't save on this device. Close the app fully (swipe it away) and open it again, then try again. Your saved data is safe." : e?.code === "invalid_argument" ? "You don't have permission to change this data." : "Couldn't save. Check your connection and try again.";
+const stamp = data => data && typeof data === "object" && S.meId ? {...data, lastBy:S.meId, lastAt:new Date().toISOString()} : data;
 async function write(path, data, merge){
   if (!S.db) throw new Error("Saving is not available in this view.");
-  const ref = S.db.doc(path);
-  if (data && typeof data === "object" && S.meId) data = {...data, lastBy:S.meId, lastAt:new Date().toISOString()};
-  try { merge ? await ref.update(data) : await ref.set(data); }
+  const ref = S.db.doc(path); data = stamp(data);
+  const done = SAVE.start();
+  try { merge ? await ref.update(data) : await ref.set(data); done(true); }
   catch (e) {
     if (e && e.code === "invalid_argument" && !merge){ S.readOnly = true; }
-    throw new Error(e?.code === "quota_exceeded" ? "This device's storage is full, so nothing was saved. Free space on the phone (old photos, videos, apps), then try again. Don't delete this app or its website data." : e?.code === "local_failed" ? "Couldn't save on this device. Close the app fully (swipe it away) and open it again, then try again. Your saved data is safe." : e?.code === "invalid_argument" ? "You don't have permission to change this data." : "Couldn't save. Check your connection and try again.");
+    done(false, saveMsg(e)); throw new Error(saveMsg(e));
   }
 }
+// several records that belong together (a sale and its new customer, the stock lines of a return or a stocktake):
+// on the installed app they are saved in one go, all or none, so a failure half-way never leaves half a record behind
+async function writeMany(ops){
+  if (!S.db) throw new Error("Saving is not available in this view.");
+  if (!S.db.batch){ for (const o of ops) await write(o.path, o.data, o.merge); return; } // claude.ai storage: one after another
+  const done = SAVE.start();
+  try { await S.db.batch(ops.map(o => ({...o, data:stamp(o.data)}))); done(true); }
+  catch (e) { done(false, saveMsg(e)); throw new Error(saveMsg(e)); }
+}
+/* saving / saved / not saved, shown in a small label at the top of every screen (see saveDot) */
+const SAVE = {n:0, last:null, t:null,
+  start(){ this.n++; this.show(); let once = false; return (ok, msg) => { if (once) return; once = true; this.n--; this.last = {ok, msg:msg || "", at:Date.now()}; this.show(); }; },
+  show(){ try { this.draw(); } catch(e){ console.error(e); } }, // the label never stops a save
+  draw(){ const el = document.getElementById("saveDot"); if (!el) return; clearTimeout(this.t);
+    const sy = window.ERP_SYNC, wait = sy && sy.cfg && sy.pending && sy.cfg() ? sy.pending() : 0, stuck = wait && ["offline", "error", "signedout"].includes(sy.status?.state), l = this.last;
+    let cls = "", txt = "";
+    if (this.n > 0){ cls = "busy"; txt = "Saving…"; }
+    else if (l && !l.ok){ cls = "bad"; txt = "Not saved · tap to see why"; }
+    else if (l && Date.now() - l.at < 4000){ cls = "good"; txt = wait ? "Saved on this device" : "Saved"; }
+    else if (stuck){ cls = "wait"; txt = `${wait} not uploaded yet`; } // saved on the device; the cloud gets them when it can
+    el.className = cls; el.textContent = txt; el.hidden = !txt; el.title = l && !l.ok ? l.msg : "";
+    const h = document.querySelector("header.top"); if (txt && h) el.style.top = Math.max(4, h.getBoundingClientRect().bottom - 12) + "px"; // sits on the header's lower edge
+    if (S.lang === "ar") translate(el);
+    if (cls === "good") this.t = setTimeout(() => this.show(), 4100);
+  }
+};
+document.addEventListener("click", ev => { const el = ev.target.closest("#saveDot"); if (!el || !SAVE.last || SAVE.last.ok) return;
+  toast(SAVE.last.msg); SAVE.last = null; SAVE.show(); });
 function nextPid(){
   const y = new Date().getFullYear(); const nums = S.invoices.map(i => /PI-(\d{4})-(\d+)/.exec(i.pid||i.id)).filter(m => m && +m[1] === y).map(m => +m[2]);
   return `PI-${y}-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4,"0")}`;
@@ -828,11 +860,11 @@ async function saveInvoice(e){
   if (c.dup){ err.textContent = `${supName(inv.supplierId)} invoice ${inv.invoiceNo} is already in the app. Open that one instead of adding a duplicate.`; return; }
   if (S.saving) return; S.saving = true; // a second tap while saving must not create a second invoice
   for (const l of inv.lines){ for (const k of ["qty","bonus","bonusPct","discPct","discAmt","price","value","note","no","name","strength","form","pack","blisters"]) if (l[k] === null || l[k] === undefined) delete l[k]; }
+  let newSup = null;
   if (inv.supplierId === "__new"){
     const nums = S.suppliers.map(x => +(/SUP-(\d+)/.exec(x.id)||[])[1]||0); const sid = "SUP-" + String(Math.max(0,...nums)+1).padStart(3,"0");
-    try { await write("suppliers/" + sid, {id:sid, name:inv.newSupplierName, nameAr:inv.newSupplierAr||"", creditDays:null, returnDays:null, openingBalance:null, openingVerified:false, discountTiers:[], notes:"Added from an invoice"}); }
-    catch(x){ S.saving = false; err.textContent = x.message; return; }
-    inv.supplierId = sid; S.suppliers.push({id:sid, name:inv.newSupplierName});
+    newSup = {id:sid, name:inv.newSupplierName, nameAr:inv.newSupplierAr||"", creditDays:null, returnDays:null, openingBalance:null, openingVerified:false, discountTiers:[], notes:"Added from an invoice"};
+    inv.supplierId = sid; // saved together with the invoice below, so a failed save never leaves a supplier with no invoice
   }
   delete inv.newSupplierName; delete inv.newSupplierAr;
   const old = inv.id ? S.invoices.find(x => x.id === inv.id) : null;
@@ -848,7 +880,7 @@ async function saveInvoice(e){
   } else
   inv.status = c.okTol ? (inv.status === "On Hold" ? "On Hold" : "Awaiting Approval") : "Validation Required";
   inv.updatedAt = new Date().toISOString();
-  try { await write("invoices/" + inv.id, inv); S.saving = false; closeSheet(); toast(`Saved ${inv.pid}.`); }
+  try { await writeMany([...(newSup ? [{path:"suppliers/" + newSup.id, data:newSup}] : []), {path:"invoices/" + inv.id, data:inv}]); S.saving = false; closeSheet(); toast(`Saved ${inv.pid}.`); }
   catch(x){ S.saving = false; err.textContent = x.message; }
 }
 async function savePayment(e){

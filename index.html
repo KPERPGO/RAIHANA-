@@ -342,6 +342,21 @@ header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 @media (max-width:560px){header.top .in{gap:8px;padding-block:8px}.logo{width:28px;height:28px}.scr{font-size:16px}.hbtn{padding:0 10px}#addBtn{font-size:0;width:40px;padding:0;justify-content:center}#addBtn::before{content:"+";font-size:22px;font-weight:500}#staffBar .clock{display:none}}
 @media (max-width:360px){.bn{display:none}}
 .paybtn{padding:16px!important;font-size:17px}
+/* stock from a PDF or photo: the supplier's invoice stays in view while the lines are typed (top on a phone, left on a wide screen) */
+.invdoc{position:sticky;z-index:1;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:grid;gap:8px;box-shadow:0 6px 16px rgba(0,0,0,.08)}
+.invdoc.none{position:static;box-shadow:none}.invdoc .dh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}.invdoc .dh .note{flex-basis:100%}
+.invdoc .pages,.invdoc .tools{display:flex;gap:4px;flex-wrap:wrap}.invdoc .tools{margin-inline-start:auto}
+.invdoc .dh button{min-height:32px!important;height:32px;padding:0 10px;font-size:13px;border-radius:8px}.invdoc .pages button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.invdoc .dv{max-height:34vh;overflow:auto;background:#fff;border-radius:8px;border:1px solid var(--line);overscroll-behavior:contain}
+.invdoc .dv img{display:block;width:calc(var(--z,1) * 100%);max-width:none}.invdoc .dv iframe,.invdocs iframe{display:block;width:100%;height:34vh;border:0;background:#fff}
+.invdoc .actions.small button{min-height:32px!important;height:32px;padding:0 10px;font-size:13px;border-radius:8px}
+.invdoc.min .dv,.invdoc.min > .actions{display:none}.pb:has(#invReview) > .invdoc{position:static;box-shadow:none}
+@media (max-width:999px){.invdoc .dv{max-height:24vh}.invdoc .dv iframe{height:24vh}}.invdocs .dv{margin-top:8px}.invdocs img.photo{max-width:100%}
+.rvhide{display:none!important}.rvlist{display:grid;gap:8px}.rvline{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:grid;gap:4px;background:var(--surface)}
+.rvline .r{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.rvline.flag{border-color:var(--warn)}.rvflag{font-size:13px;color:var(--warn);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rvflag button{min-height:30px!important;height:30px;padding:0 10px;font-size:13px}
+@media (min-width:1000px){.sheet .panel.withdoc{max-width:1400px!important}.panel.withdoc .pb{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}.panel.withdoc .pb > *{grid-column:2}
+  .panel.withdoc .pb > .invdoc{grid-column:1;grid-row:1 / span var(--rows,1)}.panel.withdoc .invdoc .dv{max-height:calc(min(88vh,88dvh) - 190px)}.panel.withdoc .invdoc .dv iframe{height:calc(min(88vh,88dvh) - 200px)}}
 @media print{body{padding:0!important;background:#fff}body > *:not(#printArea){display:none!important}#printArea{display:block!important}#printArea #receipt{width:72mm;max-width:72mm!important;margin:0!important;padding:0!important}#printArea[data-paper="58"] #receipt{width:48mm;max-width:48mm!important;font-size:11px!important}@page{margin:0}}
 </style>
 <div id="boot" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
@@ -1067,7 +1082,7 @@ function invoiceDetail(id){
       ${isNum(i.printedPrevBalance) ? `<div class="r note"><span>Supplier printed previous debt</span><span class="num">${iqd(i.printedPrevBalance)}</span></div>` : ""}
       <div class="r"><span>MyPharma number</span><span class="num">${esc(i.mercatoRef||"Not entered")}</span></div>
     </div>
-    ${i.photo ? `<details><summary>Original invoice photo</summary><img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice"></details>` : ""}
+    ${window.ERP_DOCS_VIEW ? ERP_DOCS_VIEW(i) : i.photo ? `<details><summary>Original invoice photo</summary><img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice"></details>` : ""}
     ${i.extraction?.uncertain?.length && !BOOKED.includes(i.status) ? `<div class="sum"><b>${i.extraction.source === "file" ? "Flagged when filled from the file" : "Flagged when read from the photo"}</b>${i.extraction.uncertain.map(u => `<div class="note">• ${esc(u)}</div>`).join("")}</div>` : ""}
     ${c.dup ? `<div class="err">Possible duplicate: another invoice from this supplier has the same number.</div>` : ""}
     <div class="tablewrap"><table><thead><tr><th>#</th><th>Product</th><th>Name</th><th>Dose</th><th>Dosage form</th><th class="n">Pack</th><th class="n">Blisters</th><th>Refrigerated</th><th class="n">Paid</th><th class="n">Bonus</th><th class="n">Price</th><th class="n">Amount</th><th class="n">Discount</th><th class="n">After discount</th><th class="n">Printed value</th><th class="n">Unit cost</th><th>Batch</th><th>Expiry</th></tr></thead><tbody>
@@ -1151,7 +1166,7 @@ function invoiceForm(id, pre){
     ${pre ? `<div class="banner">${fromFile ? `Filled from the file ${esc(ex.file || "")}. Check every line against the paper invoice before saving. Blank prices, batches and expiry dates stay blank until you type them.` : "Read from the photo. Check every line against the paper before saving."} Nothing is saved until you tap Save.</div>` : ""}
     ${id ? "" : `<div class="actions"><button type="button" data-xinvfile="1">Fill lines from Excel or CSV</button></div>`}
     ${ex && ex.uncertain && ex.uncertain.length ? `<div class="sum"><b>${fromFile ? "Please check" : "Couldn't read clearly"}</b>${ex.uncertain.map(u => `<div class="note">• ${esc(u)}</div>`).join("")}</div>` : ""}
-    ${i.photo ? `<img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice">` : ""}
+    ${window.ERP_DOC_PANEL ? ERP_DOC_PANEL(i) : i.photo ? `<img class="photo" src="/_blob/${esc(i.photo)}" alt="Photo of the paper invoice">` : ""}
     <form id="invForm" class="sec" novalidate>
       <div class="grid2 stack">
         <label>Supplier<select id="fSup">${S.suppliers.map(s => `<option value="${esc(s.id)}" ${s.id===i.supplierId?"selected":""}>${esc(s.name)}</option>`).join("")}<option value="__new" ${i.supplierId==="__new"?"selected":""}>New supplier…</option></select></label>
@@ -1375,6 +1390,7 @@ async function saveInvoice(e){
   const c = calc(inv);
   if (c.dup){ err.textContent = `${supName(inv.supplierId)} invoice ${inv.invoiceNo} is already in the app. Open that one instead of adding a duplicate.`; return; }
   { const stop = window.ERP_INV_GUARD?.(inv); if (stop){ err.innerHTML = stop; return; } }
+  if (window.ERP_INV_REVIEW?.(inv)) return; // check before saving: stock changes only after Confirm
   if (S.saving) return; S.saving = true; // a second tap while saving must not create a second invoice
   for (const l of inv.lines){ for (const k of ["qty","bonus","bonusPct","discPct","discAmt","price","value","note","no","name","strength","form","pack","blisters"]) if (l[k] === null || l[k] === undefined) delete l[k]; }
   let newSup = null;
@@ -2723,7 +2739,7 @@ function stockView(){
   const value = rows.reduce((a,r) => a + r.s.value, 0);
   return `<section class="kpis"><div class="kpi lead"><span class="l">Stock value at cost (after discounts and bonus)</span><span class="v num">${iqd(value)}</span></div>
     <div class="kpi"><span class="l">Items</span><span class="v num">${cat.length}</span></div><div class="kpi"><span class="l">Low or out of stock</span><span class="v num" style="color:var(--bad)">${cnt("low")}</span></div></section>
-  <section class="sec"><div class="sechead"><h2>Stock</h2><div class="actions"><button type="button" data-xreorder="1">Reorder list</button><button type="button" class="primary" data-xcount="1">Stocktaking</button><button type="button" data-xprod="__new">+ Item</button></div></div>
+  <section class="sec"><div class="sechead"><h2>Stock</h2><div class="actions">${canUse("newinv") ? `<button type="button" data-xstockdoc="1">+ Stock from PDF or photo</button>` : ""}<button type="button" data-xreorder="1">Reorder list</button><button type="button" class="primary" data-xcount="1">Stocktaking</button><button type="button" data-xprod="__new">+ Item</button></div></div>
     <input id="stockQ" type="search" placeholder="Name, dose, barcode" value="${esc(S.stockQ)}">
     <div class="chips">${[["all","All"],["out","Out of stock"],["low","Low"],["fast","Fast-moving"],["stagnant","Stagnant"],["exp","Expiring 3 months"],["expired","Expired"],["noexp","No expiry date"],["fridge","Refrigerated"],["noprice","No sell price"]].map(([k,l]) => `<button type="button" data-xsf="${k}" aria-pressed="${f === k}">${l} · ${cnt(k)}</button>`).join("")}</div>
     <div class="list">${list.length ? list.map(({p, s, u, lv}) => `<button type="button" class="row" data-xprod="${esc(p.id)}"><span class="main"><span class="t">${esc(pname(p))}</span><span class="s">${esc(p.form || "")}${p.fridge ? " · براد" : ""}${u.day > 0 ? ` · sells ${esc(rateTxt(p, u.week))} a week` : ""}${s.next ? ` · next expiry ${esc(s.next.expiry)}` : ""}${s.exp ? ` · ${esc(qtyText(p, s.exp))} expired` : ""}${p.shelf ? ` · shelf ${esc(p.shelf)}` : ""}</span></span><span class="end"><span class="num">${esc(qtyText(p, s.good))}</span>${lv === "out" || s.good <= 0 ? `<span class="pill bad">Out</span>` : lv === "low" ? `<span class="pill warn">Low</span>` : ""}${u.fast ? `<span class="pill good">Fast</span>` : u.stagnant ? `<span class="pill warn">Stagnant</span>` : ""}${p.sellBox ? `<span class="s num">${iqd(p.sellBox)}</span>` : `<span class="pill">No price</span>`}</span></button>`).join("") : `<div class="empty">No items here.</div>`}</div>
@@ -3183,9 +3199,201 @@ function ctImpFill(){
   Object.assign(S.count.counts, add); lsSet("erp.count", S.count); S.ctImp = null; countSheet(); sheetTop();
   toast(`${Object.keys(add).length} items filled in from the file. Check them, then save the count.`);
 }
+/* ---- STOCK FROM A PDF OR PHOTO (roadmap phase B). The supplier's invoice (PDF, or photos of the paper) is kept with the
+   invoice and shown beside the form while the lines are typed in by hand. It is free: nothing reads it automatically.
+   A reader (AI) can be added later in INVDOC.readers: it may only fill the form, every field stays editable, and the
+   check-before-saving screen below still comes before anything is saved. Copies stay on this device. ---- */
+const INVDOC = {
+  MAX_PDF: 15 * 1024 * 1024, MAX_SIDE: 2200,
+  urls: {}, // file id (and turned copies) -> picture address for this session
+  view: {page:0, zoom:1, rot:0, min:false},
+  // later: {label, can(doc) -> true/false, read(file) -> invoice in the same shape as the photo reader (EXTRACT in the base app)}
+  readers: [],
+  docsOf: i => i?.docs?.length ? i.docs : i?.photo ? [{id:i.photo, type:"image/jpeg", name:"Photo"}] : [],
+  isPdf: d => /pdf/i.test(d.type || "") || /\.pdf$/i.test(d.name || ""),
+  async blob(id){
+    if (window.ERP_MODE !== "device") return null;
+    const db = await new Promise((res, rej) => { const r = indexedDB.open("raihana-erp"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    try { return await new Promise((res, rej) => { const q = db.transaction("blobs", "readonly").objectStore("blobs").get(id); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); }
+    finally { db.close(); }
+  },
+  async url(id){
+    if (this.urls[id]) return this.urls[id];
+    if (window.ERP_MODE !== "device") return "/_blob/" + id; // claude.ai serves its saved files itself
+    const b = await this.blob(id).catch(() => null); return b ? (this.urls[id] = URL.createObjectURL(b)) : null;
+  },
+  // a picture turned by 90° steps, for photos taken sideways (only the picture on screen is turned, the saved copy stays as it was)
+  async turned(id, rot){
+    const key = id + "@" + rot; if (!rot) return this.url(id); if (this.urls[key]) return this.urls[key];
+    const src = await this.url(id); if (!src) return null;
+    const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+    const c = document.createElement("canvas"), side = rot % 180 !== 0; c.width = side ? img.naturalHeight : img.naturalWidth; c.height = side ? img.naturalWidth : img.naturalHeight;
+    const g = c.getContext("2d"); g.translate(c.width / 2, c.height / 2); g.rotate(rot * Math.PI / 180); g.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    const b = await new Promise(res => c.toBlob(res, "image/jpeg", .85)); return b ? (this.urls[key] = URL.createObjectURL(b)) : src;
+  },
+  // phone photos are made smaller (longest side 2200 px, still sharp enough to read) so the phone does not fill up
+  async shrink(file){
+    try {
+      const bmp = await createImageBitmap(file, {imageOrientation:"from-image"}), k = Math.min(1, this.MAX_SIDE / Math.max(bmp.width, bmp.height));
+      if (k >= 1 && file.size < 1.5e6) return file;
+      const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      const b = await new Promise(res => c.toBlob(res, "image/jpeg", .82)); return b && b.size < file.size ? new File([b], (file.name || "photo").replace(/\.\w+$/, "") + ".jpg", {type:"image/jpeg"}) : file;
+    } catch(e){ return file; }
+  },
+  pick(camera){
+    const inp = document.createElement("input"); inp.type = "file";
+    if (camera){ inp.accept = "image/*"; inp.capture = "environment"; } else { inp.accept = "application/pdf,.pdf,image/*"; inp.multiple = true; }
+    inp.onchange = () => inp.files?.length && this.add([...inp.files]); inp.click();
+  },
+  async add(files){
+    const d = S.draft; if (!d || !$("#invForm")) return;
+    if (!S.assets){ toast("Files can't be kept here."); return; }
+    const docs = [...this.docsOf(d)]; let added = 0;
+    for (const f0 of files){
+      const pdf = this.isPdf(f0);
+      if (!pdf && !/^image\//.test(f0.type || "")){ toast("Choose a PDF or a photo."); continue; }
+      if (pdf && f0.size > this.MAX_PDF){ toast("This PDF is too big (more than 15 MB)."); continue; }
+      const f = pdf ? f0 : await this.shrink(f0), type = pdf ? "application/pdf" : f.type || "image/jpeg";
+      try { const r = await S.assets.upload(f, {type}); this.urls[r.id] = URL.createObjectURL(f); docs.push({id:r.id, type, name:f0.name || (pdf ? "Invoice.pdf" : "Photo"), size:f.size, at:nowIso()}); added++; }
+      catch(e){ toast(/quota|full/i.test(String(e?.name) + String(e?.message)) ? "This device's storage is full, so the file was not kept." : "This file could not be kept. Try again."); }
+    }
+    if (!added) return;
+    d.docs = docs; this.view = {page:docs.length - added, zoom:1, rot:0, min:false}; this.draw();
+    toast(added === 1 ? "Attached. Type the lines while you look at it." : `${added} files attached.`);
+  },
+  remove(k){ const d = S.draft, docs = [...this.docsOf(d)], gone = docs.splice(k, 1)[0]; if (!gone) return;
+    d.docs = docs; if (d.photo === gone.id) d.photo = docs.find(x => !this.isPdf(x))?.id || null;
+    this.view.page = Math.max(0, Math.min(this.view.page, docs.length - 1)); this.draw(); },
+  panel(i){
+    const docs = this.docsOf(i), v = this.view, k = Math.min(v.page, Math.max(0, docs.length - 1)), doc = docs[k], reader = doc && this.readers.find(r => r.can(doc));
+    const add = `<button type="button" data-xdocadd="file">Attach PDF or photo</button><button type="button" data-xdocadd="cam">Take photo</button>`;
+    if (!doc) return `<div id="invDoc" class="invdoc none"><div class="dh"><b>Supplier's invoice</b><span class="note">Attach the PDF or take a photo of the paper, then type the lines while you look at it. Optional. The copy is kept on this device with the invoice.</span></div><div class="actions">${add}</div></div>`;
+    return `<div id="invDoc" class="invdoc${v.min ? " min" : ""}" style="--z:${v.zoom}">
+      <div class="dh"><b>Supplier's invoice</b>${docs.length > 1 ? `<span class="pages">${docs.map((x, j) => `<button type="button" data-xdocpage="${j}" class="${j === k ? "on" : ""}" aria-label="Page ${j + 1}">${j + 1}</button>`).join("")}</span>` : ""}
+        <span class="tools">${this.isPdf(doc) ? "" : `<button type="button" data-xdoczoom="-1" aria-label="Smaller">−</button><button type="button" data-xdoczoom="1" aria-label="Bigger">+</button><button type="button" data-xdocrot="1" aria-label="Turn">⟳</button>`}<button type="button" data-xdocopen="${k}">Full size</button><button type="button" data-xdocmin="1">${v.min ? "Show" : "Hide"}</button></span></div>
+      <div class="dv">${this.isPdf(doc) ? `<iframe data-docid="${esc(doc.id)}" title="Invoice PDF"></iframe>` : `<img data-docid="${esc(doc.id)}" data-rot="${v.rot}" alt="Photo of the supplier's invoice">`}</div>
+      <div class="actions small">${add}<button type="button" class="danger" data-xdocdel="${k}">Remove this ${this.isPdf(doc) ? "PDF" : "photo"}</button>${reader ? `<button type="button" data-xdocread="${k}">${esc(reader.label)}</button>` : ""}</div></div>`;
+  },
+  // read-only copy on the invoice's own page
+  detail(i){ const docs = this.docsOf(i); if (!docs.length) return "";
+    return `<details class="invdocs"><summary>Supplier's invoice (${docs.length})</summary>${docs.map((d, j) => `<div class="dv">${this.isPdf(d) ? `<iframe data-docid="${esc(d.id)}" title="Invoice PDF"></iframe>` : `<img class="photo" data-docid="${esc(d.id)}" alt="Photo of the supplier's invoice">`}</div><div class="actions"><button type="button" data-xdocopen="${j}" data-inv="${esc(i.id)}">Full size</button></div>`).join("")}</details>`; },
+  draw(){ const box = $("#invDoc"); if (!box || !S.draft) return; box.outerHTML = this.panel(S.draft); this.fit(); },
+  // the copy stays in view while the lines are typed: under the window's title on a phone, on the left on a wide screen
+  fit(){ const box = $("#invDoc"), panel = box?.closest(".panel"); if (!box || !panel) return;
+    box.style.top = (panel.querySelector(".ph")?.offsetHeight || 0) + "px";
+    panel.classList.toggle("withdoc", !box.classList.contains("none"));
+    box.style.setProperty("--rows", [...box.parentElement.children].filter(el => el !== box && getComputedStyle(el).display !== "none").length || 1); this.fill(box); },
+  fill(root){ (root || document).querySelectorAll("[data-docid]:not([data-filled])").forEach(async el => { el.dataset.filled = "1";
+    const u = el.tagName === "IMG" ? await this.turned(el.dataset.docid, +el.dataset.rot || 0) : await this.url(el.dataset.docid);
+    if (u) el.src = u; else el.replaceWith(Object.assign(document.createElement("p"), {className:"note", textContent:"This copy is on another device."})); }); },
+  async open(k, invId){ const i = invId ? S.invoices.find(x => x.id === invId) : S.draft, d = this.docsOf(i)[k]; if (!d) return;
+    const u = await this.url(d.id); if (!u){ toast("This copy is on another device."); return; }
+    const w = window.open(u, "_blank"); if (!w) location.assign(u); },
+  // a reader fills a new invoice the same way the Excel upload does: into the form, for checking; the attached copies stay
+  async read(k){ const d = S.draft, doc = this.docsOf(d)[k], rd = doc && this.readers.find(r => r.can(doc)); if (!rd || !$("#invForm")) return;
+    if (d.id){ toast("Reading fills a new invoice only."); return; }
+    try { const b = await this.blob(doc.id) || await fetch(await this.url(doc.id)).then(x => x.blob()), pre = await rd.read(new File([b], doc.name || "invoice", {type:doc.type}));
+      if (pre) invoiceForm(null, {...readInvoice(), ...pre, docs:this.docsOf(d), photo:d.photo || null}); }
+    catch(e){ toast("It could not be read. Type the lines by hand."); } }
+};
+// the wide two-part window is only for an invoice with a copy attached
+new MutationObserver(() => { const box = $("#invDoc"); $("#sheet .panel")?.classList.toggle("withdoc", !!box && !box.classList.contains("none")); INVDOC.fill($("#sheet")); }).observe($("#sheetBody"), {childList:true, subtree:true});
+window.ERP_DOC_PANEL = i => { INVDOC.view = {page:0, zoom:1, rot:0, min:false}; setTimeout(() => INVDOC.fit()); return INVDOC.panel(i); };
+window.ERP_DOCS_VIEW = i => INVDOC.detail(i);
+
+/* ---- check before saving: every invoice save (new or changed) first shows what goes into stock, line by line, with
+   anything missing named ("Not provided"), nothing filled in for it. Stock changes only when the owner taps Confirm ---- */
+const INVREVIEW = {sig:null, ok:null, rows:[]};
+const PRINTED_EMPTY = l => l.desc || isNum(l.qty) || isNum(l.price); // the same lines saveInvoice keeps
+window.ERP_INV_REVIEW = inv => {
+  const sig = JSON.stringify(inv);
+  if (INVREVIEW.ok && INVREVIEW.ok === sig){ INVREVIEW.ok = null; return false; }
+  INVREVIEW.ok = null; INVREVIEW.sig = sig;
+  const form = $("#invForm"); if (!form) return false;
+  // a settled invoice needs its reason first, so the owner is not asked to confirm a save that then stops
+  const old = inv.id ? S.invoices.find(x => x.id === inv.id) : null;
+  if (old && needsReason(old) && !$("#fReason")?.value.trim() && diffFields(old, inv, INV_FIELDS).length){ $("#formErr").textContent = "Write the reason for the change."; return true; }
+  INVREVIEW.rows = readLines().map((l, i) => [l, i]).filter(([l]) => PRINTED_EMPTY(l)).map(x => x[1]); // line on screen for each saved line
+  const box = form.parentElement; let rv = $("#invReview");
+  if (!rv){ rv = document.createElement("div"); rv.id = "invReview"; rv.className = "sec"; form.before(rv); }
+  rv.innerHTML = reviewHtml(inv);
+  [...box.children].forEach(el => { if (el !== rv && el.id !== "invDoc") el.classList.add("rvhide"); });
+  INVDOC.fit(); sheetTop(); rv.querySelector("[data-xrvok]")?.focus({preventScroll:true});
+  return true;
+};
+function reviewHtml(inv){
+  const cat = catalog(), used = usedMap(), c = calc(inv), rows = itemDiscounts(inv).rows, old = inv.id ? S.invoices.find(x => x.id === inv.id) : null;
+  const oldBoxes = {}; (old?.lines || []).forEach((l, j) => oldBoxes[String(l.lid ?? j)] = n0(l.qty) + n0(l.bonus));
+  let boxesIn = 0, warn = 0; const fresh = new Set();
+  const lines = inv.lines.map((l, k) => {
+    const p = cat.find(x => x.id === pidOf(l)), a = attrs(l), boxes = n0(l.qty) + n0(l.bonus), ml = monthsLeft(l.expiry), r = rows[k];
+    const was = l.lid != null && oldBoxes[l.lid] !== undefined ? oldBoxes[l.lid] : null, change = was === null ? boxes : boxes - was;
+    boxesIn += change; if (!p) fresh.add(pidOf(l));
+    const flags = [];
+    if (!(n0(l.qty) > 0) && !(n0(l.bonus) > 0)) flags.push(`<span>No quantity: this line adds nothing to stock.</span>`);
+    if (n0(l.qty) > 0 && !isNum(l.price) && !isNum(l.value)){ const pr = k > 0 ? inv.lines[k - 1] : null;
+      flags.push(`<span>No price and no value.</span>${pr && isNum(pr.price) ? ` <button type="button" data-xrvbonus="${k}">It is bonus for line ${k}</button>` : ` <span>Type the price, or remove the line.</span>`}`); }
+    else if (!isNum(l.price) && n0(l.qty) > 0) flags.push(`<span>No unit price: this item's cost will be 0 and its profit will look too high.</span>`);
+    if (lineBad(l)) flags.push(`<span>Qty × price doesn't equal the printed value.</span>`);
+    if (!l.batch) flags.push(`<span>Batch not provided.</span>`);
+    if (!l.expiry) flags.push(`<span>Expiry not provided.</span>`);
+    else if (ml !== null && ml < 0) flags.push(`<span>Already expired.</span>`);
+    else if (ml !== null && ml < 6) flags.push(`<span>Expires in less than 6 months.</span>`);
+    if (/براد/.test(l.desc || "") && !l.cold) flags.push(`<span>Says براد but Refrigerated is not ticked.</span> <button type="button" data-xrvcold="${k}">Tick Refrigerated</button>`);
+    warn += flags.length;
+    return `<div class="rvline${flags.length ? " flag" : ""}"><div class="r"><span><b>${esc(a.name || l.desc || "—")}</b>${a.strength ? ` <span class="note">${esc(a.strength)}</span>` : ""}${l.cold ? ` <span class="pill">❄ براد</span>` : ""}${p ? "" : ` <span class="pill">New item</span>`}</span>
+        <span class="num">${change >= 0 ? "+" : "−"}${f0(Math.abs(change))}</span></div>
+      <div class="note"><span>Paid</span> <span class="num">${isNum(l.qty) ? f0(l.qty) : "—"}</span> · <span>Bonus</span> <span class="num">${f0(n0(l.bonus))}</span>${was !== null ? ` · <span>Was</span> <span class="num">${f0(was)}</span>` : ""} · <span>Batch</span> ${l.batch ? `<span class="num">${esc(l.batch)}</span>` : `<i>Not provided</i>`} · <span>Expiry</span> ${l.expiry ? `<span class="num">${esc(l.expiry)}</span>` : `<i>Not provided</i>`}</div>
+      <div class="note"><span>Cost per box after discount and bonus</span> <span class="num">${r && isNum(r.perUnit) && r.perUnit > 0 ? iqd(r.perUnit) : "—"}</span>${p ? ` · <span>In stock now</span> <span class="num">${esc(qtyText(p, stockOf(p, used).good))}</span>` : ""}</div>
+      ${flags.map(f => `<div class="rvflag">${f}</div>`).join("")}</div>`;
+  });
+  const docs = INVDOC.docsOf(inv).length;
+  return `<h2>${old ? "Check the changes before saving" : "Check before adding to stock"}</h2>
+    <div class="banner">Nothing is saved yet. Stock changes only when you tap Confirm. Blank batches, expiry dates and prices stay blank: nothing is filled in for you.</div>
+    <div class="sum"><div class="r"><span>${esc(supName(inv.supplierId) === "__new" ? inv.newSupplierName || "New supplier" : supName(inv.supplierId))}</span><span class="num">${esc(inv.invoiceNo || "")} · ${esc(inv.date || "")}</span></div>
+      <div class="r"><span>Lines</span><span class="num">${inv.lines.length}</span></div>
+      <div class="r"><span>Boxes into stock (paid + bonus)</span><span class="num">${boxesIn >= 0 ? "+" : "−"}${f0(Math.abs(boxesIn))}</span></div>
+      ${fresh.size ? `<div class="r"><span>New items</span><span class="num">${fresh.size}</span></div>` : ""}
+      <div class="r big"><span>Total after discount</span><span class="num">${iqd(c.total)}</span></div>
+      <div class="r"><span>Printed total</span><span class="num">${iqd(inv.printedTotal)}</span></div>
+      ${c.okTol ? "" : `<div class="err">The lines don't add up to the printed total. It will be saved as "Validation Required" until it is fixed.</div>`}
+      <div class="r"><span>Things to check</span><span class="num" style="color:var(--${warn ? "warn" : "good"})">${warn}</span></div>
+      ${docs ? "" : `<div class="note">No PDF or photo attached.</div>`}</div>
+    <div class="list rvlist">${lines.join("")}</div>
+    <div class="actions"><button type="button" class="primary" data-xrvok="1">${old ? "Confirm and save" : "Confirm and add to stock"}</button><button type="button" data-xrvback="1">Back to edit</button></div>`;
+}
+function reviewBack(){ $("#invReview")?.remove(); document.querySelectorAll("#sheetBody .rvhide").forEach(el => el.classList.remove("rvhide")); INVREVIEW.ok = null; INVDOC.fit(); }
+async function reviewConfirm(btn){
+  btn.disabled = true; INVREVIEW.ok = INVREVIEW.sig;
+  try { await saveInvoice({preventDefault(){}}); }
+  finally { INVREVIEW.ok = null; if ($("#invForm")){ reviewBack(); $("#formErr")?.scrollIntoView({block:"center"}); } } // still open: the save stopped, show why
+}
+// the owner's rule: a quantity with no value is bonus for the priced line above; join it there, then check again
+function reviewFix(kind, k){
+  const els = [...document.querySelectorAll("#lines .lineedit")], el = els[INVREVIEW.rows[k]]; if (!el) return;
+  const g = (e, f) => e.querySelector(`[data-f="${f}"]`);
+  if (kind === "cold") g(el, "cold").checked = true;
+  if (kind === "bonus"){ const up = els[INVREVIEW.rows[k - 1]]; if (!up) return;
+    const q = parseNum(g(el, "qty").value), uq = parseNum(g(up, "qty").value), b = bonusFrom(uq, parseNum(g(up, "bonusIn").value), g(up, "bonusMode").value);
+    g(up, "bonusMode").value = "packs"; g(up, "bonusIn").value = n0(b) + n0(q); el.remove(); }
+  liveSum(); $("#invForm").requestSubmit();
+}
 document.addEventListener("click", ev => { const t = ev.target.closest("button"); if (!t) return; const d = t.dataset;
   if (d.xoversell){ S.oversell = true; $("#sellForm")?.requestSubmit(); }
   if (d.xalerts) alertsSheet(d.xalerts);
+  if (d.xdocadd) INVDOC.pick(d.xdocadd === "cam");
+  if (d.xdocpage){ Object.assign(INVDOC.view, {page:+d.xdocpage, zoom:1, rot:0}); INVDOC.draw(); }
+  if (d.xdoczoom){ INVDOC.view.zoom = Math.min(4, Math.max(1, INVDOC.view.zoom + +d.xdoczoom * .5)); $("#invDoc")?.style.setProperty("--z", INVDOC.view.zoom); }
+  if (d.xdocrot){ INVDOC.view.rot = (INVDOC.view.rot + 90) % 360; INVDOC.draw(); }
+  if (d.xdocmin){ INVDOC.view.min = !INVDOC.view.min; INVDOC.draw(); }
+  if (d.xdocopen) INVDOC.open(+d.xdocopen, d.inv);
+  if (d.xdocdel) INVDOC.remove(+d.xdocdel);
+  if (d.xdocread) INVDOC.read(+d.xdocread);
+  if (d.xrvok) reviewConfirm(t);
+  if (d.xrvback) reviewBack();
+  if (d.xrvbonus) reviewFix("bonus", +d.xrvbonus);
+  if (d.xrvcold) reviewFix("cold", +d.xrvcold);
+  if (d.xstockdoc){ invoiceForm(null); INVDOC.pick(false); }
   if (d.xinvfile){ S.invImpBase = $("#invForm") ? readInvoice() : null; pickSheet(readInvoiceFile); }
   if (d.xiifill) invImpFill();
   if (d.xiiback){ const b = S.invImp?.base; S.invImp = null; S.invImpBase = null; b ? invoiceForm(null, b) : invoiceForm(null); }
@@ -4861,6 +5069,24 @@ AR_RX.push([/^Have (.+) · sold in 30 days (.+)$/, "المتوفر $1 · الم�
 Object.assign(AR, {"Cloud sync stopped: this device was signed out.":"توقفت المزامنة السحابية: تم تسجيل خروج هذا الجهاز.","Cloud sync is not working.":"المزامنة السحابية لا تعمل.","Sign in again":"سجّل الدخول مرة أخرى","Open Settings":"افتح الإعدادات","Ask the owner to open Settings.":"اطلب من المالك فتح الإعدادات.","Cloud sync stopped: signed out":"توقفت المزامنة: تم تسجيل الخروج","Open Settings and type the cloud password again.":"افتح الإعدادات واكتب كلمة مرور السحابة مرة أخرى.","Signed out: type the password again below":"تم تسجيل الخروج: اكتب كلمة المرور مرة أخرى في الأسفل","Last good sync":"آخر مزامنة ناجحة","Cloud account":"حساب السحابة","Signed out of the cloud. Type the password again in Settings.":"تم تسجيل الخروج من السحابة. اكتب كلمة المرور مرة أخرى في الإعدادات.","Signed in. Uploading your changes…":"تم تسجيل الدخول. جارٍ رفع تغييراتك…","Type the password.":"اكتب كلمة المرور.","Can't reach the cloud. It will try again by itself.":"لا يمكن الوصول إلى السحابة. سيحاول مرة أخرى تلقائياً."});
 AR_RX.push([/^(\d+) change\(s\) waiting to upload\.$/, "$1 تغيير بانتظار الرفع."], [/^(\d+) waiting$/, "$1 بانتظار الرفع"], [/^Last good sync: (.+)\.$/, "آخر مزامنة ناجحة: $1."], [/^The cloud is not answering \((\d+)\)\. It will try again by itself\.$/, "السحابة لا تستجيب ($1). سيحاول مرة أخرى تلقائياً."],
   [/^The cloud signed this device out, usually because the sync password was changed\. Nothing is lost: the (\d+) change\(s\) above stay on this device and upload as soon as you sign in again\.$/, "أخرجت السحابة هذا الجهاز، غالباً لأن كلمة مرور المزامنة تغيّرت. لم يضع شيء: الـ $1 تغيير في الأعلى باقية على هذا الجهاز وتُرفع حالما تسجل الدخول مرة أخرى."]);
+// stock from a PDF or photo, and the check before saving (words already translated elsewhere keep their wording)
+Object.assign(AR, {...{"Supplier's invoice":"فاتورة المذخر","Attach the PDF or take a photo of the paper, then type the lines while you look at it. Optional. The copy is kept on this device with the invoice.":"أرفق ملف PDF أو صوّر الفاتورة الورقية، ثم اكتب الأسطر وأنت تنظر إليها. اختياري. تُحفظ النسخة على هذا الجهاز مع الفاتورة.",
+  "Attach PDF or photo":"إرفاق PDF أو صورة","Take photo":"التقاط صورة","Smaller":"تصغير","Bigger":"تكبير","Turn":"تدوير","Full size":"بالحجم الكامل","Show":"إظهار","Hide":"إخفاء",
+  "Remove this PDF":"حذف ملف PDF هذا","Remove this photo":"حذف هذه الصورة",
+  "Photo of the supplier's invoice":"صورة فاتورة المذخر","Invoice PDF":"فاتورة PDF","This copy is on another device.":"هذه النسخة على جهاز آخر.","Files can't be kept here.":"لا يمكن حفظ الملفات هنا.",
+  "Choose a PDF or a photo.":"اختر ملف PDF أو صورة.","This PDF is too big (more than 15 MB).":"ملف PDF هذا كبير جداً (أكثر من 15 ميغابايت).","This device's storage is full, so the file was not kept.":"ذاكرة هذا الجهاز ممتلئة فلم يُحفظ الملف.",
+  "This file could not be kept. Try again.":"تعذّر حفظ هذا الملف. حاول مرة أخرى.","Attached. Type the lines while you look at it.":"تم الإرفاق. اكتب الأسطر وأنت تنظر إليها.","Reading fills a new invoice only.":"القراءة تملأ فاتورة جديدة فقط.",
+  "It could not be read. Type the lines by hand.":"تعذّرت القراءة. اكتب الأسطر بيدك.","+ Stock from PDF or photo":"+ مخزون من ملف أو صورة",
+  "No quantity: this line adds nothing to stock.":"بدون كمية: هذا السطر لا يضيف شيئاً للمخزون.","No price and no value.":"بدون سعر وبدون قيمة.","Type the price, or remove the line.":"اكتب السعر أو احذف السطر.",
+  "No unit price: this item's cost will be 0 and its profit will look too high.":"بدون سعر وحدة: ستكون كلفة هذه المادة 0 وسيظهر ربحها أعلى من الحقيقي.","Qty × price doesn't equal the printed value.":"الكمية × السعر لا تساوي القيمة المطبوعة.",
+  "Batch not provided.":"الوجبة غير مذكورة.","Expiry not provided.":"الصلاحية غير مذكورة.","Already expired.":"منتهية الصلاحية.","Expires in less than 6 months.":"تنتهي خلال أقل من 6 أشهر.",
+  "Says براد but Refrigerated is not ticked.":"مكتوب براد لكن خيار مبرّد غير محدّد.","Tick Refrigerated":"حدّد مبرّد","New item":"مادة جديدة","Paid":"مدفوع","Bonus":"بونص","Was":"كان","Batch":"الوجبة","Expiry":"الصلاحية","Not provided":"غير مذكور",
+  "Cost per box after discount and bonus":"كلفة العلبة بعد الخصم والبونص","In stock now":"في المخزون الآن","Check the changes before saving":"راجع التغييرات قبل الحفظ","Check before adding to stock":"راجع قبل الإضافة إلى المخزون",
+  "Nothing is saved yet. Stock changes only when you tap Confirm. Blank batches, expiry dates and prices stay blank: nothing is filled in for you.":"لم يُحفظ شيء بعد. لا يتغيّر المخزون إلا عند الضغط على تأكيد. الوجبات والصلاحيات والأسعار الفارغة تبقى فارغة: لا يُملأ شيء نيابةً عنك.",
+  "Lines":"الأسطر","Boxes into stock (paid + bonus)":"علب تدخل المخزون (مدفوع + بونص)","New items":"مواد جديدة","Total after discount":"المجموع بعد الخصم","Printed total":"المجموع المطبوع",
+  "The lines don't add up to the printed total. It will be saved as \"Validation Required\" until it is fixed.":"مجموع الأسطر لا يساوي المجموع المطبوع. ستُحفظ بحالة \"تحتاج تحقق\" حتى تُصحَّح.",
+  "Things to check":"أشياء للمراجعة","No PDF or photo attached.":"لا يوجد PDF أو صورة مرفقة.","Confirm and save":"تأكيد وحفظ","Confirm and add to stock":"تأكيد وإضافة إلى المخزون","Back to edit":"رجوع للتعديل","New supplier":"مذخر جديد"}, ...AR});
+AR_RX.push([/^(\d+) files attached\.$/, "تم إرفاق $1 ملفات."], [/^Page (\d+)$/, "صفحة $1"], [/^Supplier's invoice \((\d+)\)$/, "فاتورة المذخر ($1)"], [/^It is bonus for line (\d+)$/, "إنه بونص للسطر $1"]);
 
 </script>
 <script>

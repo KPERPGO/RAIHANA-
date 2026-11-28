@@ -96,13 +96,13 @@ let fails = 0; const ok = (m, c, x) => { console.log(c ? 'ok  ' : 'FAIL', m, x =
     // 5. restocking: same words reuse the item; a different spelling asks, and "same item" keeps one item
     const restock = async (no, desc) => p.evaluate(async ([no, desc]) => { invoiceForm(); await new Promise(r => setTimeout(r, 100)); $('#fSup').value = 'SUP-T'; $('#fNo').value = no; $('#fTotal').value = '6000';
       const l = document.querySelector('#lines .lineedit'); l.querySelector('[data-f="desc"]').value = desc; l.querySelector('[data-f="qty"]').value = '3'; l.querySelector('[data-f="price"]').value = '2000'; l.querySelector('[data-f="value"]').value = '6000';
-      document.getElementById('invForm').requestSubmit(); await new Promise(r => setTimeout(r, 300)); return {ask:[...document.querySelectorAll('[data-xsame]')].map(x => ({key:x.dataset.xsame, opts:[...x.options].map(o => o.value)})), saved: S.invoices.some(i => i.invoiceNo === no)}; }, [no, desc]);
+      document.getElementById('invForm').requestSubmit(); await new Promise(r => setTimeout(r, 300)); if (document.querySelector('[data-xrvok]')) { document.querySelector('[data-xrvok]').click(); await new Promise(r => setTimeout(r, 400)); } return {ask:[...document.querySelectorAll('[data-xsame]')].map(x => ({key:x.dataset.xsame, opts:[...x.options].map(o => o.value)})), saved: S.invoices.some(i => i.invoiceNo === no)}; }, [no, desc]);
     let rs = await restock('R1', 'Beta 20mg Syrup');
     await p.waitForTimeout(300); ok('5 restock with the same words: no question, same item, stock 2 + 3', rs.saved && !rs.ask.length && await stock(p, B) === 5 && await p.evaluate(() => catalog().length) === 3, rs);
     await p.evaluate(() => closeSheet());
     rs = await restock('R2', 'Betta 20mg Syrup'); // a typo on the new invoice
     ok('5 a different spelling asks "same item?" before saving', !rs.saved && rs.ask.length === 1 && rs.ask[0].opts.includes(B), rs);
-    await p.selectOption(`[data-xsame="${rs.ask[0].key}"]`, B); await p.evaluate(() => document.getElementById('invForm').requestSubmit()); await p.waitForTimeout(500);
+    await p.selectOption(`[data-xsame="${rs.ask[0].key}"]`, B); await p.evaluate(async () => { document.getElementById('invForm').requestSubmit(); await new Promise(r => setTimeout(r, 300)); if (document.querySelector('[data-xrvok]')) { document.querySelector('[data-xrvok]').click(); await new Promise(r => setTimeout(r, 400)); } }); await p.waitForTimeout(300);
     ok('5 "same item" keeps one Beta and adds the stock to it', await p.evaluate(() => S.invoices.some(i => i.invoiceNo === 'R2')) && await stock(p, B) === 8 && await p.evaluate(() => catalog().length) === 3, {stock: await stock(p, B)});
     await p.evaluate(() => closeSheet());
     // item card shows the full stock history

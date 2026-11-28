@@ -65,7 +65,7 @@ const out = []; const rep = (id, defect, what, data) => out.push({id, result: de
       document.querySelectorAll('#lines .lineedit')[n].querySelector('[data-delline]').click(); await new Promise(r => setTimeout(r, 50));
       const left = document.querySelectorAll('#lines .lineedit').length; const rs = document.getElementById('fReason'); if (rs) rs.value = 'audit test';
       document.getElementById('fTotal').value = left === 1 ? '20000' : '30000';
-      document.getElementById('invForm').requestSubmit(); await new Promise(r => setTimeout(r, 300));
+      document.getElementById('invForm').requestSubmit(); await new Promise(r => setTimeout(r, 300)); if (document.querySelector('[data-xrvok]')) { document.querySelector('[data-xrvok]').click(); await new Promise(r => setTimeout(r, 400)); }
       return {linesInForm:left, saved:S.invoices.find(i => i.id === 'INV-T').lines.length, err:document.getElementById('formErr')?.textContent || ''}; }, lineNo);
     const tryUsed = await editRemove(1);   // Beta has sales: must be refused
     const afterUsed = {beta: await stock(p, I.b)};
@@ -77,7 +77,7 @@ const out = []; const rep = (id, defect, what, data) => out.push({id, result: de
   // P4: correcting an invoice line's name in the invoice editor keeps the product (price, stock, sales)
   { const p = await fresh(); const I = await ids(p); await setPrice(p, I.b, 3000); await p.waitForTimeout(100); await sell(p, I.b, 2);
     await p.evaluate(async () => { closeSheet(); invoiceForm('INV-T'); await new Promise(r => setTimeout(r, 100)); document.querySelectorAll('#lines .lineedit')[1].querySelector('[data-f="name"]').value = 'Beta Plus';
-      document.getElementById('fReason').value = 'name typo'; document.getElementById('invForm').requestSubmit(); await new Promise(r => setTimeout(r, 300)); });
+      document.getElementById('fReason').value = 'name typo'; document.getElementById('invForm').requestSubmit(); await new Promise(r => setTimeout(r, 300)); if (document.querySelector('[data-xrvok]')) { document.querySelector('[data-xrvok]').click(); await new Promise(r => setTimeout(r, 400)); } });
     const r = await p.evaluate(oldId => { const c = catalog(); const x = c.find(q => q.id === oldId); return {sameId:!!x, name:x?.name, price:x?.sellBox ?? null, stock:x ? stockOf(x, usedMap()).good : null, products:c.length}; }, I.b);
     rep('P4', !(r.sameId && r.price === 3000 && r.stock === 8 && r.products === 2), 'Corrected an invoice line name (Beta to Beta Plus) after pricing and selling 2', r);
     await p.close(); }

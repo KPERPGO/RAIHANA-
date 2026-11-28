@@ -32,6 +32,8 @@ ok('Supplier form requires a name', /Enter the supplier/.test(await text('#supEr
 await setv('#sName','Al-Rafidain'); await click('#supForm button[type=submit]'); await W(200);
 
 // ---------- 2 invoices ----------
+// every invoice save first shows the check screen (stock from PDF or photo, Nov 2026); confirm it the way the owner does
+async function saveInv(){ await click('#invForm button[type=submit]'); await W(250); if(await ev(()=>!!document.querySelector('[data-xrvok]'))){ await click('[data-xrvok]'); await W(250); } }
 async function addInvoice({sup='SUP-001',no,date,type='credit',total,lines,disc,discMode,prev}){
   await ev(()=>invoiceForm()); await W();
   await ev(([s])=>{document.querySelector('#fSup').value=s;},[sup]);
@@ -44,9 +46,9 @@ async function addInvoice({sup='SUP-001',no,date,type='credit',total,lines,disc,
       if(['bonusMode','discMode','blisters'].includes(f)){await ev(([s,v])=>{const e=document.querySelector(s);e.value=v;e.dispatchEvent(new Event('change',{bubbles:true}))},[q(f),v]);continue;}
       await setv(q(f),v);} }
   await W(); const live=await text('#liveSum');
-  await click('#invForm button[type=submit]'); await W(250);
+  await saveInv();
   // ERP: a line that looks like an item already in stock asks "same item?" first; these checks keep them as their own items
-  if(await ev(()=>{const x=[...document.querySelectorAll('[data-xsame]')];x.forEach(e=>{e.value='new';e.dispatchEvent(new Event('change',{bubbles:true}))});return x.length})){ await click('#invForm button[type=submit]'); await W(250); }
+  if(await ev(()=>{const x=[...document.querySelectorAll('[data-xsame]')];x.forEach(e=>{e.value='new';e.dispatchEvent(new Event('change',{bubbles:true}))});return x.length})){ await saveInv(); }
   return {live, err:await text('#formErr'), toast:await toastTxt()};
 }
 let r=await addInvoice({no:'A100',date:await D(-3),total:'190,000',lines:[
@@ -83,7 +85,7 @@ await ev(()=>invoiceForm()); await ev(()=>{const s=document.querySelector('#fSup
 ok('New supplier field appears', await ev(()=>!document.querySelector('#newSupWrap').hidden));
 await setv('#fNewSup','Pioneer'); await setv('#fNo','P1'); await setv('#fDate',T); await setv('#fTotal','5000');
 await setv('#lines .lineedit [data-f="desc"]','Item'); await setv('#lines .lineedit [data-f="qty"]','1'); await setv('#lines .lineedit [data-f="price"]','5000'); await setv('#lines .lineedit [data-f="value"]','5000');
-await click('#invForm button[type=submit]'); await W(250);
+await saveInv();
 st=await store(); ok('New supplier created from invoice form', Object.values(st.suppliers).some(s=>s.name==='Pioneer') && Object.values(st.invoices).some(i=>i.invoiceNo==='P1'));
 
 // ---------- 3 approval & MyPharma ----------
@@ -104,7 +106,7 @@ ok('Approve disabled while totals do not match', await ev(id=>document.querySele
 await click(`[data-hold="${B.id}"]`); await W(200); st=await store(); ok('Put on hold', st.invoices[B.id].status==='On Hold');
 await ev(id=>invoiceDetail(id),B.id); await W(); await click(`[data-hold="${B.id}"]`); await W(200); st=await store(); ok('Release hold returns to Validation Required', st.invoices[B.id].status==='Validation Required');
 // fix B by editing (not booked, no reason needed)
-await ev(id=>invoiceForm(id),B.id); await W(); await setv('#fTotal','45000'); await click('#invForm button[type=submit]'); await W(250);
+await ev(id=>invoiceForm(id),B.id); await W(); await setv('#fTotal','45000'); await saveInv();
 st=await store(); ok('Editing a fixed total moves it to Awaiting Approval', st.invoices[B.id].status==='Awaiting Approval', st.invoices[B.id].status);
 
 // ---------- 4 payments ----------
@@ -161,9 +163,9 @@ await setv('#pDate',await D(-1)); await click('#payForm button[type=submit]'); a
 await ev(id=>invoiceForm(id),A.id); await W(); await setv('#fDate',await D(-4));
 await click('#invForm button[type=submit]'); await W(150);
 ok('Editing a paid/approved invoice asks for a reason', /reason/.test(await text('#formErr')), await text('#formErr')+' | '+await text('#sheetTitle')+' | '+await toastTxt()+' | '+JSON.stringify(await ev(id=>{const i=S.invoices.find(x=>x.id===id);return [i.status,i.notes]},A.id)));
-await setv('#fReason','note added'); await click('#invForm button[type=submit]'); await W(250);
+await setv('#fReason','note added'); await saveInv();
 st=await store(); ok('Same amount keeps approval status, change logged', st.invoices[A.id].status==='Reconciled' && (st.invoices[A.id].history||[]).some(h=>h.reason==='note added'), st.invoices[A.id].status);
-await ev(id=>invoiceForm(id),A.id); await W(); await setv('#fTotal','180000'); await setv('#lines .lineedit:nth-child(1) [data-f="price"]','9000'); await setv('#lines .lineedit:nth-child(1) [data-f="value"]','90000'); await setv('#fReason','supplier credit'); await click('#invForm button[type=submit]'); await W(250);
+await ev(id=>invoiceForm(id),A.id); await W(); await setv('#fTotal','180000'); await setv('#lines .lineedit:nth-child(1) [data-f="price"]','9000'); await setv('#lines .lineedit:nth-child(1) [data-f="value"]','90000'); await setv('#fReason','supplier credit'); await saveInv();
 st=await store(); ok('Changing the amount of an approved invoice sends it back to approval and flags MyPharma', st.invoices[A.id].status==='Awaiting Approval' && /MyPharma/.test(st.invoices[A.id].notes||''), st.invoices[A.id].status+' '+st.invoices[A.id].notes);
 ok('Paid invoice that now costs less shows supplier owes you 10,000', await ev(id=>Math.round(calc(S.invoices.find(x=>x.id===id)).outstanding)===-10000,A.id), await ev(id=>calc(S.invoices.find(x=>x.id===id)).outstanding,A.id));
 

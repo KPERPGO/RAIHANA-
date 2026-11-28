@@ -328,7 +328,7 @@ header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 .rvflag button{min-height:30px!important;height:30px;padding:0 10px;font-size:13px}
 @media (min-width:1000px){.sheet .panel.withdoc{max-width:1400px!important}.panel.withdoc .pb{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}.panel.withdoc .pb > *{grid-column:2}
   .panel.withdoc .pb > .invdoc{grid-column:1;grid-row:1 / span var(--rows,1)}.panel.withdoc .invdoc .dv{max-height:calc(min(88vh,88dvh) - 190px)}.panel.withdoc .invdoc .dv iframe{height:calc(min(88vh,88dvh) - 200px)}}
-@media print{body{padding:0!important;background:#fff}body > *:not(#printArea){display:none!important}#printArea{display:block!important}#printArea #receipt{max-width:72mm!important;margin:0!important;padding:0!important}}
+@media print{body{padding:0!important;background:#fff}body > *:not(#printArea){display:none!important}#printArea{display:block!important}#printArea #receipt{width:72mm;max-width:72mm!important;margin:0!important;padding:0!important}#printArea[data-paper="58"] #receipt{width:48mm;max-width:48mm!important;font-size:11px!important}@page{margin:0}}
 </style>"""
 HEAD_OLD = re.search(r'<header class="top">.*?</header>', base, re.S).group(0)
 HEAD_NEW = """<div id="boot" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">

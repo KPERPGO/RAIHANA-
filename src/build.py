@@ -307,7 +307,7 @@ header.top .actions{display:flex;gap:6px;flex-wrap:nowrap;flex:none}
 @media (max-width:560px){header.top .in{gap:8px;padding-block:8px}.logo{width:28px;height:28px}.scr{font-size:16px}.hbtn{padding:0 10px}#addBtn{font-size:0;width:40px;padding:0;justify-content:center}#addBtn::before{content:"+";font-size:22px;font-weight:500}#staffBar .clock{display:none}}
 @media (max-width:360px){.bn{display:none}}
 .paybtn{padding:16px!important;font-size:17px}
-@media print{body{padding:0!important;background:#fff}body > *:not(#printArea){display:none!important}#printArea{display:block!important}#printArea #receipt{max-width:72mm!important;margin:0!important;padding:0!important}}
+@media print{body{padding:0!important;background:#fff}body > *:not(#printArea){display:none!important}#printArea{display:block!important}#printArea #receipt{width:72mm;max-width:72mm!important;margin:0!important;padding:0!important}#printArea[data-paper="58"] #receipt{width:48mm;max-width:48mm!important;font-size:11px!important}@page{margin:0}}
 </style>"""
 HEAD_OLD = re.search(r'<header class="top">.*?</header>', base, re.S).group(0)
 HEAD_NEW = """<div id="boot" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
